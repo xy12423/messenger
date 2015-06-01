@@ -44,6 +44,7 @@ std::string e0str;
 
 msgThread *threadMsgSend;
 fileThread *threadFileSend;
+pingThread *threadPing;
 
 int newPort()
 {
@@ -146,12 +147,18 @@ mainFrame::mainFrame(const wxString& title)
 		delete threadFileSend;
 		throw(std::runtime_error("Can't create fileThread"));
 	}
+	threadPing = new pingThread();
+	if (threadPing->Run() != wxTHREAD_NO_ERROR)
+	{
+		delete threadPing;
+		throw(std::runtime_error("Can't create fileThread"));
+	}
 }
 
 void mainFrame::listUser_SelectedIndexChanged(wxCommandEvent& event)
 {
 	std::list<int>::iterator itr = userIDs.begin();
-	for (int i = listUser->GetSelection(); i > 0; itr++)i--;
+	for (int i = listUser->GetSelection(); i > 0; i--)itr++;
 	int uID = *itr;
 	textMsg->SetValue(users[uID].log);
 	textMsg->ShowPosition(users[uID].log.size());
@@ -191,6 +198,7 @@ void mainFrame::buttonDel_Click(wxCommandEvent& event)
 		for (int i = selection; i > 0; itr++)i--;
 		user &usr = users[*itr];
 
+		onDelID = *itr;
 		std::mutex *lock = usr.lock;
 		lock->lock();
 		wxIPV4address localAddr;
@@ -203,6 +211,11 @@ void mainFrame::buttonDel_Click(wxCommandEvent& event)
 		userIDs.erase(itr);
 		listUser->Delete(selection);
 		lock->unlock();
+		for (int i = 0; i < 3; i++)
+		{
+			while (!lock->try_lock());
+			lock->unlock();
+		}
 		delete lock;
 	}
 }
@@ -722,6 +735,7 @@ void mainFrame::socketData_Notify(wxSocketEvent& event)
 				{
 					if (itr->second.con == con)
 					{
+						onDelID = itr->second.uID;
 						std::mutex *lock = itr->second.lock;
 						lock->lock();
 						wxIPV4address localAddr;
@@ -737,6 +751,11 @@ void mainFrame::socketData_Notify(wxSocketEvent& event)
 						userIDs.erase(itr2);
 						users.erase(itr);
 						lock->unlock();
+						for (int i = 0; i < 3; i++)
+						{
+							while (!lock->try_lock());
+							lock->unlock();
+						}
 						delete lock;
 						break;
 					}
@@ -784,8 +803,27 @@ int MyApp::OnExit()
 {
 	try
 	{
+		for (userList::iterator itr = users.begin(), itrEnd = users.end(); itr != itrEnd; itr++)
+		{
+			onDelID = itr->second.uID;
+			std::mutex *lock = itr->second.lock;
+			lock->lock();
+			user &usr = itr->second;
+			wxIPV4address localAddr;
+			usr.con->GetLocal(localAddr);
+			freePort(localAddr.Service());
+			usr.con->Destroy();
+			lock->unlock();
+			for (int i = 0; i < 3; i++)
+			{
+				while (!lock->try_lock());
+				lock->unlock();
+			}
+			delete lock;
+		}
 		threadMsgSend->Delete();
 		threadFileSend->Delete();
+		threadPing->Delete();
 	}
 	catch (...)
 	{

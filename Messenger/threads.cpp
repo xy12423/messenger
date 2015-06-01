@@ -6,6 +6,51 @@
 
 extern userList users;
 extern mainFrame *form;
+volatile int onDelID = -1;
+#define checkID if (onDelID == task.uID) continue
+#define checkIDT if (onDelID == task.uID) throw(0)
+#define checkIDP if (onDelID == usr.uID) continue
+#define checkIDPT if (onDelID == usr.uID) throw(0)
+
+pingThread::ExitCode pingThread::Entry()
+{
+	userList::iterator itr, itrEnd;
+	while (!TestDestroy())
+	{
+		itr = users.begin();
+		itrEnd = users.end();
+		for (; itr != itrEnd && (!TestDestroy()); itr++)
+		{
+			std::mutex *lock = NULL;
+			try
+			{
+				if (onDelID == itr->second.uID) continue;
+				user &usr = itr->second;
+				checkIDP;
+				lock = usr.lock;
+				lock->lock();
+				checkIDPT;
+				usr.con->Write("\0", 1);
+				lock->unlock();
+			}
+			catch (std::exception ex)
+			{
+				wxThreadEvent *newEvent = new wxThreadEvent;
+				newEvent->SetString(wxString(ex.what()) + "\n");
+				wxQueueEvent(form, newEvent);
+				if (lock != NULL)
+					lock->unlock();
+			}
+			catch (...)
+			{
+				if (lock != NULL)
+					lock->unlock();
+			}
+		}
+		wxSleep(1);
+	}
+	return NULL;
+}
 
 msgThread::ExitCode msgThread::Entry()
 {
@@ -15,16 +60,19 @@ msgThread::ExitCode msgThread::Entry()
 		try
 		{
 			msgTask task;
-			wxMessageQueueError err = taskQue.ReceiveTimeout(1, task);
+			wxMessageQueueError err = taskQue.ReceiveTimeout(100, task);
 			if (err != wxMSGQUEUE_NO_ERROR)
 				continue;
+			checkID;
 			std::unordered_map<int, user>::iterator itr = users.find(task.uID);
 			if (itr == users.end())
 				continue;
-
+			checkID;
 			user &usr = itr->second;
-			usr.lock->lock();
+			checkID;
 			lock = usr.lock;
+			lock->lock();
+			checkIDT;
 			std::string sendMsg;
 			encrypt(task.msg, sendMsg, usr.e1);
 			insLen(sendMsg);
@@ -37,6 +85,11 @@ msgThread::ExitCode msgThread::Entry()
 			wxThreadEvent *newEvent = new wxThreadEvent;
 			newEvent->SetString(wxString(ex.what()) + "\n");
 			wxQueueEvent(form, newEvent);
+			if (lock != NULL)
+				lock->unlock();
+		}
+		catch (...)
+		{
 			if (lock != NULL)
 				lock->unlock();
 		}
@@ -55,16 +108,20 @@ fileThread::ExitCode fileThread::Entry()
 		try
 		{
 			fileTask task;
-			wxMessageQueueError err = taskQue.ReceiveTimeout(1, task);
+			wxMessageQueueError err = taskQue.ReceiveTimeout(100, task);
 			if (err != wxMSGQUEUE_NO_ERROR)
 				continue;
+			checkID;
 			std::unordered_map<int, user>::iterator itr = users.find(task.uID);
 			if (itr == users.end())
 				continue;
+			checkID;
 
 			user &usr = itr->second;
-			usr.lock->lock();
+			checkID;
 			lock = usr.lock;
+			lock->lock();
+			checkIDT;
 
 			std::ifstream fin(task.path.string(), std::ios::in | std::ios::binary);
 			if (fin.is_open())
@@ -84,6 +141,7 @@ fileThread::ExitCode fileThread::Entry()
 					insLen(name);
 					head.append(name);
 
+					checkIDT;
 					usr.con->Write(head.c_str(), head.size());
 					wxThreadEvent *newEvent = new wxThreadEvent;
 					newEvent->SetString("Sending file " + fileName + " To " + usr.addr.IPAddress() + '\n');
@@ -100,6 +158,7 @@ fileThread::ExitCode fileThread::Entry()
 					encrypt(std::string(block, count), buf, itr->second.e1);
 					insLen(buf);
 					buf.insert(0, "\x03");
+					checkIDT;
 					usr.con->Write(buf.c_str(), buf.size());
 					wxThreadEvent *newEvent = new wxThreadEvent;
 					newEvent->SetString(fileName + ":Sended block " + num2str(blockCount) + " To " + usr.addr.IPAddress() + '\n');
@@ -117,9 +176,26 @@ fileThread::ExitCode fileThread::Entry()
 		}
 		catch (std::exception ex)
 		{
-			wxThreadEvent *newEvent = new wxThreadEvent(wxEVT_COMMAND_THREAD_MSG);
+			wxThreadEvent *newEvent = new wxThreadEvent;
 			newEvent->SetString(wxString(ex.what()) + "\n");
 			wxQueueEvent(form, newEvent);
+			if (lock != NULL)
+				lock->unlock();
+			if (block != NULL)
+				delete[] block;
+		}
+		catch (int)
+		{
+			wxThreadEvent *newEvent = new wxThreadEvent;
+			newEvent->SetString("Finished Sending (disconnected)\n");
+			wxQueueEvent(form, newEvent);
+			if (lock != NULL)
+				lock->unlock();
+			if (block != NULL)
+				delete[] block;
+		}
+		catch (...)
+		{
 			if (lock != NULL)
 				lock->unlock();
 			if (block != NULL)

@@ -37,4 +37,14 @@ protected:
 	ExitCode Entry();
 };
 
+class pingThread :public wxThread
+{
+public:
+	pingThread() : wxThread(wxTHREAD_DETACHED){};
+protected:
+	ExitCode Entry();
+};
+
+extern volatile int onDelID;
+
 #endif
