@@ -3,6 +3,14 @@
 #ifndef _H_THRD
 #define _H_THRD
 
+class pingThread :public wxThread
+{
+public:
+	pingThread() : wxThread(wxTHREAD_DETACHED){};
+protected:
+	ExitCode Entry();
+};
+
 struct msgTask
 {
 	msgTask(){ uID = -1; }
@@ -33,14 +41,6 @@ class fileThread :public wxThread
 public:
 	fileThread() : wxThread(wxTHREAD_DETACHED){};
 	wxMessageQueue<fileTask> taskQue;
-protected:
-	ExitCode Entry();
-};
-
-class pingThread :public wxThread
-{
-public:
-	pingThread() : wxThread(wxTHREAD_DETACHED){};
 protected:
 	ExitCode Entry();
 };

@@ -9,8 +9,8 @@ extern mainFrame *form;
 volatile int onDelID = -1;
 #define checkID if (onDelID == task.uID) continue
 #define checkIDT if (onDelID == task.uID) throw(0)
-#define checkIDP if (onDelID == usr.uID) continue
-#define checkIDPT if (onDelID == usr.uID) throw(0)
+#define checkIDP if (onDelID == uID) continue
+#define checkIDPT if (onDelID == uID) throw(0)
 
 pingThread::ExitCode pingThread::Entry()
 {
@@ -24,7 +24,8 @@ pingThread::ExitCode pingThread::Entry()
 			std::mutex *lock = NULL;
 			try
 			{
-				if (onDelID == itr->second.uID) continue;
+				int uID = itr->second.uID;
+				checkIDP;
 				user &usr = itr->second;
 				checkIDP;
 				lock = usr.lock;
@@ -97,7 +98,7 @@ msgThread::ExitCode msgThread::Entry()
 	return NULL;
 }
 
-const int fileBlockLen = 0x2000000;
+const int fileBlockLen = 0x40000;
 
 fileThread::ExitCode fileThread::Entry()
 {
@@ -204,4 +205,3 @@ fileThread::ExitCode fileThread::Entry()
 	}
 	return NULL;
 }
-

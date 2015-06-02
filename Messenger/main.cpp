@@ -25,8 +25,6 @@ EVT_THREAD(wxID_ANY, mainFrame::thread_Message)
 
 wxEND_EVENT_TABLE()
 
-wxDEFINE_EVENT(wxEVT_COMMAND_THREAD_MSG, wxThreadEvent);
-
 #ifdef __WXMSW__
 #define _GUI_SIZE_X 620
 #define _GUI_SIZE_Y 560

@@ -3,8 +3,6 @@
 #ifndef _H_MAIN
 #define _H_MAIN
 
-wxDECLARE_EVENT(wxEVT_COMMAND_THREAD_MSG, wxThreadEvent);
-
 #include "threads.h"
 
 class mainFrame : public wxFrame
