@@ -29,7 +29,8 @@ pingThread::ExitCode pingThread::Entry()
 				user &usr = itr->second;
 				checkIDP;
 				lock = usr.lock;
-				lock->lock();
+				if (!lock->try_lock())
+					continue;
 				checkIDPT;
 				usr.con->Write("\0", 1);
 				lock->unlock();
@@ -72,7 +73,8 @@ msgThread::ExitCode msgThread::Entry()
 			user &usr = itr->second;
 			checkID;
 			lock = usr.lock;
-			lock->lock();
+			if (!lock->try_lock())
+				continue;
 			checkIDT;
 			std::string sendMsg;
 			encrypt(task.msg, sendMsg, usr.e1);
@@ -121,7 +123,8 @@ fileThread::ExitCode fileThread::Entry()
 			user &usr = itr->second;
 			checkID;
 			lock = usr.lock;
-			lock->lock();
+			if (!lock->try_lock())
+				continue;
 			checkIDT;
 
 			std::ifstream fin(task.path.string(), std::ios::in | std::ios::binary);
