@@ -28,19 +28,28 @@ protected:
 	ExitCode Entry();
 };
 
-struct fileTask
+struct fileSendTask
 {
-	fileTask(){ uID = -1; }
-	fileTask(int _uID, const fs::path &_path){ uID = _uID; path = _path; }
+	fileSendTask(){ uID = -1; }
+	fileSendTask(int _uID, const fs::path &_path){ uID = _uID; path = _path; }
 	int uID;
 	fs::path path;
 };
 
-class fileThread :public wxThread
+class fileSendThread :public wxThread
 {
 public:
-	fileThread() : wxThread(wxTHREAD_DETACHED){};
-	wxMessageQueue<fileTask> taskQue;
+	fileSendThread() : wxThread(wxTHREAD_DETACHED){};
+	wxMessageQueue<fileSendTask> taskQue;
+protected:
+	ExitCode Entry();
+};
+
+class recvThread :public wxThread
+{
+public:
+	recvThread() : wxThread(wxTHREAD_DETACHED){};
+	wxMessageQueue<int> taskQue;
 protected:
 	ExitCode Entry();
 };
