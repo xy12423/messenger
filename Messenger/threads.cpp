@@ -74,7 +74,10 @@ msgThread::ExitCode msgThread::Entry()
 			checkID;
 			lock = usr.lock;
 			if (!lock->try_lock())
+			{
+				taskQue.Post(task);
 				continue;
+			}
 			checkIDT;
 			std::string sendMsg;
 			encrypt(task.msg, sendMsg, usr.e1);
@@ -124,7 +127,10 @@ fileThread::ExitCode fileThread::Entry()
 			checkID;
 			lock = usr.lock;
 			if (!lock->try_lock())
+			{
+				taskQue.Post(task);
 				continue;
+			}
 			checkIDT;
 
 			std::ifstream fin(task.path.string(), std::ios::in | std::ios::binary);
