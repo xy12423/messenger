@@ -105,7 +105,7 @@ msgThread::ExitCode msgThread::Entry()
 	return NULL;
 }
 
-const int fileBlockLen = 0x40000;
+const int fileBlockLen = 0x200000;
 
 fileSendThread::ExitCode fileSendThread::Entry()
 {
@@ -222,6 +222,8 @@ fileSendThread::ExitCode fileSendThread::Entry()
 	return NULL;
 }
 
+#define checkErr if (con->Error()) throw(con->LastError())
+
 recvThread::ExitCode recvThread::Entry()
 {
 	while (!TestDestroy())
@@ -255,12 +257,17 @@ recvThread::ExitCode recvThread::Entry()
 			{
 				case 1:
 				{
+					long timeout = con->GetTimeout();
+					con->SetTimeout(5);
+
 					unsigned int sizeRecvLE;
 					con->Read(&sizeRecvLE, sizeof(unsigned int) / sizeof(char));
+					checkErr;
 					unsigned int sizeRecv = wxUINT32_SWAP_ON_BE(static_cast<unsigned int>(sizeRecvLE));
 
 					char *buf = new char[sizeRecv];
 					con->Read(buf, sizeRecv);
+					checkErr;
 					std::string str(buf, sizeRecv);
 					delete[] buf;
 					std::string ret;
@@ -271,19 +278,26 @@ recvThread::ExitCode recvThread::Entry()
 					newEvent->SetString(usr.addr.IPAddress() + ':' + wxConvUTF8.cMB2WC(ret.c_str()) + '\n');
 					wxQueueEvent(form, newEvent);
 
+					con->SetTimeout(timeout);
 					break;
 				}
 				case 2:
 				{
+					long timeout = con->GetTimeout();
+					con->SetTimeout(5);
+
 					unsigned int recvLE;
 					con->Read(&recvLE, sizeof(unsigned int) / sizeof(char));
+					checkErr;
 					unsigned int blockCount = wxUINT32_SWAP_ON_BE(static_cast<unsigned int>(recvLE));
 
 					con->Read(&recvLE, sizeof(unsigned int) / sizeof(char));
+					checkErr;
 					unsigned int fNameLen = wxUINT32_SWAP_ON_BE(static_cast<unsigned int>(recvLE));
 
 					char *buf = new char[fNameLen];
 					con->Read(buf, fNameLen);
+					checkErr;
 					std::wstring fName;
 					{
 						size_t tmp;
@@ -311,16 +325,22 @@ recvThread::ExitCode recvThread::Entry()
 					newEvent->SetString("Receiving file " + fName + " from " + usr.addr.IPAddress() + "\n");
 					wxQueueEvent(form, newEvent);
 
+					con->SetTimeout(timeout);
 					break;
 				}
 				case 3:
 				{
+					long timeout = con->GetTimeout();
+					con->SetTimeout(60);
+
 					unsigned int recvLE;
 					con->Read(&recvLE, sizeof(unsigned int) / sizeof(char));
+					checkErr;
 					unsigned int recvLen = wxUINT32_SWAP_ON_BE(static_cast<unsigned int>(recvLE));
 
 					char *buf = new char[recvLen];
 					con->Read(buf, recvLen);
+					checkErr;
 					std::string data;
 					decrypt(std::string(buf, recvLen), data);
 					delete[] buf;
@@ -339,6 +359,7 @@ recvThread::ExitCode recvThread::Entry()
 							usr.recvFile.clear();
 					}
 
+					con->SetTimeout(timeout);
 					break;
 				}
 			}
@@ -350,6 +371,45 @@ recvThread::ExitCode recvThread::Entry()
 			wxThreadEvent *newEvent = new wxThreadEvent;
 			newEvent->SetInt(-1);
 			newEvent->SetString(wxString(ex.what()) + "\n");
+			wxQueueEvent(form, newEvent);
+			if (lock != NULL)
+				lock->unlock();
+		}
+		catch (wxSocketError err)
+		{
+			std::string errStr;
+			switch (err)
+			{
+				case wxSOCKET_INVOP:
+					errStr = "Socket:Invalid operation";
+					break;
+				case wxSOCKET_IOERR:
+					errStr = "Socket:IO error";
+					break;
+				case wxSOCKET_INVSOCK:
+					errStr = "Socket:Invalid socket";
+					break;
+				case wxSOCKET_NOHOST:
+					errStr = "Socket:No corresponding host";
+					break;
+				case wxSOCKET_TIMEDOUT:
+					errStr = "Socket:Operation timed out";
+					break;
+				case wxSOCKET_INVADDR:
+					errStr = "Socket:Invalid address";
+					break;
+				case wxSOCKET_INVPORT:
+					errStr = "Socket:Invalid port";
+					break;
+				case wxSOCKET_MEMERR:
+					errStr = "Socket:Memory exhausted";
+					break;
+				default:
+					errStr = "Socket:Error";
+			}
+			wxThreadEvent *newEvent = new wxThreadEvent;
+			newEvent->SetInt(-1);
+			newEvent->SetString(errStr + "\n");
 			wxQueueEvent(form, newEvent);
 			if (lock != NULL)
 				lock->unlock();
