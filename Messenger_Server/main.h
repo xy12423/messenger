@@ -12,18 +12,21 @@ public:
 	user(server *_srv, net::ip::tcp::socket _socket)
 		: socket(std::move(_socket))
 	{
-		lock = NULL; blockLast = -1; srv = _srv;
+		lock = NULL; blockLast = -1; srv = _srv; msg_len = 0;
+		read_msg = new char[msg_size];
 	}
 
 	void start();
 	void send(const std::string& msg);
 
 private:
-	void stage1();
 	void stage2();
 	void read_header();
 	void read_message_header();
-	void read_body(size_t size);
+	void read_file_header();
+	void read_fileblock_header();
+	void read_message(size_t size);
+	void read_fileblock();
 	void write();
 
 	int uID;
@@ -35,7 +38,9 @@ private:
 	std::string recvFile;
 	int blockLast;
 
-	std::string read_msg;
+	char *read_msg;
+	const int msg_size = 0x4000;
+	size_t msg_len;
 	chat_message_queue write_msgs;
 
 	server *srv;
@@ -52,11 +57,15 @@ public:
 	{
 		accept();
 	}
+
+	void send(std::shared_ptr<user> from, const std::string& msg);
+	void leave(std::shared_ptr<user> _user);
 private:
 	void accept();
-	void leave();
+	void stage1();
 
 	net::ip::tcp::acceptor acceptor;
+	net::ip::tcp::endpoint ep;
 	net::ip::tcp::socket socket;
 
 	userList users;
