@@ -11,15 +11,20 @@
 #include <string>
 #include <list>
 #include <vector>
+#include <deque>
 #include <set>
 #include <map>
 #include <unordered_set>
 #include <unordered_map>
 #include <algorithm>
 #include <mutex>
+#include <memory>
+#include <utility>
 
 #include <boost/filesystem.hpp>
 #include <boost/asio.hpp>
+#include <boost/bind.hpp>
+#include <boost/smart_ptr.hpp>
 namespace fs = boost::filesystem;
 namespace net = boost::asio;
 
