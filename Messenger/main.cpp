@@ -40,10 +40,9 @@ std::list<int> userIDs;
 std::list<int> ports;
 std::string e0str;
 
-pingThread *threadPing;
 msgThread *threadMsgSend;
-fileSendThread *threadFileSend;
-recvThread *threadRecv;
+fileThread *threadFileSend;
+pingThread *threadPing;
 
 int newPort()
 {
@@ -134,29 +133,23 @@ mainFrame::mainFrame(const wxString& title)
 	socketListener->SetNotify(wxSOCKET_CONNECTION_FLAG | wxSOCKET_LOST_FLAG);
 	socketListener->Notify(true);
 
-	threadPing = new pingThread();
-	if (threadPing->Run() != wxTHREAD_NO_ERROR)
-	{
-		delete threadPing;
-		throw(std::runtime_error("Can't create fileThread"));
-	}
 	threadMsgSend = new msgThread();
 	if (threadMsgSend->Run() != wxTHREAD_NO_ERROR)
 	{
 		delete threadMsgSend;
 		throw(std::runtime_error("Can't create msgThread"));
 	}
-	threadFileSend = new fileSendThread();
+	threadFileSend = new fileThread();
 	if (threadFileSend->Run() != wxTHREAD_NO_ERROR)
 	{
 		delete threadFileSend;
-		throw(std::runtime_error("Can't create fileSendThread"));
+		throw(std::runtime_error("Can't create fileThread"));
 	}
-	threadRecv = new recvThread();
-	if (threadRecv->Run() != wxTHREAD_NO_ERROR)
+	threadPing = new pingThread();
+	if (threadPing->Run() != wxTHREAD_NO_ERROR)
 	{
-		delete threadRecv;
-		throw(std::runtime_error("Can't create recvThread"));
+		delete threadPing;
+		throw(std::runtime_error("Can't create fileThread"));
 	}
 }
 
@@ -257,7 +250,7 @@ void mainFrame::buttonSendFile_Click(wxCommandEvent& event)
 			std::list<int>::iterator itr = userIDs.begin();
 			for (int i = listUser->GetSelection(); i > 0; itr++)i--;
 			int uID = *itr;
-			threadFileSend->taskQue.Post(fileSendTask(uID, fs::path(path)));
+			threadFileSend->taskQue.Post(fileTask(uID, fs::path(path)));
 		}
 	}
 }
@@ -611,12 +604,124 @@ void mainFrame::socketData_Notify(wxSocketEvent& event)
 		{
 			case wxSOCKET_INPUT:
 			{
-				userList::iterator itr = users.begin(), itrEnd = users.end();
-				for (; itr != itrEnd; itr++)
+				byte type;
+				con->Read(&type, sizeof(byte));
+				switch (type)
 				{
-					if (itr->second.con == con)
+					case 1:
 					{
-						threadRecv->taskQue.Post(itr->first);
+						unsigned int sizeRecvLE;
+						con->Read(&sizeRecvLE, sizeof(unsigned int) / sizeof(char));
+						unsigned int sizeRecv = wxUINT32_SWAP_ON_BE(static_cast<unsigned int>(sizeRecvLE));
+
+						char *buf = new char[sizeRecv];
+						con->Read(buf, sizeRecv);
+						std::string str(buf, sizeRecv);
+						delete[] buf;
+
+						std::string ret;
+						userList::iterator itr = users.begin(), itrEnd = users.end();
+						for (; itr != itrEnd; itr++)
+						{
+							if (itr->second.con == con)
+							{
+								decrypt(str, ret);
+								break;
+							}
+						}
+						if (itr != itrEnd)
+						{
+							wxString msg = itr->second.addr.IPAddress() + ':' + wxConvUTF8.cMB2WC(ret.c_str()) + '\n';
+							itr->second.log.append(msg);
+							if (listUser->GetSelection() != -1)
+							{
+								std::list<int>::iterator itr2 = userIDs.begin();
+								for (int i = listUser->GetSelection(); i > 0; itr2++)i--;
+								if (itr->first == *itr2)
+									textMsg->AppendText(msg);
+								else
+									textInfo->AppendText("Received message from " + itr->second.addr.IPAddress() + "\n");
+							}
+						}
+
+						break;
+					}
+					case 2:
+					{
+						unsigned int recvLE;
+						con->Read(&recvLE, sizeof(unsigned int) / sizeof(char));
+						unsigned int blockCount = wxUINT32_SWAP_ON_BE(static_cast<unsigned int>(recvLE));
+
+						con->Read(&recvLE, sizeof(unsigned int) / sizeof(char));
+						unsigned int fNameLen = wxUINT32_SWAP_ON_BE(static_cast<unsigned int>(recvLE));
+
+						char *buf = new char[fNameLen];
+						con->Read(buf, fNameLen);
+						std::wstring fName;
+						{
+							size_t tmp;
+							wxWCharBuffer wbuf = wxConvUTF8.cMB2WC(buf, fNameLen, &tmp);
+							fName = std::wstring(wbuf, tmp);
+						}
+						delete[] buf;
+
+						userList::iterator itr = users.begin(), itrEnd = users.end();
+						for (; itr != itrEnd; itr++)
+							if (itr->second.con == con)
+								break;
+						if (itr != itrEnd)
+						{
+							if (fs::exists(fName))
+							{
+								int i;
+								for (i = 0; i < INT_MAX; i++)
+								{
+									if (!fs::exists(fs::path(fName + "_" + num2str(i))))
+										break;
+								}
+								if (i == INT_MAX)
+									throw(std::runtime_error("Failed to open file"));
+								fName = fName + "_" + num2str(i);
+							}
+							user &usr = itr->second;
+							usr.recvFile = wxConvLocal.cWC2MB(fName.c_str());
+							usr.blockLast = blockCount;
+							textInfo->AppendText("Receiving file " + fName + " from " + usr.addr.IPAddress() + "\n");
+						}
+
+						break;
+					}
+					case 3:
+					{
+						unsigned int recvLE;
+						con->Read(&recvLE, sizeof(unsigned int) / sizeof(char));
+						unsigned int recvLen = wxUINT32_SWAP_ON_BE(static_cast<unsigned int>(recvLE));
+
+						char *buf = new char[recvLen];
+						con->Read(buf, recvLen);
+						std::string data;
+						decrypt(std::string(buf, recvLen), data);
+						delete[] buf;
+
+						userList::iterator itr = users.begin(), itrEnd = users.end();
+						for (; itr != itrEnd; itr++)
+							if (itr->second.con == con)
+								break;
+						if (itr != itrEnd)
+						{
+							user &usr = itr->second;
+							if (usr.blockLast > 0)
+							{
+								std::ofstream fout(usr.recvFile, std::ios::out | std::ios::binary | std::ios::app);
+								fout.write(data.c_str(), data.size());
+								fout.close();
+								usr.blockLast--;
+								(*textInfo) << usr.recvFile << ":" << usr.blockLast << " block(s) last" << '\n';
+								if (usr.blockLast == 0)
+									usr.recvFile.clear();
+							}
+						}
+
 						break;
 					}
 				}
@@ -665,26 +770,7 @@ void mainFrame::socketData_Notify(wxSocketEvent& event)
 
 void mainFrame::thread_Message(wxThreadEvent& event)
 {
-	int uID = event.GetInt();
-	if (uID == -1)
-		textInfo->AppendText(event.GetString());
-	else
-	{
-		user &usr = users[uID];
-		wxString msg = event.GetString();
-		usr.log.append(msg);
-		if (listUser->GetSelection() != -1)
-		{
-			std::list<int>::iterator itr2 = userIDs.begin();
-			for (int i = listUser->GetSelection(); i > 0; itr2++)i--;
-			if (uID == *itr2)
-				textMsg->AppendText(msg);
-			else
-				textInfo->AppendText("Received message from " + usr.addr.IPAddress() + "\n");
-		}
-		else
-			textInfo->AppendText("Received message from " + usr.addr.IPAddress() + "\n");
-	}
+	textInfo->AppendText(event.GetString());
 }
 
 IMPLEMENT_APP(MyApp)

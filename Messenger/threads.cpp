@@ -38,7 +38,6 @@ pingThread::ExitCode pingThread::Entry()
 			catch (std::exception ex)
 			{
 				wxThreadEvent *newEvent = new wxThreadEvent;
-				newEvent->SetInt(-1);
 				newEvent->SetString(wxString(ex.what()) + "\n");
 				wxQueueEvent(form, newEvent);
 				if (lock != NULL)
@@ -90,7 +89,6 @@ msgThread::ExitCode msgThread::Entry()
 		catch (std::exception ex)
 		{
 			wxThreadEvent *newEvent = new wxThreadEvent;
-			newEvent->SetInt(-1);
 			newEvent->SetString(wxString(ex.what()) + "\n");
 			wxQueueEvent(form, newEvent);
 			if (lock != NULL)
@@ -107,7 +105,7 @@ msgThread::ExitCode msgThread::Entry()
 
 const int fileBlockLen = 0x40000;
 
-fileSendThread::ExitCode fileSendThread::Entry()
+fileThread::ExitCode fileThread::Entry()
 {
 	while (!TestDestroy())
 	{
@@ -115,7 +113,7 @@ fileSendThread::ExitCode fileSendThread::Entry()
 		char *block = NULL;
 		try
 		{
-			fileSendTask task;
+			fileTask task;
 			wxMessageQueueError err = taskQue.ReceiveTimeout(100, task);
 			if (err != wxMSGQUEUE_NO_ERROR)
 				continue;
@@ -156,7 +154,6 @@ fileSendThread::ExitCode fileSendThread::Entry()
 					checkIDT;
 					usr.con->Write(head.c_str(), head.size());
 					wxThreadEvent *newEvent = new wxThreadEvent;
-					newEvent->SetInt(-1);
 					newEvent->SetString("Sending file " + fileName + " To " + usr.addr.IPAddress() + '\n');
 					wxQueueEvent(form, newEvent);
 				}
@@ -174,14 +171,12 @@ fileSendThread::ExitCode fileSendThread::Entry()
 					checkIDT;
 					usr.con->Write(buf.c_str(), buf.size());
 					wxThreadEvent *newEvent = new wxThreadEvent;
-					newEvent->SetInt(-1);
 					newEvent->SetString(fileName + ":Sended block " + num2str(blockCount) + " To " + usr.addr.IPAddress() + '\n');
 					wxQueueEvent(form, newEvent);
 					blockCount++;
 				}
 
 				wxThreadEvent *newEvent = new wxThreadEvent;
-				newEvent->SetInt(-1);
 				newEvent->SetString("Finished Sending\n");
 				wxQueueEvent(form, newEvent);
 				fin.close();
@@ -192,7 +187,6 @@ fileSendThread::ExitCode fileSendThread::Entry()
 		catch (std::exception ex)
 		{
 			wxThreadEvent *newEvent = new wxThreadEvent;
-			newEvent->SetInt(-1);
 			newEvent->SetString(wxString(ex.what()) + "\n");
 			wxQueueEvent(form, newEvent);
 			if (lock != NULL)
@@ -203,7 +197,6 @@ fileSendThread::ExitCode fileSendThread::Entry()
 		catch (int)
 		{
 			wxThreadEvent *newEvent = new wxThreadEvent;
-			newEvent->SetInt(-1);
 			newEvent->SetString("Finished Sending (disconnected)\n");
 			wxQueueEvent(form, newEvent);
 			if (lock != NULL)
@@ -217,147 +210,6 @@ fileSendThread::ExitCode fileSendThread::Entry()
 				lock->unlock();
 			if (block != NULL)
 				delete[] block;
-		}
-	}
-	return NULL;
-}
-
-recvThread::ExitCode recvThread::Entry()
-{
-	while (!TestDestroy())
-	{
-		std::mutex *lock = NULL;
-		try
-		{
-			int uID;
-			wxMessageQueueError err = taskQue.ReceiveTimeout(100, uID);
-			if (err != wxMSGQUEUE_NO_ERROR)
-				continue;
-			checkIDP;
-			std::unordered_map<int, user>::iterator itr = users.find(uID);
-			if (itr == users.end())
-				continue;
-			checkIDP;
-			user &usr = itr->second;
-			checkIDP;
-			lock = usr.lock;
-			if (!lock->try_lock())
-			{
-				taskQue.Post(uID);
-				continue;
-			}
-			checkIDPT;
-			
-			wxSocketBase *con = usr.con;
-			byte type;
-			con->Read(&type, sizeof(byte));
-			switch (type)
-			{
-				case 1:
-				{
-					unsigned int sizeRecvLE;
-					con->Read(&sizeRecvLE, sizeof(unsigned int) / sizeof(char));
-					unsigned int sizeRecv = wxUINT32_SWAP_ON_BE(static_cast<unsigned int>(sizeRecvLE));
-
-					char *buf = new char[sizeRecv];
-					con->Read(buf, sizeRecv);
-					std::string str(buf, sizeRecv);
-					delete[] buf;
-					std::string ret;
-					decrypt(str, ret);
-
-					wxThreadEvent *newEvent = new wxThreadEvent;
-					newEvent->SetInt(uID);
-					newEvent->SetString(usr.addr.IPAddress() + ':' + wxConvUTF8.cMB2WC(ret.c_str()) + '\n');
-					wxQueueEvent(form, newEvent);
-
-					break;
-				}
-				case 2:
-				{
-					unsigned int recvLE;
-					con->Read(&recvLE, sizeof(unsigned int) / sizeof(char));
-					unsigned int blockCount = wxUINT32_SWAP_ON_BE(static_cast<unsigned int>(recvLE));
-
-					con->Read(&recvLE, sizeof(unsigned int) / sizeof(char));
-					unsigned int fNameLen = wxUINT32_SWAP_ON_BE(static_cast<unsigned int>(recvLE));
-
-					char *buf = new char[fNameLen];
-					con->Read(buf, fNameLen);
-					std::wstring fName;
-					{
-						size_t tmp;
-						wxWCharBuffer wbuf = wxConvUTF8.cMB2WC(buf, fNameLen, &tmp);
-						fName = std::wstring(wbuf, tmp);
-					}
-					delete[] buf;
-
-					if (fs::exists(fName))
-					{
-						int i;
-						for (i = 0; i < INT_MAX; i++)
-						{
-							if (!fs::exists(fs::path(fName + "_" + num2str(i))))
-								break;
-						}
-						if (i == INT_MAX)
-							throw(std::runtime_error("Failed to open file"));
-						fName = fName + "_" + num2str(i);
-					}
-					usr.recvFile = wxConvLocal.cWC2MB(fName.c_str());
-					usr.blockLast = blockCount;
-					wxThreadEvent *newEvent = new wxThreadEvent;
-					newEvent->SetInt(-1);
-					newEvent->SetString("Receiving file " + fName + " from " + usr.addr.IPAddress() + "\n");
-					wxQueueEvent(form, newEvent);
-
-					break;
-				}
-				case 3:
-				{
-					unsigned int recvLE;
-					con->Read(&recvLE, sizeof(unsigned int) / sizeof(char));
-					unsigned int recvLen = wxUINT32_SWAP_ON_BE(static_cast<unsigned int>(recvLE));
-
-					char *buf = new char[recvLen];
-					con->Read(buf, recvLen);
-					std::string data;
-					decrypt(std::string(buf, recvLen), data);
-					delete[] buf;
-
-					if (usr.blockLast > 0)
-					{
-						std::ofstream fout(usr.recvFile, std::ios::out | std::ios::binary | std::ios::app);
-						fout.write(data.c_str(), data.size());
-						fout.close();
-						usr.blockLast--;
-						wxThreadEvent *newEvent = new wxThreadEvent;
-						newEvent->SetInt(-1);
-						newEvent->SetString(usr.recvFile + ":" + num2str(usr.blockLast) + " block(s) last\n");
-						wxQueueEvent(form, newEvent);
-						if (usr.blockLast == 0)
-							usr.recvFile.clear();
-					}
-
-					break;
-				}
-			}
-
-			lock->unlock();
-		}
-		catch (std::exception ex)
-		{
-			wxThreadEvent *newEvent = new wxThreadEvent;
-			newEvent->SetInt(-1);
-			newEvent->SetString(wxString(ex.what()) + "\n");
-			wxQueueEvent(form, newEvent);
-			if (lock != NULL)
-				lock->unlock();
-		}
-		catch (...)
-		{
-			if (lock != NULL)
-				lock->unlock();
 		}
 	}
 	return NULL;
