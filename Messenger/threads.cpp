@@ -103,7 +103,7 @@ msgThread::ExitCode msgThread::Entry()
 	return NULL;
 }
 
-const int fileBlockLen = 0x40000;
+const int fileBlockLen = 0x100000;
 
 fileThread::ExitCode fileThread::Entry()
 {
@@ -174,6 +174,7 @@ fileThread::ExitCode fileThread::Entry()
 					newEvent->SetString(fileName + ":Sended block " + num2str(blockCount) + " To " + usr.addr.IPAddress() + '\n');
 					wxQueueEvent(form, newEvent);
 					blockCount++;
+					wxMilliSleep(10);
 				}
 
 				wxThreadEvent *newEvent = new wxThreadEvent;
