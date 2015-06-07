@@ -5,11 +5,10 @@
 
 struct user
 {
-	user(){ lock = NULL; blockLast = -1; }
+	user(){ blockLast = -1; }
 	int uID;
 	wxIPV4address addr;
 	wxSocketBase *con;
-	std::mutex *lock;
 	CryptoPP::ECIES<CryptoPP::ECP>::Encryptor e1;
 
 	wxString log;
