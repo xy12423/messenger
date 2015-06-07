@@ -42,34 +42,42 @@ public:
 	session(server *_srv, const socket_ptr &_socket)
 		: socket(_socket)
 	{
-		lock = NULL; blockLast = -1; srv = _srv; msg_len = 0;
+		blockLast = -1; srv = _srv;
 		read_msg_buffer = new char[msg_buffer_size];
 	}
 
-	void start();
-	void send(const std::string& msg);
+	~session()
+	{
+		socket->close();
+	}
 
+	void start();
+	void send_message(const std::string& msg);
+	void send_fileheader(const std::string& data);
+	void send_fileblock(const std::string& block);
+	std::string get_address(){ return socket->remote_endpoint().address().to_string(); }
+
+	friend class pre_session;
 private:
 	void read_header();
 	void read_message_header();
-	void read_file_header();
+	void read_fileheader_header();
 	void read_fileblock_header();
-	void read_message(size_t size);
-	void read_fileblock();
+	void read_message(size_t size, std::string *read_msg);
+	void read_fileheader(size_t size, std::string *read_msg);
+	void read_fileblock(size_t size, std::string *read_msg);
 	void write();
 
-	int uID;
-	net::ip::address addr;
+	void process_message();
+
 	socket_ptr socket;
-	std::mutex *lock;
 	CryptoPP::ECIES<CryptoPP::ECP>::Encryptor e1;
 
 	std::string recvFile;
 	int blockLast;
 
 	char *read_msg_buffer;
-	const int msg_buffer_size = 0x4000;
-	size_t msg_len;
+	const size_t msg_buffer_size = 0x4000;
 	chat_message_queue write_msgs;
 
 	server *srv;
@@ -87,10 +95,12 @@ public:
 		start();
 	}
 
-	void send(std::shared_ptr<session> from, const std::string& msg);
+	void send_message(std::shared_ptr<session> from, const std::string& msg);
+	void send_fileheader(std::shared_ptr<session> from, const std::string& data);
+	void send_fileblock(std::shared_ptr<session> from, const std::string& block);
 	void pre_session_over(std::shared_ptr<pre_session> _pre){ pre_sessions.erase(_pre); }
-	void join(std::shared_ptr<session> _user){ users.emplace(_user); }
-	void leave(std::shared_ptr<session> _user){ users.erase(_user); };
+	void join(std::shared_ptr<session> _user){ std::cout << "New user " << _user->get_address() << std::endl; users.emplace(_user); }
+	void leave(std::shared_ptr<session> _user){ std::cout << "Delete user " << _user->get_address() << std::endl; users.erase(_user); };
 private:
 	void start();
 	void accept(boost::system::error_code ec);

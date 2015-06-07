@@ -29,8 +29,8 @@ void server::start()
 {
 	accepting = std::make_shared<net::ip::tcp::socket>(io_service);
 	acceptor.async_accept(*accepting,
-		[this](boost::system::error_code ec){ 
-		accept(ec); 
+		[this](boost::system::error_code ec){
+		accept(ec);
 	}
 	);
 }
@@ -66,23 +66,41 @@ void server::accept(error_code ec)
 	start();
 }
 
-void server::send(std::shared_ptr<session> from, const std::string& msg)
+void server::send_message(std::shared_ptr<session> from, const std::string& msg)
 {
 	userList::iterator itr = users.begin(), itrEnd = users.end();
 	for (; itr != itrEnd; itr++)
 		if (*itr != from)
-		(*itr)->send(msg);
+			(*itr)->send_message(msg);
+}
+
+void server::send_fileheader(std::shared_ptr<session> from, const std::string& data)
+{
+	userList::iterator itr = users.begin(), itrEnd = users.end();
+	for (; itr != itrEnd; itr++)
+		if (*itr != from)
+			(*itr)->send_fileheader(data);
+}
+
+void server::send_fileblock(std::shared_ptr<session> from, const std::string& block)
+{
+	userList::iterator itr = users.begin(), itrEnd = users.end();
+	for (; itr != itrEnd; itr++)
+		if (*itr != from)
+			(*itr)->send_fileblock(block);
 }
 
 int main()
 {
+#ifdef NDEBUG
 	try
 	{
+#endif
 		boost::asio::io_service io_service;
 
 		for (int i = 5001; i <= 10000; i++)
 			ports.push_back(i);
-		std::srand(std::time(NULL));
+		std::srand(static_cast<unsigned int>(std::time(NULL)));
 
 		e0str = getPublicKey();
 		unsigned short e0len = static_cast<unsigned short>(e0str.size());
@@ -90,11 +108,12 @@ int main()
 
 		server server(io_service, net::ip::tcp::endpoint(net::ip::tcp::v4(), portListener));
 		io_service.run();
+#ifdef NDEBUG
 	}
 	catch (std::exception& e)
 	{
 		std::cerr << "Exception: " << e.what() << "\n";
 	}
-
+#endif
 	return 0;
 }
