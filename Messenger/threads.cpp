@@ -10,6 +10,7 @@ extern sendThread *threadSend;
 volatile int onDelID = -1;
 #define checkID if (onDelID == task.uID) continue
 #define checkIDP if (onDelID == uID) continue
+#define checkIDT if (onDelID == task.uID) throw(0)
 
 pingThread::ExitCode pingThread::Entry()
 {
@@ -105,8 +106,8 @@ msgSendThread::ExitCode msgSendThread::Entry()
 				continue;
 			checkID;
 			user &usr = itr->second;
-			checkID;
 			std::string sendMsg;
+			checkID;
 			encrypt(task.msg, sendMsg, usr.e1);
 			insLen(sendMsg);
 			sendMsg.insert(0, "\x01");
@@ -166,7 +167,7 @@ fileSendThread::ExitCode fileSendThread::Entry()
 					insLen(name);
 					head.append(name);
 
-					checkID;
+					checkIDT;
 					threadSend->taskQue.Post(sendTask(task.uID, head, "Sending file " + fileName + " To " + usr.addr.IPAddress() + '\n'));
 				}
 
@@ -177,12 +178,11 @@ fileSendThread::ExitCode fileSendThread::Entry()
 				{
 					fin.read(block, fileBlockLen);
 					std::streamsize count = fin.gcount();
-					encrypt(std::string(block, count), buf, itr->second.e1);
+					checkIDT;
+					encrypt(std::string(block, count), buf, usr.e1);
 					insLen(buf);
 					buf.insert(0, "\x03");
-					checkID;
-					if (!usr.con->WaitForWrite(1))
-						throw(0);
+					checkIDT;
 					threadSend->taskQue.Post(sendTask(task.uID, buf, fileName + ":Sended block " + num2str(blockCount) + " To " + usr.addr.IPAddress() + '\n'));
 					blockCount++;
 				}
@@ -401,6 +401,13 @@ recvThread::ExitCode recvThread::Entry()
 			wxThreadEvent *newEvent = new wxThreadEvent;
 			newEvent->SetInt(-1);
 			newEvent->SetString(errStr + "\n");
+			wxQueueEvent(form, newEvent);
+		}
+		catch (int)
+		{
+			wxThreadEvent *newEvent = new wxThreadEvent;
+			newEvent->SetInt(-1);
+			newEvent->SetString("Disconnected while receiving\n");
 			wxQueueEvent(form, newEvent);
 		}
 		catch (...)
