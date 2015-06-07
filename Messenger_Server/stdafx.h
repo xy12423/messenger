@@ -24,7 +24,6 @@
 #include <boost/filesystem.hpp>
 #include <boost/asio.hpp>
 #include <boost/bind.hpp>
-#include <boost/smart_ptr.hpp>
 namespace fs = boost::filesystem;
 namespace net = boost::asio;
 

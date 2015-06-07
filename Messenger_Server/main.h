@@ -6,10 +6,32 @@
 class server;
 typedef std::deque<std::string> chat_message_queue;
 
-class user : public std::enable_shared_from_this<user>
+class pre_session : public std::enable_shared_from_this < pre_session >
 {
 public:
-	user(server *_srv, net::ip::tcp::socket _socket)
+	pre_session(boost::asio::io_service& io_service,
+		const net::ip::tcp::endpoint& endpoint, server *_srv)
+		: io_service(io_service),
+		acceptor(io_service, endpoint)
+	{
+		srv = _srv;
+		start();
+	}
+
+	void start();
+private:
+	void stage2(boost::shared_ptr<net::ip::tcp::socket> socket, error_code ec);
+
+	boost::asio::io_service &io_service;
+	net::ip::tcp::acceptor acceptor;
+
+	server *srv;
+};
+
+class session : public std::enable_shared_from_this<session>
+{
+public:
+	session(server *_srv, net::ip::tcp::socket _socket)
 		: socket(std::move(_socket))
 	{
 		lock = NULL; blockLast = -1; srv = _srv; msg_len = 0;
@@ -20,7 +42,6 @@ public:
 	void send(const std::string& msg);
 
 private:
-	void stage2();
 	void read_header();
 	void read_message_header();
 	void read_file_header();
@@ -45,30 +66,31 @@ private:
 
 	server *srv;
 };
-typedef std::unordered_set<std::shared_ptr<user>> userList;
+typedef std::unordered_set<std::shared_ptr<session>> userList;
 
 class server
 {
 public:
 	server(boost::asio::io_service& io_service,
 		const net::ip::tcp::endpoint& endpoint)
-		: acceptor(io_service, endpoint),
-		socket(io_service)
+		: io_service(io_service),
+		acceptor(io_service, endpoint)
 	{
-		accept();
+		start();
 	}
 
-	void send(std::shared_ptr<user> from, const std::string& msg);
-	void leave(std::shared_ptr<user> _user);
+	void send(std::shared_ptr<session> from, const std::string& msg);
+	void leave(std::shared_ptr<session> _user);
 private:
-	void accept();
+	void start();
+	void accept(boost::shared_ptr<net::ip::tcp::socket> socket, error_code ec);
 	void stage1();
 
+	boost::asio::io_service &io_service;
 	net::ip::tcp::acceptor acceptor;
-	net::ip::tcp::endpoint ep;
-	net::ip::tcp::socket socket;
 
 	userList users;
+	std::unordered_set<std::shared_ptr<pre_session>> pre_sessions;
 	int nextID = 0;
 };
 

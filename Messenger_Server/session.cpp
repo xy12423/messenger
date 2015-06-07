@@ -8,12 +8,23 @@ using boost::system::error_code;
 extern std::list<int> ports;
 std::string e0str;
 
-void user::start()
+void pre_session::start()
 {
-	stage2();
+	boost::shared_ptr<net::ip::tcp::socket> socket(new net::ip::tcp::socket(io_service));
+	acceptor.async_accept(*socket, boost::bind(&pre_session::stage2, this, socket, _1));
 }
 
-void user::send(const std::string& msg)
+void pre_session::stage2(boost::shared_ptr<net::ip::tcp::socket> socket, error_code ec)
+{
+	
+}
+
+void session::start()
+{
+	read_header();
+}
+
+void session::send(const std::string& msg)
 {
 	bool write_in_progress = !write_msgs.empty();
 	write_msgs.push_back(msg);
@@ -23,21 +34,7 @@ void user::send(const std::string& msg)
 	}
 }
 
-void user::stage2()
-{
-	auto self(shared_from_this());
-	boost::asio::async_read(socket,
-		boost::asio::buffer(read_msg, msg_size),
-		[this, self](boost::system::error_code ec, std::size_t length)
-	{
-		if (!ec)
-		{
-
-		}
-	});
-}
-
-void user::read_header()
+void session::read_header()
 {
 	auto self(shared_from_this());
 	boost::asio::async_read(socket,
@@ -57,7 +54,7 @@ void user::read_header()
 	});
 }
 
-void user::read_message_header()
+void session::read_message_header()
 {
 	auto self(shared_from_this());
 	boost::asio::async_read(socket,
@@ -77,27 +74,27 @@ void user::read_message_header()
 	});
 }
 
-void user::read_file_header()
+void session::read_file_header()
 {
 
 }
 
-void user::read_fileblock_header()
+void session::read_fileblock_header()
 {
 
 }
 
-void user::read_message(size_t size)
+void session::read_message(size_t size)
 {
 
 }
 
-void user::read_fileblock()
+void session::read_fileblock()
 {
 
 }
 
-void user::write()
+void session::write()
 {
 	auto self(shared_from_this());
 	boost::asio::async_write(socket,

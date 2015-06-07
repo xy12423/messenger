@@ -8,22 +8,40 @@ using boost::system::error_code;
 std::list<int> ports;
 extern std::string e0str;
 
-void server::accept()
+void server::start()
 {
+	boost::shared_ptr<net::ip::tcp::socket> socket(new net::ip::tcp::socket(io_service));
+	acceptor.async_accept(*socket, boost::bind(&server::accept, this, socket, _1));
+}
+
+void server::accept(boost::shared_ptr<net::ip::tcp::socket> socket, error_code ec)
+{
+	if (!ec)
+	{
+		
+		std::shared_ptr<pre_session> ptr = std::make_shared<pre_session>(this, std::move(socket));
+		pre_sessions.emplace(ptr);
+		ptr->start();
+	}
+
+	start();
+}
+
+void server::stage1()
+{/*
 	acceptor.async_accept(socket,
-		ep,
 		[this](boost::system::error_code ec)
 	{
 		if (!ec)
 		{
-			std::make_shared<user>(this, std::move(socket))->start();
+			std::make_shared<pre_session>(this, std::move(socket))->start();
 		}
 
 		accept();
-	});
+	});*/
 }
 
-void server::send(std::shared_ptr<user> from, const std::string& msg)
+void server::send(std::shared_ptr<session> from, const std::string& msg)
 {
 	userList::iterator itr = users.begin(), itrEnd = users.end();
 	for (; itr != itrEnd; itr++)
@@ -31,7 +49,7 @@ void server::send(std::shared_ptr<user> from, const std::string& msg)
 		(*itr)->send(msg);
 }
 
-void server::leave(std::shared_ptr<user> _user)
+void server::leave(std::shared_ptr<session> _user)
 {
 	users.erase(_user);
 }
