@@ -14,7 +14,7 @@ protected:
 struct sendTask
 {
 	sendTask(){ uID = -1; }
-	sendTask(int _uID, std::string &_data, wxString &_msg) :
+	sendTask(int _uID, const std::string &_data, const wxString &_msg) :
 		data(_data), msg(_msg)
 	{ uID = _uID; }
 	int uID;
@@ -34,7 +34,9 @@ protected:
 struct msgSendTask
 {
 	msgSendTask(){ uID = -1; }
-	msgSendTask(int _uID, std::string &_msg){ uID = _uID; msg = _msg; }
+	msgSendTask(int _uID, const std::string &_msg):
+		msg(_msg)
+	{ uID = _uID; }
 	int uID;
 	std::string msg;
 };
@@ -51,7 +53,9 @@ protected:
 struct fileSendTask
 {
 	fileSendTask(){ uID = -1; }
-	fileSendTask(int _uID, const fs::path &_path){ uID = _uID; path = _path; }
+	fileSendTask(int _uID, const fs::path &_path):
+		path(_path)
+	{ uID = _uID; }
 	int uID;
 	fs::path path;
 };
