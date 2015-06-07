@@ -56,7 +56,7 @@
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
     <Link>
-      <SubSystem>Windows</SubSystem>
+      <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>D:\boost\lib;D:\cpplibs\lib;F:\wxWidgets\lib\vc_lib</AdditionalLibraryDirectories>
     </Link>
@@ -86,7 +86,6 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="crypto.h" />
-    <ClInclude Include="global.h" />
     <ClInclude Include="main.h" />
     <ClInclude Include="stdafx.h" />
   </ItemGroup>
@@ -98,6 +97,7 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Create</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="session.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
