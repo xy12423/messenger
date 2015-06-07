@@ -5,8 +5,9 @@
 
 class server;
 typedef std::deque<std::string> chat_message_queue;
+typedef std::shared_ptr<net::ip::tcp::socket> socket_ptr;
 
-class pre_session : public std::enable_shared_from_this < pre_session >
+class pre_session : public std::enable_shared_from_this<pre_session>
 {
 public:
 	pre_session(boost::asio::io_service& io_service,
@@ -15,14 +16,21 @@ public:
 		acceptor(io_service, endpoint)
 	{
 		srv = _srv;
+		key_buffer = NULL;
 		start();
 	}
 
 	void start();
 private:
-	void stage2(boost::shared_ptr<net::ip::tcp::socket> socket, error_code ec);
+	void stage1(socket_ptr socket, boost::system::error_code ec);
+	void read_key_header();
+	void read_key();
+
+	unsigned short key_length;
+	char *key_buffer;
 
 	boost::asio::io_service &io_service;
+	socket_ptr socket;
 	net::ip::tcp::acceptor acceptor;
 
 	server *srv;
@@ -31,11 +39,11 @@ private:
 class session : public std::enable_shared_from_this<session>
 {
 public:
-	session(server *_srv, net::ip::tcp::socket _socket)
-		: socket(std::move(_socket))
+	session(server *_srv, const socket_ptr &_socket)
+		: socket(_socket)
 	{
 		lock = NULL; blockLast = -1; srv = _srv; msg_len = 0;
-		read_msg = new char[msg_size];
+		read_msg_buffer = new char[msg_buffer_size];
 	}
 
 	void start();
@@ -52,15 +60,15 @@ private:
 
 	int uID;
 	net::ip::address addr;
-	net::ip::tcp::socket socket;
+	socket_ptr socket;
 	std::mutex *lock;
 	CryptoPP::ECIES<CryptoPP::ECP>::Encryptor e1;
 
 	std::string recvFile;
 	int blockLast;
 
-	char *read_msg;
-	const int msg_size = 0x4000;
+	char *read_msg_buffer;
+	const int msg_buffer_size = 0x4000;
 	size_t msg_len;
 	chat_message_queue write_msgs;
 
@@ -80,13 +88,15 @@ public:
 	}
 
 	void send(std::shared_ptr<session> from, const std::string& msg);
-	void leave(std::shared_ptr<session> _user);
+	void pre_session_over(std::shared_ptr<pre_session> _pre){ pre_sessions.erase(_pre); }
+	void join(std::shared_ptr<session> _user){ users.emplace(_user); }
+	void leave(std::shared_ptr<session> _user){ users.erase(_user); };
 private:
 	void start();
-	void accept(boost::shared_ptr<net::ip::tcp::socket> socket, error_code ec);
-	void stage1();
+	void accept(boost::system::error_code ec);
 
 	boost::asio::io_service &io_service;
+	socket_ptr accepting;
 	net::ip::tcp::acceptor acceptor;
 
 	userList users;
