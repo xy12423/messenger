@@ -412,6 +412,8 @@ void mainFrame::socketBeginS2_Notify(wxSocketEvent& event)
 				CryptoPP::StringSource keySource(keyStr, true);
 				item.e1.AccessPublicKey().Load(keySource);
 				listUser->Append(item.addr.IPAddress());
+				if (listUser->GetSelection() == -1)
+					listUser->SetSelection(0);
 
 				socket->SetEventHandler(*this, ID_SOCKETDATA);
 				socket->SetFlags(wxSOCKET_WAITALL);
@@ -556,6 +558,8 @@ void mainFrame::socketBeginC2_Notify(wxSocketEvent& event)
 				CryptoPP::StringSource keySource(keyStr, true);
 				item.e1.AccessPublicKey().Load(keySource);
 				listUser->Append(item.addr.IPAddress());
+				if (listUser->GetSelection() == -1)
+					listUser->SetSelection(0);
 
 				socket->SetEventHandler(*this, ID_SOCKETDATA);
 				socket->SetNotify(wxSOCKET_INPUT_FLAG | wxSOCKET_LOST_FLAG);
