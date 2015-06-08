@@ -26,3 +26,12 @@ std::string getPublicKey()
 	e0.GetPublicKey().Save(buf);
 	return ret;
 }
+
+void calcSHA512(const std::string &msg, std::string &ret)
+{
+	CryptoPP::SHA512 sha512;
+	char result[64];
+	memset(result, 0, sizeof(result));
+	sha512.CalculateDigest(reinterpret_cast<byte*>(result), reinterpret_cast<const byte*>(msg.c_str()), msg.size());
+	ret = std::string(result, 64);
+}

@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "crypto.h"
 #include "main.h"
+#include "utils.h"
 
 const int portListener = 4826;
 using boost::system::error_code;
@@ -66,28 +67,163 @@ void server::accept(error_code ec)
 	start();
 }
 
+void server::join(std::shared_ptr<session> _user)
+{
+	std::cout << "New user " << _user->get_address() << std::endl;
+	sessions.emplace(_user);
+	send_message(nullptr, "New user " + _user->get_address());
+}
+
+void server::leave(std::shared_ptr<session> _user)
+{
+	std::cout << "Delete user " << _user->get_address() << std::endl;
+	sessions.erase(_user);
+	send_message(nullptr, "Delete user " + _user->get_address());
+}
+
+bool server::login(const std::string &name, const std::string &passwd)
+{
+	userList::iterator itr = users.find(name);
+	if (itr == users.end())
+		return false;
+	std::string hashed_passwd;
+	calcSHA512(passwd, hashed_passwd);
+	if (itr->second.passwd == hashed_passwd)
+		return true;
+	return false;
+}
+
 void server::send_message(std::shared_ptr<session> from, const std::string& msg)
 {
-	userList::iterator itr = users.begin(), itrEnd = users.end();
+	std::string sendMsg;
+	if (from != nullptr)
+		sendMsg = from->get_address() + ":" + msg;
+	else
+		sendMsg = msg;
+	sessionList::iterator itr = sessions.begin(), itrEnd = sessions.end();
 	for (; itr != itrEnd; itr++)
-		if (*itr != from)
+		if (*itr != from && (*itr)->get_state() == session::LOGGED_IN)
 			(*itr)->send_message(msg);
 }
 
 void server::send_fileheader(std::shared_ptr<session> from, const std::string& data)
 {
-	userList::iterator itr = users.begin(), itrEnd = users.end();
+	sessionList::iterator itr = sessions.begin(), itrEnd = sessions.end();
 	for (; itr != itrEnd; itr++)
-		if (*itr != from)
+		if (*itr != from && (*itr)->get_state() == session::LOGGED_IN)
 			(*itr)->send_fileheader(data);
 }
 
 void server::send_fileblock(std::shared_ptr<session> from, const std::string& block)
 {
-	userList::iterator itr = users.begin(), itrEnd = users.end();
+	sessionList::iterator itr = sessions.begin(), itrEnd = sessions.end();
 	for (; itr != itrEnd; itr++)
-		if (*itr != from)
+		if (*itr != from && (*itr)->get_state() == session::LOGGED_IN)
 			(*itr)->send_fileblock(block);
+}
+
+bool server::reg(const user &_usr)
+{
+	userList::iterator itr = users.find(_usr.name);
+	if (itr == users.end())
+	{
+		users.emplace(_usr.name, _usr);
+		return true;
+	}
+	return false;
+}
+
+bool server::process_command(std::string command, user::group_type group)
+{
+	trim(command);
+	std::string section;
+	while (!isspace(command.front()))
+	{
+		section.push_back(command.front());
+		command.erase(0, 1);
+	}
+	command.erase(0, 1);
+	if (section == "op")
+	{
+		if (group == user::ADMIN)
+		{
+			op(command);
+			io_service.post([this](){
+				write_config();
+			});
+		}
+		else
+			return false;
+	}
+	else if (section == "reg")
+	{
+		if (group == user::ADMIN)
+		{
+			section.clear();
+			while (!isspace(command.front()))
+			{
+				section.push_back(command.front());
+				command.erase(0, 1);
+			}
+			command.erase(0, 1);
+			std::string hashed_passwd;
+			calcSHA512(command, hashed_passwd);
+			reg(user(section, hashed_passwd, user::USER));
+			io_service.post([this](){
+				write_config();
+			});
+		}
+		else
+			return false;
+	}
+	return true;
+}
+
+void server::read_config()
+{
+	if (!fs::exists(config_file))
+	{
+		std::ofstream fout(config_file);
+		fout.close();
+		return;
+	}
+	std::ifstream fin(config_file, std::ios_base::in | std::ios_base::binary);
+
+	size_t userCount, size;
+	fin.read(reinterpret_cast<char*>(&userCount), sizeof(size_t));
+	char passwd_buf[64];
+	for (; userCount > 0; userCount--)
+	{
+		user usr;
+		fin.read(reinterpret_cast<char*>(&size), sizeof(size_t));
+		char* buf = new char[size];
+		fin.read(buf, size);
+		usr.name = std::string(buf, size);
+		delete[] buf;
+		fin.read(passwd_buf, 64);
+		usr.passwd = std::string(passwd_buf, 64);
+		fin.read(reinterpret_cast<char*>(&size), sizeof(size_t));
+		usr.group = static_cast<user::group_type>(size);
+		reg(usr);
+	}
+}
+
+void server::write_config()
+{
+	std::ofstream fout(config_file, std::ios_base::out | std::ios_base::binary);
+	if (!fout.is_open())
+		return;
+	size_t size = users.size();
+	fout.write(reinterpret_cast<char*>(&size), sizeof(size_t));
+	std::for_each(users.begin(), users.end(), [&size, &fout](const std::pair<std::string, user> &pair){
+		const user &usr = pair.second;
+		size = usr.name.size();
+		fout.write(reinterpret_cast<char*>(&size), sizeof(size_t));
+		fout.write(usr.name.data(), size);
+		fout.write(usr.passwd.data(), 64);
+		size = static_cast<size_t>(usr.group);
+		fout.write(reinterpret_cast<char*>(&size), sizeof(size_t));
+	});
 }
 
 int main()
@@ -107,7 +243,15 @@ int main()
 		e0str = std::string(reinterpret_cast<const char*>(&e0len), sizeof(unsigned short) / sizeof(char)) + e0str;
 
 		server server(io_service, net::ip::tcp::endpoint(net::ip::tcp::v4(), portListener));
-		io_service.run();
+		std::thread net_thread([&](){ io_service.run(); });
+		net_thread.detach();
+
+		std::string command;
+		while (true)
+		{
+			std::getline(std::cin, command);
+			server.process_command(command, user::ADMIN);
+		}
 #ifdef NDEBUG
 	}
 	catch (std::exception& e)

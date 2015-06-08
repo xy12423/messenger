@@ -7,4 +7,6 @@ void encrypt(const std::string &str, std::string &ret, CryptoPP::ECIES<CryptoPP:
 void decrypt(const std::string &str, std::string &ret);
 std::string getPublicKey();
 
+void calcSHA512(const std::string &msg, std::string &ret);
+
 #endif

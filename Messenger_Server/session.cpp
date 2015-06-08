@@ -9,6 +9,10 @@ using boost::system::error_code;
 extern std::list<int> ports;
 std::string e0str;
 
+const char username_msg[] = "Login as:";
+const char passwd_msg[] = "Password:";
+const char welcome_msg[] = "Welcome";
+
 void pre_session::start()
 {
 	std::shared_ptr<net::ip::tcp::socket> socket(std::make_shared<net::ip::tcp::socket>(io_service));
@@ -71,8 +75,9 @@ void pre_session::read_key()
 			CryptoPP::StringSource keySource(keyStr, true);
 			item.e1.AccessPublicKey().Load(keySource);
 
-			newUser->start();
 			srv->join(newUser);
+			newUser->start();
+			newUser->send_message(username_msg);
 		}
 		srv->pre_session_over(shared_from_this());
 	});
@@ -249,15 +254,13 @@ void session::read_message(size_t size, std::string *read_msg)
 					read_msg->append(read_msg_buffer, length);
 					std::string msg;
 					decrypt(*read_msg, msg);
-					delete read_msg;
-					//process_message(msg);
-					srv->send_message(shared_from_this(), msg);
-					start();
+					process_message(msg);
 				}
 				else
 				{
 					srv->leave(shared_from_this());
 				}
+				delete read_msg;
 			});
 		}
 	}
@@ -265,8 +268,8 @@ void session::read_message(size_t size, std::string *read_msg)
 	{
 		std::cerr << ex.what() << std::endl;
 		delete read_msg;
-		start();
 	}
+	start();
 }
 
 void session::read_fileheader(size_t size, std::string *read_msg)
@@ -301,9 +304,9 @@ void session::read_fileheader(size_t size, std::string *read_msg)
 				if (!ec)
 				{
 					read_msg->append(read_msg_buffer, length);
-					srv->send_fileheader(shared_from_this(), *read_msg);
+					if (state == LOGGED_IN)
+						srv->send_fileheader(shared_from_this(), *read_msg);
 					delete read_msg;
-					start();
 				}
 				else
 				{
@@ -316,8 +319,8 @@ void session::read_fileheader(size_t size, std::string *read_msg)
 	{
 		std::cerr << ex.what() << std::endl;
 		delete read_msg;
-		start();
 	}
+	start();
 }
 
 void session::read_fileblock(size_t size, std::string *read_msg)
@@ -354,8 +357,8 @@ void session::read_fileblock(size_t size, std::string *read_msg)
 					read_msg->append(read_msg_buffer, length);
 					std::string msg;
 					decrypt(*read_msg, msg);
-					srv->send_fileblock(shared_from_this(), msg);
-					start();
+					if (state == LOGGED_IN)
+						srv->send_fileblock(shared_from_this(), msg);
 				}
 				else
 				{
@@ -369,8 +372,8 @@ void session::read_fileblock(size_t size, std::string *read_msg)
 	{
 		std::cerr << ex.what() << std::endl;
 		delete read_msg;
-		start();
 	}
+	start();
 }
 
 void session::write()
@@ -394,22 +397,45 @@ void session::write()
 	});
 }
 
-void session::process_message(const std::string &originMsg)
+void session::process_message(const std::string &origin_msg)
 {
-	std::string msg(originMsg);
-	ltrim(msg);
-	if (msg.front() != '/')
-		srv->send_message(shared_from_this(), originMsg);
-	else
+	switch (state)
 	{
-		msg.erase(0, 1);
-		if (msg == "register")
+		case INPUT_USER:
 		{
-
+			user_name = origin_msg;
+			trim(user_name);
+			send_message(passwd_msg);
+			state = INPUT_PASSWD;
+			break;
 		}
-		else if (msg == "login")
+		case INPUT_PASSWD:
 		{
-
+			bool success = srv->login(user_name, origin_msg);
+			if (success)
+			{
+				state = LOGGED_IN;
+				send_message(welcome_msg);
+			}
+			else
+			{
+				state = INPUT_USER;
+				send_message(username_msg);
+			}
+			break;
+		}
+		case LOGGED_IN:
+		{
+			std::string msg(origin_msg);
+			ltrim(msg);
+			if (msg.front() != '/')
+				srv->send_message(shared_from_this(), origin_msg);
+			else
+			{
+				msg.erase(0, 1);
+				srv->process_command(msg, srv->get_group(user_name));
+			}
+			break;
 		}
 	}
 }
