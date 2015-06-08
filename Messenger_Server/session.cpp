@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "crypto.h"
 #include "main.h"
+#include "utils.h"
 
 const int portListener = 4826;
 using boost::system::error_code;
@@ -249,6 +250,7 @@ void session::read_message(size_t size, std::string *read_msg)
 					std::string msg;
 					decrypt(*read_msg, msg);
 					delete read_msg;
+					//process_message(msg);
 					srv->send_message(shared_from_this(), msg);
 					start();
 				}
@@ -390,4 +392,24 @@ void session::write()
 			srv->leave(shared_from_this());
 		}
 	});
+}
+
+void session::process_message(const std::string &originMsg)
+{
+	std::string msg(originMsg);
+	ltrim(msg);
+	if (msg.front() != '/')
+		srv->send_message(shared_from_this(), originMsg);
+	else
+	{
+		msg.erase(0, 1);
+		if (msg == "register")
+		{
+
+		}
+		else if (msg == "login")
+		{
+
+		}
+	}
 }

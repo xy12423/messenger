@@ -68,7 +68,7 @@ private:
 	void read_fileblock(size_t size, std::string *read_msg);
 	void write();
 
-	void process_message();
+	void process_message(const std::string &originMsg);
 
 	socket_ptr socket;
 	CryptoPP::ECIES<CryptoPP::ECP>::Encryptor e1;
@@ -113,8 +113,5 @@ private:
 	std::unordered_set<std::shared_ptr<pre_session>> pre_sessions;
 	int nextID = 0;
 };
-
-void insLen(std::string &data);
-std::string num2str(long long n);
 
 #endif

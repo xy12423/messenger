@@ -1,5 +1,5 @@
 #include "stdafx.h"
-#include "main.h"
+#include "utils.h"
 
 void insLen(std::string &data)
 {
@@ -15,4 +15,22 @@ std::string num2str(long long n)
 	sstr << n;
 	sstr >> ret;
 	return ret;
+}
+
+void ltrim(std::string &str)
+{
+	while (isspace(str.front()))
+		str.erase(0, 1);
+}
+
+void rtrim(std::string &str)
+{
+	while (isspace(str.back()))
+		str.pop_back();
+}
+
+void trim(std::string &str)
+{
+	ltrim(str);
+	rtrim(str);
 }
