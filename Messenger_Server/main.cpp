@@ -71,14 +71,14 @@ void server::join(std::shared_ptr<session> _user)
 {
 	std::cout << "New user " << _user->get_address() << std::endl;
 	sessions.emplace(_user);
-	send_message(nullptr, "New user " + _user->get_address());
 }
 
 void server::leave(std::shared_ptr<session> _user)
 {
 	std::cout << "Delete user " << _user->get_address() << std::endl;
 	sessions.erase(_user);
-	send_message(nullptr, "Delete user " + _user->get_address());
+	if (_user->get_state() == session::LOGGED_IN)
+		send_message(nullptr, "Delete user " + _user->get_address());
 }
 
 bool server::login(const std::string &name, const std::string &passwd)
@@ -183,8 +183,7 @@ void server::read_config()
 {
 	if (!fs::exists(config_file))
 	{
-		std::ofstream fout(config_file);
-		fout.close();
+		write_config();
 		return;
 	}
 	std::ifstream fin(config_file, std::ios_base::in | std::ios_base::binary);

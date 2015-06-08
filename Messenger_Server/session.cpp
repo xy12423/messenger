@@ -414,6 +414,7 @@ void session::process_message(const std::string &origin_msg)
 			bool success = srv->login(user_name, origin_msg);
 			if (success)
 			{
+				srv->send_message(nullptr, "New user " + get_address());
 				state = LOGGED_IN;
 				send_message(welcome_msg);
 			}
