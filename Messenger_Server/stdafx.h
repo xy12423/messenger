@@ -18,6 +18,7 @@
 #include <unordered_map>
 #include <algorithm>
 #include <mutex>
+#include <thread>
 #include <memory>
 #include <utility>
 
@@ -33,6 +34,8 @@ namespace net = boost::asio;
 #include <cryptopp/asn.h>
 #include <cryptopp/ec2n.h>
 #include <cryptopp/eccrypto.h>
+#include <cryptopp/sha.h>
+#include <cryptopp/files.h>
 
 #ifdef _MSC_VER
 #ifdef _DEBUG

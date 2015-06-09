@@ -4,8 +4,35 @@
 using namespace CryptoPP;
 
 AutoSeededRandomPool prng;
-ECIES<ECP>::Decryptor d0(prng, ASN1::secp521r1());
-ECIES<ECP>::Encryptor e0(d0);
+ECIES<ECP>::Decryptor d0;
+extern const char* privatekeyFile;
+
+void genKey()
+{
+	ECIES<ECP>::PrivateKey privateKey;
+	privateKey.Initialize(prng, ASN1::secp521r1());
+	FileSink fs(privatekeyFile, true);
+	privateKey.Save(fs);
+	d0.AccessKey() = privateKey;
+}
+
+void initKey()
+{
+	ECIES<ECP>::PrivateKey privateKey;
+	FileSource fs(privatekeyFile, true);
+	try
+	{
+		privateKey.Load(fs);
+		if (!privateKey.Validate(prng, 3))
+			genKey();
+		else
+			d0.AccessKey() = privateKey;
+	}
+	catch (...)
+	{
+		genKey();
+	}
+}
 
 void encrypt(const std::string &str, std::string &ret, ECIES<ECP>::Encryptor &e1)
 {
@@ -23,6 +50,17 @@ std::string getPublicKey()
 {
 	std::string ret;
 	StringSinkTemplate<std::string> buf(ret);
+	ECIES<ECP>::Encryptor e0(d0);
 	e0.GetPublicKey().Save(buf);
+
 	return ret;
+}
+
+void calcSHA512(const std::string &msg, std::string &ret)
+{
+	CryptoPP::SHA512 sha512;
+	char result[64];
+	memset(result, 0, sizeof(result));
+	sha512.CalculateDigest(reinterpret_cast<byte*>(result), reinterpret_cast<const byte*>(msg.c_str()), msg.size());
+	ret = std::string(result, 64);
 }
