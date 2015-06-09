@@ -132,9 +132,6 @@ private:
 	void start();
 	void accept(boost::system::error_code ec);
 
-	bool reg(const user &_usr);
-	void op(const std::string &name){ userList::iterator itr = users.find(name); if (itr != users.end()) itr->second.group = user::ADMIN; }
-
 	const char* config_file = ".config";
 	void read_config();
 	void write_config();

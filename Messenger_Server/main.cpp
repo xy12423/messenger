@@ -6,6 +6,8 @@
 const int portListener = 4826;
 using boost::system::error_code;
 
+net::io_service io_service;
+
 std::list<int> ports;
 extern std::string e0str;
 
@@ -122,22 +124,11 @@ void server::send_fileblock(std::shared_ptr<session> from, const std::string& bl
 			(*itr)->send_fileblock(block);
 }
 
-bool server::reg(const user &_usr)
-{
-	userList::iterator itr = users.find(_usr.name);
-	if (itr == users.end())
-	{
-		users.emplace(_usr.name, _usr);
-		return true;
-	}
-	return false;
-}
-
 bool server::process_command(std::string command, user::group_type group)
 {
 	trim(command);
 	std::string section;
-	while (!isspace(command.front()))
+	while (!(command.empty() || isspace(command.front())))
 	{
 		section.push_back(command.front());
 		command.erase(0, 1);
@@ -147,7 +138,9 @@ bool server::process_command(std::string command, user::group_type group)
 	{
 		if (group == user::ADMIN)
 		{
-			op(command);
+			userList::iterator itr = users.find(command);
+			if (itr != users.end())
+				itr->second.group = user::ADMIN;
 			io_service.post([this](){
 				write_config();
 			});
@@ -160,7 +153,7 @@ bool server::process_command(std::string command, user::group_type group)
 		if (group == user::ADMIN)
 		{
 			section.clear();
-			while (!isspace(command.front()))
+			while (!(command.empty() || isspace(command.front())))
 			{
 				section.push_back(command.front());
 				command.erase(0, 1);
@@ -168,13 +161,45 @@ bool server::process_command(std::string command, user::group_type group)
 			command.erase(0, 1);
 			std::string hashed_passwd;
 			calcSHA512(command, hashed_passwd);
-			reg(user(section, hashed_passwd, user::USER));
+
+			userList::iterator itr = users.find(section);
+			if (itr == users.end())
+			{
+				users.emplace(section, user(section, hashed_passwd, user::USER));
+				return true;
+			}
+
 			io_service.post([this](){
 				write_config();
 			});
 		}
 		else
 			return false;
+	}
+	else if (section == "unreg")
+	{
+		if (group == user::ADMIN)
+		{
+			userList::iterator itr = users.find(command);
+			if (itr != users.end())
+				itr->second.group = user::ADMIN;
+			io_service.post([this](){
+				write_config();
+			});
+		}
+	else
+		return false;
+	}
+	else if (section == "stop")
+	{
+		if (group == user::ADMIN)
+		{
+			io_service.stop();
+			std::thread stop_thread([](){
+				std::exit(EXIT_SUCCESS);
+			});
+			stop_thread.detach();
+		}
 	}
 	return true;
 }
@@ -203,7 +228,7 @@ void server::read_config()
 		usr.passwd = std::string(passwd_buf, 64);
 		fin.read(reinterpret_cast<char*>(&size), sizeof(size_t));
 		usr.group = static_cast<user::group_type>(size);
-		reg(usr);
+		users.emplace(usr.name, usr);
 	}
 }
 
@@ -231,8 +256,6 @@ int main()
 	try
 	{
 #endif
-		boost::asio::io_service io_service;
-
 		for (int i = 5001; i <= 10000; i++)
 			ports.push_back(i);
 		std::srand(static_cast<unsigned int>(std::time(NULL)));
@@ -242,15 +265,17 @@ int main()
 		e0str = std::string(reinterpret_cast<const char*>(&e0len), sizeof(unsigned short) / sizeof(char)) + e0str;
 
 		server server(io_service, net::ip::tcp::endpoint(net::ip::tcp::v4(), portListener));
-		std::thread net_thread([&](){ io_service.run(); });
-		net_thread.detach();
+		std::thread input_thread([&](){
+			std::string command;
+			while (true)
+			{
+				std::getline(std::cin, command);
+				server.process_command(command, user::ADMIN);
+			}
+		});
+		input_thread.detach();
 
-		std::string command;
-		while (true)
-		{
-			std::getline(std::cin, command);
-			server.process_command(command, user::ADMIN);
-		}
+		io_service.run();
 #ifdef NDEBUG
 	}
 	catch (std::exception& e)
