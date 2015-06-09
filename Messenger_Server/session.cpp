@@ -268,7 +268,52 @@ void session::read_message(size_t size, std::string *read_msg)
 	catch (std::runtime_error ex)
 	{
 		std::cerr << ex.what() << std::endl;
+		srv->leave(shared_from_this());
 		delete read_msg;
+	}
+}
+
+void session::process_message(const std::string &origin_msg)
+{
+	switch (state)
+	{
+		case INPUT_USER:
+		{
+			user_name = origin_msg;
+			trim(user_name);
+			send_message(passwd_msg);
+			state = INPUT_PASSWD;
+			break;
+		}
+		case INPUT_PASSWD:
+		{
+			bool success = srv->login(user_name, origin_msg);
+			if (success)
+			{
+				srv->send_message(nullptr, "New user " + get_address());
+				state = LOGGED_IN;
+				send_message(welcome_msg);
+			}
+			else
+			{
+				state = INPUT_USER;
+				send_message(username_msg);
+			}
+			break;
+		}
+		case LOGGED_IN:
+		{
+			std::string msg(origin_msg);
+			ltrim(msg);
+			if (msg.front() != '/')
+				srv->send_message(shared_from_this(), origin_msg);
+			else
+			{
+				msg.erase(0, 1);
+				srv->process_command(msg, srv->get_group(user_name));
+			}
+			break;
+		}
 	}
 	start();
 }
@@ -315,6 +360,7 @@ void session::read_fileheader(size_t size, std::string *read_msg)
 						read_msg->erase(sizeof(unsigned int));
 						read_msg->append(fileName);
 						srv->send_fileheader(shared_from_this(), *read_msg);
+						start();
 					}
 				}
 				else
@@ -328,9 +374,9 @@ void session::read_fileheader(size_t size, std::string *read_msg)
 	catch (std::runtime_error ex)
 	{
 		std::cerr << ex.what() << std::endl;
+		srv->leave(shared_from_this());
 		delete read_msg;
 	}
-	start();
 }
 
 void session::read_fileblock(size_t size, std::string *read_msg)
@@ -370,6 +416,7 @@ void session::read_fileblock(size_t size, std::string *read_msg)
 					decrypt(*read_msg, msg);
 					if (state == LOGGED_IN)
 						srv->send_fileblock(shared_from_this(), msg);
+					start();
 				}
 				else
 				{
@@ -384,7 +431,6 @@ void session::read_fileblock(size_t size, std::string *read_msg)
 		std::cerr << ex.what() << std::endl;
 		delete read_msg;
 	}
-	start();
 }
 
 void session::write()
@@ -406,48 +452,4 @@ void session::write()
 			srv->leave(shared_from_this());
 		}
 	});
-}
-
-void session::process_message(const std::string &origin_msg)
-{
-	switch (state)
-	{
-		case INPUT_USER:
-		{
-			user_name = origin_msg;
-			trim(user_name);
-			send_message(passwd_msg);
-			state = INPUT_PASSWD;
-			break;
-		}
-		case INPUT_PASSWD:
-		{
-			bool success = srv->login(user_name, origin_msg);
-			if (success)
-			{
-				srv->send_message(nullptr, "New user " + get_address());
-				state = LOGGED_IN;
-				send_message(welcome_msg);
-			}
-			else
-			{
-				state = INPUT_USER;
-				send_message(username_msg);
-			}
-			break;
-		}
-		case LOGGED_IN:
-		{
-			std::string msg(origin_msg);
-			ltrim(msg);
-			if (msg.front() != '/')
-				srv->send_message(shared_from_this(), origin_msg);
-			else
-			{
-				msg.erase(0, 1);
-				srv->process_command(msg, srv->get_group(user_name));
-			}
-			break;
-		}
-	}
 }
