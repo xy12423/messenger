@@ -3,8 +3,6 @@
 #ifndef _H_MAIN
 #define _H_MAIN
 
-wxDECLARE_EVENT(wxEVT_COMMAND_THREAD_MSG, wxThreadEvent);
-
 #include "threads.h"
 
 class mainFrame : public wxFrame
@@ -45,6 +43,8 @@ public:
 
 	wxTextCtrl *textInfo;
 	void thread_Message(wxThreadEvent& event);
+
+	void mainFrame_Close(wxCloseEvent& event);
 
 	const int portListener = 4826, portConnect = 4827;
 
