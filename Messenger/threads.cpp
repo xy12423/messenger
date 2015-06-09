@@ -12,6 +12,8 @@ volatile int onDelID = -1;
 #define checkIDP if (onDelID == uID) continue
 #define checkIDT if (onDelID == task.uID) throw(0)
 
+const int checkInterval = 10;
+
 pingThread::ExitCode pingThread::Entry()
 {
 	userList::iterator itr, itrEnd;
@@ -53,7 +55,7 @@ sendThread::ExitCode sendThread::Entry()
 		try
 		{
 			sendTask task;
-			wxMessageQueueError err = taskQue.ReceiveTimeout(100, task);
+			wxMessageQueueError err = taskQue.ReceiveTimeout(checkInterval, task);
 			if (err != wxMSGQUEUE_NO_ERROR)
 				continue;
 			checkID;
@@ -97,7 +99,7 @@ msgSendThread::ExitCode msgSendThread::Entry()
 		try
 		{
 			msgSendTask task;
-			wxMessageQueueError err = taskQue.ReceiveTimeout(100, task);
+			wxMessageQueueError err = taskQue.ReceiveTimeout(checkInterval, task);
 			if (err != wxMSGQUEUE_NO_ERROR)
 				continue;
 			checkID;
@@ -137,7 +139,7 @@ fileSendThread::ExitCode fileSendThread::Entry()
 		try
 		{
 			fileSendTask task;
-			wxMessageQueueError err = taskQue.ReceiveTimeout(100, task);
+			wxMessageQueueError err = taskQue.ReceiveTimeout(checkInterval, task);
 			if (err != wxMSGQUEUE_NO_ERROR)
 				continue;
 			checkID;
@@ -227,7 +229,7 @@ recvThread::ExitCode recvThread::Entry()
 		try
 		{
 			int uID;
-			wxMessageQueueError err = taskQue.ReceiveTimeout(100, uID);
+			wxMessageQueueError err = taskQue.ReceiveTimeout(checkInterval, uID);
 			if (err != wxMSGQUEUE_NO_ERROR)
 				continue;
 			checkIDP;

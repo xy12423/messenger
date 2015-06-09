@@ -42,6 +42,11 @@ std::list<int> userIDs;
 std::list<int> ports;
 std::string e0str;
 
+std::unordered_set<std::string> certifiedKeys;
+
+const char* privatekeyFile = ".privatekey";
+const char* publickeysFile = ".publickey";
+
 pingThread *threadPing;
 sendThread *threadSend;
 msgSendThread *threadMsgSend;
@@ -402,6 +407,18 @@ void mainFrame::socketBeginS2_Notify(wxSocketEvent& event)
 				std::string keyStr(buf, sizeRecv);
 				delete[] buf;
 
+				if (certifiedKeys.find(keyStr) == certifiedKeys.end())
+				{
+					int answer = wxMessageBox("I have never seen that public key before.Trust it?", "Confirm", wxYES_NO);
+					if (answer != wxYES)
+					{
+						socket->Close();
+						break;
+					}
+					else
+						certifiedKeys.emplace(keyStr);
+				}
+
 				user &item = users.emplace(nextID, user()).first->second;
 				userIDs.push_back(nextID);
 				item.uID = nextID;
@@ -548,6 +565,18 @@ void mainFrame::socketBeginC2_Notify(wxSocketEvent& event)
 				std::string keyStr(buf, sizeRecv);
 				delete[] buf;
 
+				if (certifiedKeys.find(keyStr) == certifiedKeys.end())
+				{
+					int answer = wxMessageBox("I have never seen that public key before.Trust it?", "Confirm", wxYES_NO);
+					if (answer != wxYES)
+					{
+						socket->Close();
+						break;
+					}
+					else
+						certifiedKeys.emplace(keyStr);
+				}
+
 				user &item = users.emplace(nextID, user()).first->second;
 				userIDs.push_back(nextID);
 				item.uID = nextID;
@@ -685,18 +714,10 @@ void mainFrame::mainFrame_Close(wxCloseEvent& event)
 	try
 	{
 		threadPing->Delete();
+		threadSend->Delete();
 		threadMsgSend->Delete();
 		threadFileSend->Delete();
 		threadRecv->Delete();
-		for (userList::iterator itr = users.begin(), itrEnd = users.end(); itr != itrEnd; itr++)
-		{
-			onDelID = itr->second.uID;
-			user &usr = itr->second;
-			wxIPV4address localAddr;
-			usr.con->GetLocal(localAddr);
-			freePort(localAddr.Service());
-			usr.con->Destroy();
-		}
 	}
 	catch (std::exception ex)
 	{
@@ -714,9 +735,31 @@ bool MyApp::OnInit()
 		for (int i = 5001; i <= 10000; i++)
 			ports.push_back(i);
 		std::srand(std::time(NULL));
+
+		if (fs::exists(privatekeyFile))
+			initKey();
+		else
+			genKey();
+
+		if (fs::exists(publickeysFile))
+		{
+			unsigned int pubCount = 0, keyLen = 0;
+			std::ifstream publicIn(publickeysFile, std::ios_base::in | std::ios_base::binary);
+			publicIn.read(reinterpret_cast<char*>(&pubCount), sizeof(unsigned int) / sizeof(char));
+			for (; pubCount > 0; pubCount--)
+			{
+				publicIn.read(reinterpret_cast<char*>(&keyLen), sizeof(unsigned int) / sizeof(char));
+				char *buf = new char[keyLen];
+				publicIn.read(buf, keyLen);
+				certifiedKeys.emplace(std::string(buf, keyLen));
+				delete[] buf;
+			}
+		}
+
 		e0str = getPublicKey();
 		unsigned short e0len = wxUINT16_SWAP_ON_BE(static_cast<unsigned short>(e0str.size()));
 		e0str = std::string(reinterpret_cast<const char*>(&e0len), sizeof(unsigned short) / sizeof(char)) + e0str;
+
 		form = new mainFrame(wxT("Messenger"));
 		form->Show();
 	}
@@ -731,5 +774,24 @@ bool MyApp::OnInit()
 
 int MyApp::OnExit()
 {
+	try
+	{
+		unsigned int pubCount = certifiedKeys.size(), keyLen = 0;
+		std::ofstream publicIn(publickeysFile, std::ios_base::out | std::ios_base::binary);
+		publicIn.write(reinterpret_cast<char*>(&pubCount), sizeof(unsigned int) / sizeof(char));
+
+		std::unordered_set<std::string>::iterator itr = certifiedKeys.begin(), itrEnd = certifiedKeys.end();
+		for (; itr != itrEnd; itr++)
+		{
+			keyLen = static_cast<unsigned int>(itr->size());
+			publicIn.write(reinterpret_cast<char*>(&keyLen), sizeof(unsigned int) / sizeof(char));
+			publicIn.write(itr->data(), keyLen);
+		}
+	}
+	catch (...)
+	{
+		return 1;
+	}
+
 	return 0;
 }

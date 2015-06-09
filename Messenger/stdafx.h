@@ -26,6 +26,7 @@ namespace fs = boost::filesystem;
 #include <cryptopp/oids.h>
 #include <cryptopp/asn.h>
 #include <cryptopp/eccrypto.h>
+#include <cryptopp/files.h>
 
 #include <wx/platform.h>
 #include <wx/wxprec.h>
