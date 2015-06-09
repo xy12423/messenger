@@ -6,6 +6,8 @@
 const int portListener = 4826;
 using boost::system::error_code;
 
+const char* privatekeyFile = ".privatekey";
+
 net::io_service io_service;
 
 std::list<int> ports;
@@ -259,6 +261,11 @@ int main()
 		for (int i = 5001; i <= 10000; i++)
 			ports.push_back(i);
 		std::srand(static_cast<unsigned int>(std::time(NULL)));
+
+		if (fs::exists(privatekeyFile))
+			initKey();
+		else
+			genKey();
 
 		e0str = getPublicKey();
 		unsigned short e0len = static_cast<unsigned short>(e0str.size());

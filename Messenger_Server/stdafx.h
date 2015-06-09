@@ -35,6 +35,7 @@ namespace net = boost::asio;
 #include <cryptopp/ec2n.h>
 #include <cryptopp/eccrypto.h>
 #include <cryptopp/sha.h>
+#include <cryptopp/files.h>
 
 #ifdef _MSC_VER
 #ifdef _DEBUG
