@@ -168,12 +168,12 @@ bool server::process_command(std::string command, user::group_type group)
 			if (itr == users.end())
 			{
 				users.emplace(section, user(section, hashed_passwd, user::USER));
+				io_service.post([this](){
+					write_config();
+				});
 				return true;
 			}
-
-			io_service.post([this](){
-				write_config();
-			});
+			return false;
 		}
 		else
 			return false;
@@ -184,13 +184,17 @@ bool server::process_command(std::string command, user::group_type group)
 		{
 			userList::iterator itr = users.find(command);
 			if (itr != users.end())
-				itr->second.group = user::ADMIN;
-			io_service.post([this](){
-				write_config();
-			});
+			{
+				users.erase(itr);
+				io_service.post([this](){
+					write_config();
+				});
+				return true;
+			}
+			return false;
 		}
-	else
-		return false;
+		else
+			return false;
 	}
 	else if (section == "stop")
 	{

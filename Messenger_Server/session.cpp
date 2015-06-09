@@ -238,6 +238,7 @@ void session::read_message(size_t size, std::string *read_msg)
 				}
 				else
 				{
+					delete read_msg;
 					srv->leave(shared_from_this());
 				}
 			});
@@ -290,6 +291,7 @@ void session::read_fileheader(size_t size, std::string *read_msg)
 				}
 				else
 				{
+					delete read_msg;
 					srv->leave(shared_from_this());
 				}
 			});
@@ -305,13 +307,21 @@ void session::read_fileheader(size_t size, std::string *read_msg)
 				{
 					read_msg->append(read_msg_buffer, length);
 					if (state == LOGGED_IN)
+					{
+						std::string encrypted(read_msg->data() + sizeof(unsigned int) * 2, read_msg->size() - sizeof(unsigned int) * 2);
+						std::string fileName;
+						decrypt(encrypted, fileName);
+						encrypt(fileName, encrypted, e1);
+						read_msg->erase(sizeof(unsigned int));
+						read_msg->append(fileName);
 						srv->send_fileheader(shared_from_this(), *read_msg);
-					delete read_msg;
+					}
 				}
 				else
 				{
 					srv->leave(shared_from_this());
 				}
+				delete read_msg;
 			});
 		}
 	}
@@ -341,6 +351,7 @@ void session::read_fileblock(size_t size, std::string *read_msg)
 				}
 				else
 				{
+					delete read_msg;
 					srv->leave(shared_from_this());
 				}
 			});
