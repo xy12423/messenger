@@ -23,6 +23,8 @@ EVT_SOCKET(ID_SOCKETDATA, mainFrame::socketData_Notify)
 
 EVT_THREAD(wxID_ANY, mainFrame::thread_Message)
 
+EVT_CLOSE(mainFrame::mainFrame_Close)
+
 wxEND_EVENT_TABLE()
 
 #ifdef __WXMSW__
@@ -40,9 +42,16 @@ std::list<int> userIDs;
 std::list<int> ports;
 std::string e0str;
 
-msgThread *threadMsgSend;
-fileThread *threadFileSend;
+std::unordered_set<std::string> certifiedKeys;
+
+const char* privatekeyFile = ".privatekey";
+const char* publickeysFile = ".publickey";
+
 pingThread *threadPing;
+sendThread *threadSend;
+msgSendThread *threadMsgSend;
+fileSendThread *threadFileSend;
+recvThread *threadRecv;
 
 int newPort()
 {
@@ -133,23 +142,35 @@ mainFrame::mainFrame(const wxString& title)
 	socketListener->SetNotify(wxSOCKET_CONNECTION_FLAG | wxSOCKET_LOST_FLAG);
 	socketListener->Notify(true);
 
-	threadMsgSend = new msgThread();
-	if (threadMsgSend->Run() != wxTHREAD_NO_ERROR)
-	{
-		delete threadMsgSend;
-		throw(std::runtime_error("Can't create msgThread"));
-	}
-	threadFileSend = new fileThread();
-	if (threadFileSend->Run() != wxTHREAD_NO_ERROR)
-	{
-		delete threadFileSend;
-		throw(std::runtime_error("Can't create fileThread"));
-	}
 	threadPing = new pingThread();
 	if (threadPing->Run() != wxTHREAD_NO_ERROR)
 	{
 		delete threadPing;
 		throw(std::runtime_error("Can't create fileThread"));
+	}
+	threadSend = new sendThread();
+	if (threadSend->Run() != wxTHREAD_NO_ERROR)
+	{
+		delete threadSend;
+		throw(std::runtime_error("Can't create msgThread"));
+	}
+	threadMsgSend = new msgSendThread();
+	if (threadMsgSend->Run() != wxTHREAD_NO_ERROR)
+	{
+		delete threadMsgSend;
+		throw(std::runtime_error("Can't create msgThread"));
+	}
+	threadFileSend = new fileSendThread();
+	if (threadFileSend->Run() != wxTHREAD_NO_ERROR)
+	{
+		delete threadFileSend;
+		throw(std::runtime_error("Can't create fileSendThread"));
+	}
+	threadRecv = new recvThread();
+	if (threadRecv->Run() != wxTHREAD_NO_ERROR)
+	{
+		delete threadRecv;
+		throw(std::runtime_error("Can't create recvThread"));
 	}
 }
 
@@ -197,8 +218,6 @@ void mainFrame::buttonDel_Click(wxCommandEvent& event)
 		user &usr = users[*itr];
 
 		onDelID = *itr;
-		std::mutex *lock = usr.lock;
-		lock->lock();
 		wxIPV4address localAddr;
 		usr.con->GetLocal(localAddr);
 		freePort(localAddr.Service());
@@ -208,13 +227,6 @@ void mainFrame::buttonDel_Click(wxCommandEvent& event)
 		users.erase(*itr);
 		userIDs.erase(itr);
 		listUser->Delete(selection);
-		lock->unlock();
-		for (int i = 0; i < 3; i++)
-		{
-			while (!lock->try_lock());
-			lock->unlock();
-		}
-		delete lock;
 	}
 }
 
@@ -231,7 +243,7 @@ void mainFrame::buttonSend_Click(wxCommandEvent& event)
 			std::list<int>::iterator itr = userIDs.begin();
 			for (int i = listUser->GetSelection(); i > 0; itr++)i--;
 			int uID = *itr;
-			threadMsgSend->taskQue.Post(msgTask(uID, msgutf8));
+			threadMsgSend->taskQue.Post(msgSendTask(uID, msgutf8));
 			textMsg->AppendText("Me:" + msg + '\n');
 			users[uID].log.append("Me:" + msg + '\n');
 		}
@@ -250,7 +262,7 @@ void mainFrame::buttonSendFile_Click(wxCommandEvent& event)
 			std::list<int>::iterator itr = userIDs.begin();
 			for (int i = listUser->GetSelection(); i > 0; itr++)i--;
 			int uID = *itr;
-			threadFileSend->taskQue.Post(fileTask(uID, fs::path(path)));
+			threadFileSend->taskQue.Post(fileSendTask(uID, fs::path(path)));
 		}
 	}
 }
@@ -395,6 +407,18 @@ void mainFrame::socketBeginS2_Notify(wxSocketEvent& event)
 				std::string keyStr(buf, sizeRecv);
 				delete[] buf;
 
+				if (certifiedKeys.find(keyStr) == certifiedKeys.end())
+				{
+					int answer = wxMessageBox("I have never seen that public key before.Trust it?", "Confirm", wxYES_NO);
+					if (answer != wxYES)
+					{
+						socket->Close();
+						break;
+					}
+					else
+						certifiedKeys.emplace(keyStr);
+				}
+
 				user &item = users.emplace(nextID, user()).first->second;
 				userIDs.push_back(nextID);
 				item.uID = nextID;
@@ -405,7 +429,8 @@ void mainFrame::socketBeginS2_Notify(wxSocketEvent& event)
 				CryptoPP::StringSource keySource(keyStr, true);
 				item.e1.AccessPublicKey().Load(keySource);
 				listUser->Append(item.addr.IPAddress());
-				item.lock = new std::mutex;
+				if (listUser->GetSelection() == -1)
+					listUser->SetSelection(listUser->GetCount() - 1);
 
 				socket->SetEventHandler(*this, ID_SOCKETDATA);
 				socket->SetFlags(wxSOCKET_WAITALL);
@@ -540,6 +565,18 @@ void mainFrame::socketBeginC2_Notify(wxSocketEvent& event)
 				std::string keyStr(buf, sizeRecv);
 				delete[] buf;
 
+				if (certifiedKeys.find(keyStr) == certifiedKeys.end())
+				{
+					int answer = wxMessageBox("I have never seen that public key before.Trust it?", "Confirm", wxYES_NO);
+					if (answer != wxYES)
+					{
+						socket->Close();
+						break;
+					}
+					else
+						certifiedKeys.emplace(keyStr);
+				}
+
 				user &item = users.emplace(nextID, user()).first->second;
 				userIDs.push_back(nextID);
 				item.uID = nextID;
@@ -550,7 +587,8 @@ void mainFrame::socketBeginC2_Notify(wxSocketEvent& event)
 				CryptoPP::StringSource keySource(keyStr, true);
 				item.e1.AccessPublicKey().Load(keySource);
 				listUser->Append(item.addr.IPAddress());
-				item.lock = new std::mutex;
+				if (listUser->GetSelection() == -1)
+					listUser->SetSelection(listUser->GetCount() - 1);
 
 				socket->SetEventHandler(*this, ID_SOCKETDATA);
 				socket->SetNotify(wxSOCKET_INPUT_FLAG | wxSOCKET_LOST_FLAG);
@@ -604,124 +642,12 @@ void mainFrame::socketData_Notify(wxSocketEvent& event)
 		{
 			case wxSOCKET_INPUT:
 			{
-				byte type;
-				con->Read(&type, sizeof(byte));
-				switch (type)
+				userList::iterator itr = users.begin(), itrEnd = users.end();
+				for (; itr != itrEnd; itr++)
 				{
-					case 1:
+					if (itr->second.con == con)
 					{
-						unsigned int sizeRecvLE;
-						con->Read(&sizeRecvLE, sizeof(unsigned int) / sizeof(char));
-						unsigned int sizeRecv = wxUINT32_SWAP_ON_BE(static_cast<unsigned int>(sizeRecvLE));
-
-						char *buf = new char[sizeRecv];
-						con->Read(buf, sizeRecv);
-						std::string str(buf, sizeRecv);
-						delete[] buf;
-
-						std::string ret;
-						userList::iterator itr = users.begin(), itrEnd = users.end();
-						for (; itr != itrEnd; itr++)
-						{
-							if (itr->second.con == con)
-							{
-								decrypt(str, ret);
-								break;
-							}
-						}
-						if (itr != itrEnd)
-						{
-							wxString msg = itr->second.addr.IPAddress() + ':' + wxConvUTF8.cMB2WC(ret.c_str()) + '\n';
-							itr->second.log.append(msg);
-							if (listUser->GetSelection() != -1)
-							{
-								std::list<int>::iterator itr2 = userIDs.begin();
-								for (int i = listUser->GetSelection(); i > 0; itr2++)i--;
-								if (itr->first == *itr2)
-									textMsg->AppendText(msg);
-								else
-									textInfo->AppendText("Received message from " + itr->second.addr.IPAddress() + "\n");
-							}
-						}
-
-						break;
-					}
-					case 2:
-					{
-						unsigned int recvLE;
-						con->Read(&recvLE, sizeof(unsigned int) / sizeof(char));
-						unsigned int blockCount = wxUINT32_SWAP_ON_BE(static_cast<unsigned int>(recvLE));
-
-						con->Read(&recvLE, sizeof(unsigned int) / sizeof(char));
-						unsigned int fNameLen = wxUINT32_SWAP_ON_BE(static_cast<unsigned int>(recvLE));
-
-						char *buf = new char[fNameLen];
-						con->Read(buf, fNameLen);
-						std::wstring fName;
-						{
-							size_t tmp;
-							wxWCharBuffer wbuf = wxConvUTF8.cMB2WC(buf, fNameLen, &tmp);
-							fName = std::wstring(wbuf, tmp);
-						}
-						delete[] buf;
-
-						userList::iterator itr = users.begin(), itrEnd = users.end();
-						for (; itr != itrEnd; itr++)
-							if (itr->second.con == con)
-								break;
-						if (itr != itrEnd)
-						{
-							if (fs::exists(fName))
-							{
-								int i;
-								for (i = 0; i < INT_MAX; i++)
-								{
-									if (!fs::exists(fs::path(fName + "_" + num2str(i))))
-										break;
-								}
-								if (i == INT_MAX)
-									throw(std::runtime_error("Failed to open file"));
-								fName = fName + "_" + num2str(i);
-							}
-							user &usr = itr->second;
-							usr.recvFile = wxConvLocal.cWC2MB(fName.c_str());
-							usr.blockLast = blockCount;
-							textInfo->AppendText("Receiving file " + fName + " from " + usr.addr.IPAddress() + "\n");
-						}
-
-						break;
-					}
-					case 3:
-					{
-						unsigned int recvLE;
-						con->Read(&recvLE, sizeof(unsigned int) / sizeof(char));
-						unsigned int recvLen = wxUINT32_SWAP_ON_BE(static_cast<unsigned int>(recvLE));
-
-						char *buf = new char[recvLen];
-						con->Read(buf, recvLen);
-						std::string data;
-						decrypt(std::string(buf, recvLen), data);
-						delete[] buf;
-
-						userList::iterator itr = users.begin(), itrEnd = users.end();
-						for (; itr != itrEnd; itr++)
-							if (itr->second.con == con)
-								break;
-						if (itr != itrEnd)
-						{
-							user &usr = itr->second;
-							if (usr.blockLast > 0)
-							{
-								std::ofstream fout(usr.recvFile, std::ios::out | std::ios::binary | std::ios::app);
-								fout.write(data.c_str(), data.size());
-								fout.close();
-								usr.blockLast--;
-								(*textInfo) << usr.recvFile << ":" << usr.blockLast << " block(s) last" << '\n';
-								if (usr.blockLast == 0)
-									usr.recvFile.clear();
-							}
-						}
-
+						threadRecv->taskQue.Post(itr->first);
 						break;
 					}
 				}
@@ -734,8 +660,6 @@ void mainFrame::socketData_Notify(wxSocketEvent& event)
 					if (itr->second.con == con)
 					{
 						onDelID = itr->second.uID;
-						std::mutex *lock = itr->second.lock;
-						lock->lock();
 						wxIPV4address localAddr;
 						con->GetLocal(localAddr);
 						freePort(localAddr.Service());
@@ -748,13 +672,6 @@ void mainFrame::socketData_Notify(wxSocketEvent& event)
 						listUser->Delete(i);
 						userIDs.erase(itr2);
 						users.erase(itr);
-						lock->unlock();
-						for (int i = 0; i < 3; i++)
-						{
-							while (!lock->try_lock());
-							lock->unlock();
-						}
-						delete lock;
 						break;
 					}
 				}
@@ -770,7 +687,43 @@ void mainFrame::socketData_Notify(wxSocketEvent& event)
 
 void mainFrame::thread_Message(wxThreadEvent& event)
 {
-	textInfo->AppendText(event.GetString());
+	int uID = event.GetInt();
+	if (uID == -1)
+		textInfo->AppendText(event.GetString());
+	else
+	{
+		user &usr = users[uID];
+		wxString msg = event.GetString();
+		usr.log.append(msg);
+		if (listUser->GetSelection() != -1)
+		{
+			std::list<int>::iterator itr2 = userIDs.begin();
+			for (int i = listUser->GetSelection(); i > 0; itr2++)i--;
+			if (uID == *itr2)
+				textMsg->AppendText(msg);
+			else
+				textInfo->AppendText("Received message from " + usr.addr.IPAddress() + "\n");
+		}
+		else
+			textInfo->AppendText("Received message from " + usr.addr.IPAddress() + "\n");
+	}
+}
+
+void mainFrame::mainFrame_Close(wxCloseEvent& event)
+{
+	try
+	{
+		threadPing->Delete();
+		threadSend->Delete();
+		threadMsgSend->Delete();
+		threadFileSend->Delete();
+		threadRecv->Delete();
+	}
+	catch (std::exception ex)
+	{
+		wxMessageBox(ex.what(), wxT("Error"), wxOK | wxICON_ERROR);
+	}
+	wxFrame::OnCloseWindow(event);
 }
 
 IMPLEMENT_APP(MyApp)
@@ -782,9 +735,31 @@ bool MyApp::OnInit()
 		for (int i = 5001; i <= 10000; i++)
 			ports.push_back(i);
 		std::srand(std::time(NULL));
+
+		if (fs::exists(privatekeyFile))
+			initKey();
+		else
+			genKey();
+
+		if (fs::exists(publickeysFile))
+		{
+			unsigned int pubCount = 0, keyLen = 0;
+			std::ifstream publicIn(publickeysFile, std::ios_base::in | std::ios_base::binary);
+			publicIn.read(reinterpret_cast<char*>(&pubCount), sizeof(unsigned int) / sizeof(char));
+			for (; pubCount > 0; pubCount--)
+			{
+				publicIn.read(reinterpret_cast<char*>(&keyLen), sizeof(unsigned int) / sizeof(char));
+				char *buf = new char[keyLen];
+				publicIn.read(buf, keyLen);
+				certifiedKeys.emplace(std::string(buf, keyLen));
+				delete[] buf;
+			}
+		}
+
 		e0str = getPublicKey();
 		unsigned short e0len = wxUINT16_SWAP_ON_BE(static_cast<unsigned short>(e0str.size()));
 		e0str = std::string(reinterpret_cast<const char*>(&e0len), sizeof(unsigned short) / sizeof(char)) + e0str;
+
 		form = new mainFrame(wxT("Messenger"));
 		form->Show();
 	}
@@ -801,31 +776,22 @@ int MyApp::OnExit()
 {
 	try
 	{
-		for (userList::iterator itr = users.begin(), itrEnd = users.end(); itr != itrEnd; itr++)
+		unsigned int pubCount = certifiedKeys.size(), keyLen = 0;
+		std::ofstream publicIn(publickeysFile, std::ios_base::out | std::ios_base::binary);
+		publicIn.write(reinterpret_cast<char*>(&pubCount), sizeof(unsigned int) / sizeof(char));
+
+		std::unordered_set<std::string>::iterator itr = certifiedKeys.begin(), itrEnd = certifiedKeys.end();
+		for (; itr != itrEnd; itr++)
 		{
-			onDelID = itr->second.uID;
-			std::mutex *lock = itr->second.lock;
-			lock->lock();
-			user &usr = itr->second;
-			wxIPV4address localAddr;
-			usr.con->GetLocal(localAddr);
-			freePort(localAddr.Service());
-			usr.con->Destroy();
-			lock->unlock();
-			for (int i = 0; i < 3; i++)
-			{
-				while (!lock->try_lock());
-				lock->unlock();
-			}
-			delete lock;
+			keyLen = static_cast<unsigned int>(itr->size());
+			publicIn.write(reinterpret_cast<char*>(&keyLen), sizeof(unsigned int) / sizeof(char));
+			publicIn.write(itr->data(), keyLen);
 		}
-		threadMsgSend->Delete();
-		threadFileSend->Delete();
-		threadPing->Delete();
 	}
 	catch (...)
 	{
 		return 1;
 	}
+
 	return 0;
 }

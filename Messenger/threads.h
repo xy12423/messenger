@@ -11,36 +11,69 @@ protected:
 	ExitCode Entry();
 };
 
-struct msgTask
+struct sendTask
 {
-	msgTask(){ uID = -1; }
-	msgTask(int _uID, std::string &_msg){ uID = _uID; msg = _msg; }
+	sendTask(){ uID = -1; }
+	sendTask(int _uID, const std::string &_data, const wxString &_msg) :
+		data(_data), msg(_msg)
+	{ uID = _uID; }
 	int uID;
-	std::string msg;
+	std::string data;
+	wxString msg;
 };
 
-class msgThread :public wxThread
+class sendThread :public wxThread
 {
 public:
-	msgThread() : wxThread(wxTHREAD_DETACHED){};
-	wxMessageQueue<msgTask> taskQue;
+	sendThread() : wxThread(wxTHREAD_DETACHED){};
+	wxMessageQueue<sendTask> taskQue;
 protected:
 	ExitCode Entry();
 };
 
-struct fileTask
+struct msgSendTask
 {
-	fileTask(){ uID = -1; }
-	fileTask(int _uID, const fs::path &_path){ uID = _uID; path = _path; }
+	msgSendTask(){ uID = -1; }
+	msgSendTask(int _uID, const std::string &_msg):
+		msg(_msg)
+	{ uID = _uID; }
+	int uID;
+	std::string msg;
+};
+
+class msgSendThread :public wxThread
+{
+public:
+	msgSendThread() : wxThread(wxTHREAD_DETACHED){};
+	wxMessageQueue<msgSendTask> taskQue;
+protected:
+	ExitCode Entry();
+};
+
+struct fileSendTask
+{
+	fileSendTask(){ uID = -1; }
+	fileSendTask(int _uID, const fs::path &_path):
+		path(_path)
+	{ uID = _uID; }
 	int uID;
 	fs::path path;
 };
 
-class fileThread :public wxThread
+class fileSendThread :public wxThread
 {
 public:
-	fileThread() : wxThread(wxTHREAD_DETACHED){};
-	wxMessageQueue<fileTask> taskQue;
+	fileSendThread() : wxThread(wxTHREAD_DETACHED){};
+	wxMessageQueue<fileSendTask> taskQue;
+protected:
+	ExitCode Entry();
+};
+
+class recvThread :public wxThread
+{
+public:
+	recvThread() : wxThread(wxTHREAD_DETACHED){};
+	wxMessageQueue<int> taskQue;
 protected:
 	ExitCode Entry();
 };

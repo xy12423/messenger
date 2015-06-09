@@ -44,6 +44,8 @@ public:
 	wxTextCtrl *textInfo;
 	void thread_Message(wxThreadEvent& event);
 
+	void mainFrame_Close(wxCloseEvent& event);
+
 	const int portListener = 4826, portConnect = 4827;
 
 	wxDECLARE_EVENT_TABLE();
