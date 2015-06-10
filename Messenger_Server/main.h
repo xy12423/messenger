@@ -7,6 +7,9 @@ class server;
 typedef std::deque<std::string> chat_message_queue;
 typedef std::shared_ptr<net::ip::tcp::socket> socket_ptr;
 
+enum modes{ RELAY, CENTER };
+extern modes mode;
+
 struct user
 {
 	enum group_type{ GUEST, USER, ADMIN };

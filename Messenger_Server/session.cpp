@@ -75,9 +75,12 @@ void pre_session::read_key()
 			CryptoPP::StringSource keySource(keyStr, true);
 			item.e1.AccessPublicKey().Load(keySource);
 
+			if (mode == CENTER)
+				newUser->send_message(username_msg);
+			else
+				srv->send_message(nullptr, "New user " + socket->remote_endpoint().address().to_string());
 			srv->join(newUser);
 			newUser->start();
-			newUser->send_message(username_msg);
 		}
 		srv->pre_session_over(shared_from_this());
 	});
@@ -255,7 +258,10 @@ void session::read_message(size_t size, std::string *read_msg)
 					read_msg->append(read_msg_buffer, length);
 					std::string msg;
 					decrypt(*read_msg, msg);
-					process_message(msg);
+					if (mode == CENTER)
+						process_message(msg);
+					else
+						srv->send_message(shared_from_this(), msg);
 				}
 				else
 				{
@@ -351,7 +357,7 @@ void session::read_fileheader(size_t size, std::string *read_msg)
 				if (!ec)
 				{
 					read_msg->append(read_msg_buffer, length);
-					if (state == LOGGED_IN)
+					if (mode != CENTER || state == LOGGED_IN)
 					{
 						std::string encrypted(read_msg->data() + sizeof(unsigned int) * 2, read_msg->size() - sizeof(unsigned int) * 2);
 						std::string fileName;
@@ -414,7 +420,7 @@ void session::read_fileblock(size_t size, std::string *read_msg)
 					read_msg->append(read_msg_buffer, length);
 					std::string msg;
 					decrypt(*read_msg, msg);
-					if (state == LOGGED_IN)
+					if (mode != CENTER || state == LOGGED_IN)
 						srv->send_fileblock(shared_from_this(), msg);
 					start();
 				}
