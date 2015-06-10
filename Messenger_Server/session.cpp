@@ -261,7 +261,10 @@ void session::read_message(size_t size, std::string *read_msg)
 					if (mode == CENTER)
 						process_message(msg);
 					else
+					{
 						srv->send_message(shared_from_this(), msg);
+						start();
+					}
 				}
 				else
 				{
@@ -366,8 +369,8 @@ void session::read_fileheader(size_t size, std::string *read_msg)
 						read_msg->erase(sizeof(unsigned int));
 						read_msg->append(fileName);
 						srv->send_fileheader(shared_from_this(), *read_msg);
-						start();
 					}
+					start();
 				}
 				else
 				{
