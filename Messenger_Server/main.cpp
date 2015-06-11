@@ -109,7 +109,7 @@ void server::send_message(std::shared_ptr<session> from, const std::string& msg)
 	sessionList::iterator itr = sessions.begin(), itrEnd = sessions.end();
 	for (; itr != itrEnd; itr++)
 		if (*itr != from && (mode != CENTER || (*itr)->get_state() == session::LOGGED_IN))
-			(*itr)->send_message(msg);
+			(*itr)->send_message(sendMsg);
 }
 
 void server::send_fileheader(std::shared_ptr<session> from, const std::string& data)
