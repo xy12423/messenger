@@ -166,8 +166,10 @@ fileSendThread::ExitCode fileSendThread::Entry()
 					head.insert(0, "\x02");
 					wxCharBuffer nameBuf = wxConvUTF8.cWC2MB(fileName.c_str());
 					std::string name(nameBuf, nameBuf.length());
-					insLen(name);
-					head.append(name);
+					std::string sendName;
+					encrypt(name, sendName, usr.e1);
+					insLen(sendName);
+					head.append(sendName);
 
 					checkIDT;
 					threadSend->taskQue.Post(sendTask(task.uID, head, "Sending file " + fileName + " To " + usr.addr.IPAddress() + '\n'));
@@ -296,7 +298,9 @@ recvThread::ExitCode recvThread::Entry()
 					std::wstring fName;
 					{
 						size_t tmp;
-						wxWCharBuffer wbuf = wxConvUTF8.cMB2WC(buf, fNameLen, &tmp);
+						std::string nameUTF8;
+						decrypt(std::string(buf, fNameLen), nameUTF8);
+						wxWCharBuffer wbuf = wxConvUTF8.cMB2WC(nameUTF8.c_str(), nameUTF8.size(), &tmp);
 						fName = std::wstring(wbuf, tmp);
 					}
 					delete[] buf;
