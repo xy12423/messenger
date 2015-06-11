@@ -13,6 +13,8 @@ net::io_service io_service;
 std::list<int> ports;
 extern std::string e0str;
 
+modes mode = CENTER;
+
 int newPort()
 {
 	if (ports.empty())
@@ -81,7 +83,7 @@ void server::leave(std::shared_ptr<session> _user)
 {
 	std::cout << "Delete user " << _user->get_address() << std::endl;
 	sessions.erase(_user);
-	if (_user->get_state() == session::LOGGED_IN)
+	if (mode != CENTER || _user->get_state() == session::LOGGED_IN)
 		send_message(nullptr, "Delete user " + _user->get_address());
 }
 
@@ -106,15 +108,15 @@ void server::send_message(std::shared_ptr<session> from, const std::string& msg)
 		sendMsg = msg;
 	sessionList::iterator itr = sessions.begin(), itrEnd = sessions.end();
 	for (; itr != itrEnd; itr++)
-		if (*itr != from && (*itr)->get_state() == session::LOGGED_IN)
-			(*itr)->send_message(msg);
+		if (*itr != from && (mode != CENTER || (*itr)->get_state() == session::LOGGED_IN))
+			(*itr)->send_message(sendMsg);
 }
 
 void server::send_fileheader(std::shared_ptr<session> from, const std::string& data)
 {
 	sessionList::iterator itr = sessions.begin(), itrEnd = sessions.end();
 	for (; itr != itrEnd; itr++)
-		if (*itr != from && (*itr)->get_state() == session::LOGGED_IN)
+		if (*itr != from && (mode != CENTER || (*itr)->get_state() == session::LOGGED_IN))
 			(*itr)->send_fileheader(data);
 }
 
@@ -122,7 +124,7 @@ void server::send_fileblock(std::shared_ptr<session> from, const std::string& bl
 {
 	sessionList::iterator itr = sessions.begin(), itrEnd = sessions.end();
 	for (; itr != itrEnd; itr++)
-		if (*itr != from && (*itr)->get_state() == session::LOGGED_IN)
+		if (*itr != from && (mode != CENTER || (*itr)->get_state() == session::LOGGED_IN))
 			(*itr)->send_fileblock(block);
 }
 
@@ -168,12 +170,12 @@ bool server::process_command(std::string command, user::group_type group)
 			if (itr == users.end())
 			{
 				users.emplace(section, user(section, hashed_passwd, user::USER));
+				io_service.post([this](){
+					write_config();
+				});
 				return true;
 			}
-
-			io_service.post([this](){
-				write_config();
-			});
+			return false;
 		}
 		else
 			return false;
@@ -184,13 +186,17 @@ bool server::process_command(std::string command, user::group_type group)
 		{
 			userList::iterator itr = users.find(command);
 			if (itr != users.end())
-				itr->second.group = user::ADMIN;
-			io_service.post([this](){
-				write_config();
-			});
+			{
+				users.erase(itr);
+				io_service.post([this](){
+					write_config();
+				});
+				return true;
+			}
+			return false;
 		}
-	else
-		return false;
+		else
+			return false;
 	}
 	else if (section == "stop")
 	{
@@ -252,12 +258,40 @@ void server::write_config()
 	});
 }
 
-int main()
+void print_usage()
+{
+	std::cout << "Usage:" << std::endl;
+	std::cout << "\tmessenger_server [mode=relay|center]" << std::endl;
+}
+
+int main(int argc, char *argv[])
 {
 #ifdef NDEBUG
 	try
 	{
 #endif
+		for (int i = 1; i < argc; i++)
+		{
+			std::string arg(argv[i]);
+			if (arg.substr(0, 5) == "mode=")
+			{
+				arg.erase(0, 5);
+				if (arg == "center" || arg == "centre")
+					mode = CENTER;
+				else if (arg == "relay")
+					mode = RELAY;
+				else
+				{
+					print_usage();
+					return 0;
+				}
+			}
+			else
+			{
+				print_usage();
+				return 0;
+			}
+		}
 		for (int i = 5001; i <= 10000; i++)
 			ports.push_back(i);
 		std::srand(static_cast<unsigned int>(std::time(NULL)));
