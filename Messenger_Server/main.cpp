@@ -112,20 +112,12 @@ void server::send_message(std::shared_ptr<session> from, const std::string& msg)
 			(*itr)->send_message(sendMsg);
 }
 
-void server::send_fileheader(std::shared_ptr<session> from, const std::string& data)
+void server::send(std::shared_ptr<session> from, const std::string& data)
 {
 	sessionList::iterator itr = sessions.begin(), itrEnd = sessions.end();
 	for (; itr != itrEnd; itr++)
 		if (*itr != from && (mode != CENTER || (*itr)->get_state() == session::LOGGED_IN))
-			(*itr)->send_fileheader(data);
-}
-
-void server::send_fileblock(std::shared_ptr<session> from, const std::string& block)
-{
-	sessionList::iterator itr = sessions.begin(), itrEnd = sessions.end();
-	for (; itr != itrEnd; itr++)
-		if (*itr != from && (mode != CENTER || (*itr)->get_state() == session::LOGGED_IN))
-			(*itr)->send_fileblock(block);
+			(*itr)->send(data);
 }
 
 bool server::process_command(std::string command, user::group_type group)
@@ -203,7 +195,8 @@ bool server::process_command(std::string command, user::group_type group)
 		if (group == user::ADMIN)
 		{
 			io_service.stop();
-			std::thread stop_thread([](){
+			std::thread stop_thread([this](){
+				while (!io_service.stopped());
 				std::exit(EXIT_SUCCESS);
 			});
 			stop_thread.detach();
