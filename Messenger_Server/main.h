@@ -107,10 +107,12 @@ public:
 	server(boost::asio::io_service& io_service,
 		const net::ip::tcp::endpoint& endpoint)
 		: io_service(io_service),
-		acceptor(io_service, endpoint)
+		acceptor(io_service, endpoint),
+		timer(io_service)
 	{
 		read_config();
 		start();
+		ping();
 	}
 
 	void send_message(std::shared_ptr<session> from, const std::string& msg);
@@ -128,12 +130,14 @@ public:
 private:
 	void start();
 	void accept(boost::system::error_code ec);
+	void ping();
 
 	const char* config_file = ".config";
 	void read_config();
 	void write_config();
 
-	boost::asio::io_service &io_service;
+	net::io_service &io_service;
+	net::deadline_timer timer;
 	socket_ptr accepting;
 	net::ip::tcp::acceptor acceptor;
 

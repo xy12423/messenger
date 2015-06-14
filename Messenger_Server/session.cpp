@@ -101,6 +101,8 @@ void session::send_message(const std::string& msg)
 
 void session::send(const std::string& data)
 {
+	if (data.empty())
+		return;
 	bool write_in_progress = !write_msgs.empty();
 	std::string write_msg;
 	encrypt(data, write_msg, e1);

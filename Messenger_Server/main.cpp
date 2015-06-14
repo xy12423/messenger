@@ -38,8 +38,7 @@ void server::start()
 	acceptor.async_accept(*accepting,
 		[this](boost::system::error_code ec){
 		accept(ec);
-	}
-	);
+	});
 }
 
 void server::accept(error_code ec)
@@ -71,6 +70,16 @@ void server::accept(error_code ec)
 	}
 
 	start();
+}
+
+void server::ping()
+{
+	timer.expires_from_now(boost::posix_time::seconds(5));
+	timer.async_wait([this](boost::system::error_code ec){
+		if (!ec)
+			send(nullptr, std::string("\0", 1));
+		ping();
+	});
 }
 
 void server::join(std::shared_ptr<session> _user)
