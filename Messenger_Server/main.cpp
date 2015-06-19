@@ -205,7 +205,6 @@ bool server::process_command(std::string command, user::group_type group)
 		{
 			io_service.stop();
 			std::thread stop_thread([this](){
-				while (!io_service.stopped());
 				std::exit(EXIT_SUCCESS);
 			});
 			stop_thread.detach();
