@@ -191,7 +191,8 @@ _Pvt_Extensions/
 ModelManifest.xml
 
 MessengerGUI/
-Messenger/.privatekey
-Messenger/.publickey
-Messenger_Server/.config
-Messenger_Server/.privatekey
+
+# Encryption keys
+.privatekey
+.publickey
+
