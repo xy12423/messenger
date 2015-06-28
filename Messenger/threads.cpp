@@ -67,8 +67,11 @@ sendThread::ExitCode sendThread::Entry()
 			checkID;
 			if (!task.data.empty())
 			{
+				std::string sendData;
+				encrypt(task.data, sendData, usr.e1);
+				insLen(sendData);
 				usr.con->WaitForWrite();
-				usr.con->Write(task.data.c_str(), task.data.size());
+				usr.con->Write(sendData.c_str(), sendData.size());
 			}
 			if (!task.msg.empty())
 			{
@@ -107,10 +110,8 @@ msgSendThread::ExitCode msgSendThread::Entry()
 			if (itr == users.end())
 				continue;
 			checkID;
-			user &usr = itr->second;
-			std::string sendMsg;
+			std::string sendMsg(task.msg);
 			checkID;
-			encrypt(task.msg, sendMsg, usr.e1);
 			insLen(sendMsg);
 			sendMsg.insert(0, "\x01");
 			threadSend->taskQue.Post(sendTask(task.uID, sendMsg, wxString()));
@@ -181,7 +182,7 @@ fileSendThread::ExitCode fileSendThread::Entry()
 					fin.read(block, fileBlockLen);
 					std::streamsize count = fin.gcount();
 					checkIDT;
-					encrypt(std::string(block, count), buf, usr.e1);
+					buf = std::string(block, count);
 					insLen(buf);
 					buf.insert(0, "\x03");
 					checkIDT;
@@ -220,12 +221,13 @@ fileSendThread::ExitCode fileSendThread::Entry()
 	return NULL;
 }
 
-#define checkErr if (con->Error()) throw(con->LastError())
+#define checkErr if (in.fail()) throw(wxSOCKET_TIMEDOUT)
 
 recvThread::ExitCode recvThread::Entry()
 {
 	while (!TestDestroy())
 	{
+		char *buf = NULL;
 		try
 		{
 			int uID;
@@ -241,57 +243,63 @@ recvThread::ExitCode recvThread::Entry()
 			checkIDP;
 
 			wxSocketBase *con = usr.con;
+			unsigned int sizePacketLE;
+			con->WaitForRead();
+			con->Read(&sizePacketLE, sizeof(unsigned int) / sizeof(char));
+			unsigned int sizePacket = wxUINT32_SWAP_ON_BE(static_cast<unsigned int>(sizePacketLE));
+
+			con->SetTimeout(30);
+			buf = new char[sizePacket];
+			con->WaitForRead();
+			con->Read(buf, sizePacket);
+
+			std::stringstream in;
+			{
+				std::string data;
+				decrypt(std::string(buf, sizePacket), data);
+				in.write(data.data(), data.size());
+			}
+			delete[] buf;
+			buf = NULL;
+
 			byte type;
-			con->Read(&type, sizeof(byte));
+			in.read(reinterpret_cast<char*>(&type), sizeof(byte));
 			switch (type)
 			{
 				case 1:
 				{
-					long timeout = con->GetTimeout();
-					con->SetTimeout(5);
-
 					unsigned int sizeRecvLE;
-					con->WaitForRead();
-					con->Read(&sizeRecvLE, sizeof(unsigned int) / sizeof(char));
+					in.read(reinterpret_cast<char*>(&sizeRecvLE), sizeof(unsigned int) / sizeof(char));
 					checkErr;
 					unsigned int sizeRecv = wxUINT32_SWAP_ON_BE(static_cast<unsigned int>(sizeRecvLE));
 
-					char *buf = new char[sizeRecv];
-					con->WaitForRead();
-					con->Read(buf, sizeRecv);
+					buf = new char[sizeRecv];
+					in.read(buf, sizeRecv);
 					checkErr;
 					std::string str(buf, sizeRecv);
 					delete[] buf;
-					std::string ret;
-					decrypt(str, ret);
+					buf = NULL;
 
 					wxThreadEvent *newEvent = new wxThreadEvent;
 					newEvent->SetInt(uID);
-					newEvent->SetString(usr.addr.IPAddress() + ':' + wxConvUTF8.cMB2WC(ret.c_str()) + '\n');
+					newEvent->SetString(usr.addr.IPAddress() + ':' + wxConvUTF8.cMB2WC(str.c_str()) + '\n');
 					wxQueueEvent(form, newEvent);
 
-					con->SetTimeout(timeout);
 					break;
 				}
 				case 2:
 				{
-					long timeout = con->GetTimeout();
-					con->SetTimeout(5);
-
 					unsigned int recvLE;
-					con->WaitForRead();
-					con->Read(&recvLE, sizeof(unsigned int) / sizeof(char));
+					in.read(reinterpret_cast<char*>(&recvLE), sizeof(unsigned int) / sizeof(char));
 					checkErr;
 					unsigned int blockCount = wxUINT32_SWAP_ON_BE(static_cast<unsigned int>(recvLE));
 
-					con->WaitForRead();
-					con->Read(&recvLE, sizeof(unsigned int) / sizeof(char));
+					in.read(reinterpret_cast<char*>(&recvLE), sizeof(unsigned int) / sizeof(char));
 					checkErr;
 					unsigned int fNameLen = wxUINT32_SWAP_ON_BE(static_cast<unsigned int>(recvLE));
 
-					char *buf = new char[fNameLen];
-					con->WaitForRead();
-					con->Read(buf, fNameLen);
+					buf = new char[fNameLen];
+					in.read(buf, fNameLen);
 					checkErr;
 					std::wstring fName;
 					{
@@ -300,6 +308,7 @@ recvThread::ExitCode recvThread::Entry()
 						fName = std::wstring(wbuf, tmp);
 					}
 					delete[] buf;
+					buf = NULL;
 
 					if (fs::exists(fName))
 					{
@@ -320,27 +329,21 @@ recvThread::ExitCode recvThread::Entry()
 					newEvent->SetString("Receiving file " + fName + " from " + usr.addr.IPAddress() + "\n");
 					wxQueueEvent(form, newEvent);
 
-					con->SetTimeout(timeout);
 					break;
 				}
 				case 3:
 				{
-					long timeout = con->GetTimeout();
-					con->SetTimeout(60);
-
 					unsigned int recvLE;
-					con->WaitForRead();
-					con->Read(&recvLE, sizeof(unsigned int) / sizeof(char));
+					in.read(reinterpret_cast<char*>(&recvLE), sizeof(unsigned int) / sizeof(char));
 					checkErr;
 					unsigned int recvLen = wxUINT32_SWAP_ON_BE(static_cast<unsigned int>(recvLE));
 
-					char *buf = new char[recvLen];
-					con->WaitForRead();
-					con->Read(buf, recvLen);
+					buf = new char[recvLen];
+					in.read(buf, recvLen);
 					checkErr;
-					std::string data;
-					decrypt(std::string(buf, recvLen), data);
+					std::string data(buf, recvLen);
 					delete[] buf;
+					buf = NULL;
 
 					if (usr.blockLast > 0)
 					{
@@ -356,7 +359,6 @@ recvThread::ExitCode recvThread::Entry()
 							usr.recvFile.clear();
 					}
 
-					con->SetTimeout(timeout);
 					break;
 				}
 			}
@@ -411,6 +413,14 @@ recvThread::ExitCode recvThread::Entry()
 			newEvent->SetInt(-1);
 			newEvent->SetString("Disconnected while receiving\n");
 			wxQueueEvent(form, newEvent);
+		}
+		catch (...)
+		{
+		}
+		try
+		{
+			if (buf != NULL)
+				delete[] buf;
 		}
 		catch (...)
 		{

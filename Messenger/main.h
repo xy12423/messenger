@@ -46,7 +46,7 @@ public:
 
 	void mainFrame_Close(wxCloseEvent& event);
 
-	const int portListener = 4826, portConnect = 4827;
+	const short portListener = 4826, portConnect = 4827;
 
 	wxDECLARE_EVENT_TABLE();
 };
