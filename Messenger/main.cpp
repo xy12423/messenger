@@ -254,7 +254,7 @@ void mainFrame::buttonSendFile_Click(wxCommandEvent& event)
 {
 	wxFileDialog fileDlg(this);
 	fileDlg.ShowModal();
-	std::wstring path = fileDlg.GetPath();
+	std::wstring path = fileDlg.GetPath().ToStdWstring();
 	if ((!path.empty()) && fs::exists(path))
 	{
 		if (listUser->GetSelection() != -1)

@@ -221,7 +221,7 @@ fileSendThread::ExitCode fileSendThread::Entry()
 	return NULL;
 }
 
-#define checkErr if (in.fail()) throw(wxSOCKET_TIMEDOUT)
+#define checkErr(x) if ((inItr + (x)) >= inItrEnd) throw(wxSOCKET_TIMEDOUT)
 
 recvThread::ExitCode recvThread::Entry()
 {
@@ -253,29 +253,31 @@ recvThread::ExitCode recvThread::Entry()
 			con->WaitForRead();
 			con->Read(buf, sizePacket);
 
-			std::stringstream in;
-			{
-				std::string data;
-				decrypt(std::string(buf, sizePacket), data);
-				in.write(data.data(), data.size());
-			}
+			std::string in;
+			const char *inItr = in.data(), *inItrEnd = in.data() + in.size();
+			decrypt(std::string(buf, sizePacket), in);
+			
 			delete[] buf;
 			buf = NULL;
 
 			byte type;
-			in.read(reinterpret_cast<char*>(&type), sizeof(byte));
+			*reinterpret_cast<char*>(&type) = *inItr;
+			inItr++;
+			in.erase(0, 1);
 			switch (type)
 			{
 				case 1:
 				{
 					unsigned int sizeRecvLE;
-					in.read(reinterpret_cast<char*>(&sizeRecvLE), sizeof(unsigned int) / sizeof(char));
-					checkErr;
+					checkErr(sizeof(unsigned int) / sizeof(char));
+					memcpy(reinterpret_cast<char*>(&sizeRecvLE), inItr, sizeof(unsigned int) / sizeof(char));
+					inItr += sizeof(unsigned int) / sizeof(char);
 					unsigned int sizeRecv = wxUINT32_SWAP_ON_BE(static_cast<unsigned int>(sizeRecvLE));
 
 					buf = new char[sizeRecv];
-					in.read(buf, sizeRecv);
-					checkErr;
+					checkErr(sizeRecv);
+					memcpy(buf, inItr, sizeRecv);
+					inItr += sizeRecv;
 					std::string str(buf, sizeRecv);
 					delete[] buf;
 					buf = NULL;
@@ -290,17 +292,20 @@ recvThread::ExitCode recvThread::Entry()
 				case 2:
 				{
 					unsigned int recvLE;
-					in.read(reinterpret_cast<char*>(&recvLE), sizeof(unsigned int) / sizeof(char));
-					checkErr;
+					checkErr(sizeof(unsigned int) / sizeof(char));
+					memcpy(reinterpret_cast<char*>(&recvLE), inItr, sizeof(unsigned int) / sizeof(char));
+					inItr += sizeof(unsigned int) / sizeof(char);
 					unsigned int blockCount = wxUINT32_SWAP_ON_BE(static_cast<unsigned int>(recvLE));
 
-					in.read(reinterpret_cast<char*>(&recvLE), sizeof(unsigned int) / sizeof(char));
-					checkErr;
+					checkErr(sizeof(unsigned int) / sizeof(char));
+					memcpy(reinterpret_cast<char*>(&recvLE), inItr, sizeof(unsigned int) / sizeof(char));
+					inItr += sizeof(unsigned int) / sizeof(char);
 					unsigned int fNameLen = wxUINT32_SWAP_ON_BE(static_cast<unsigned int>(recvLE));
 
 					buf = new char[fNameLen];
-					in.read(buf, fNameLen);
-					checkErr;
+					checkErr(fNameLen);
+					memcpy(buf, inItr, fNameLen);
+					inItr += fNameLen;
 					std::wstring fName;
 					{
 						size_t tmp;
@@ -334,13 +339,15 @@ recvThread::ExitCode recvThread::Entry()
 				case 3:
 				{
 					unsigned int recvLE;
-					in.read(reinterpret_cast<char*>(&recvLE), sizeof(unsigned int) / sizeof(char));
-					checkErr;
+					checkErr(sizeof(unsigned int) / sizeof(char));
+					memcpy(reinterpret_cast<char*>(&recvLE), inItr, sizeof(unsigned int) / sizeof(char));
+					inItr += sizeof(unsigned int) / sizeof(char);
 					unsigned int recvLen = wxUINT32_SWAP_ON_BE(static_cast<unsigned int>(recvLE));
 
 					buf = new char[recvLen];
-					in.read(buf, recvLen);
-					checkErr;
+					checkErr(recvLen);
+					memcpy(buf, inItr, recvLen);
+					inItr += recvLen;
 					std::string data(buf, recvLen);
 					delete[] buf;
 					buf = NULL;
