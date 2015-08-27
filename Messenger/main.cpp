@@ -28,8 +28,6 @@ wxEND_EVENT_TABLE()
 #define _GUI_SIZE_Y 540
 #endif
 
-mainFrame *form;
-
 fileSendThread *threadFileSend;
 
 server* srv;
@@ -193,6 +191,17 @@ void wx_srv_interface::on_leave(id_type id)
 	user_ext.erase(id);
 }
 
+void wx_srv_interface::on_unknown_key(id_type id, const std::string& key)
+{
+	if (frm == nullptr)
+		return;
+
+	wxThreadEvent *newEvent = new wxThreadEvent;
+	newEvent->SetInt(id);
+	newEvent->SetPayload<std::string>(key);
+	wxQueueEvent(frm, newEvent);
+}
+
 mainFrame::mainFrame(const wxString& title)
 	: wxFrame(NULL, ID_FRAME, title, wxDefaultPosition, wxSize(_GUI_SIZE_X, _GUI_SIZE_Y))
 {
@@ -346,7 +355,12 @@ void mainFrame::buttonSendFile_Click(wxCommandEvent& event)
 
 void mainFrame::thread_Message(wxThreadEvent& event)
 {
-	
+	id_type id = event.GetInt();
+	int answer = wxMessageBox(wxT("The public key from " + user_ext.at(id).addr + " hasn't shown before.Trust it?"), wxT("Confirm"), wxYES_NO);
+	if (answer != wxYES)
+		srv->disconnect(id);
+	else
+		srv->certify_key(event.GetPayload<std::string>());
 }
 
 void mainFrame::mainFrame_Close(wxCloseEvent& event)

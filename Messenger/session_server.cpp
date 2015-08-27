@@ -7,8 +7,6 @@ using boost::system::error_code;
 const char* privatekeyFile = ".privatekey";
 const char* publickeysFile = ".publickey";
 
-net::io_service io_service;
-
 int newPort(std::list<int> &ports)
 {
 	if (ports.empty())

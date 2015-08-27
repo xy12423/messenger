@@ -73,7 +73,7 @@ public:
 	virtual void on_join(id_type id);
 	virtual void on_leave(id_type id);
 
-	virtual void on_unknown_key(id_type id) {};
+	virtual void on_unknown_key(id_type id, const std::string& key);
 
 	void set_frame(mainFrame *_frm) { frm = _frm; }
 private:
@@ -86,6 +86,8 @@ class MyApp : public wxApp
 public:
 	virtual bool OnInit();
 	virtual int OnExit();
+private:
+	mainFrame *form;
 };
 
 #endif

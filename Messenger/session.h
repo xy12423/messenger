@@ -142,7 +142,7 @@ public:
 	virtual void on_join(id_type id) = 0;
 	virtual void on_leave(id_type id) = 0;
 
-	virtual void on_unknown_key(id_type id) = 0;
+	virtual void on_unknown_key(id_type id, const std::string& key) = 0;
 };
 
 class server
@@ -188,7 +188,7 @@ public:
 	const session_ptr& get_session(id_type id) { return sessions.at(id); }
 	const std::string& get_public_key() { return e0str; }
 
-	void check_key(id_type id, const std::string& key) { if (certifiedKeys.find(key) == certifiedKeys.end()) inter->on_unknown_key(id); }
+	void check_key(id_type id, const std::string& key) { if (certifiedKeys.find(key) == certifiedKeys.end()) inter->on_unknown_key(id, key); }
 	void certify_key(const std::string& key) { certifiedKeys.emplace(key); }
 private:
 	void start();
