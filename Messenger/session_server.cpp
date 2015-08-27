@@ -1,4 +1,5 @@
 #include "stdafx.h"
+#include "global.h"
 #include "crypto.h"
 #include "session.h"
 
@@ -19,7 +20,7 @@ int newPort(std::list<int> &ports)
 	return port;
 }
 
-void freePort(std::list<int> &ports, unsigned short port)
+void freePort(std::list<int> &ports, port_type port)
 {
 	ports.push_back(port);
 }
@@ -53,8 +54,8 @@ void server::accept(error_code ec)
 			pre_sessions.emplace(pre_session_s_ptr);
 
 			socket_ptr accepted(accepting);
-			unsigned short port_send = static_cast<unsigned short>(port);
-			const int send_size = sizeof(unsigned short) / sizeof(char);
+			port_type port_send = static_cast<port_type>(port);
+			const int send_size = sizeof(port_type);
 			char* send_buf = new char[send_size];
 			memcpy(send_buf, reinterpret_cast<char*>(&port_send), send_size);
 			net::async_write(*accepted,
@@ -127,7 +128,7 @@ void server::connect(const std::string &addr_str)
 		new_socket->async_connect(remote_endpoint, [this, new_socket, addr, local_port](const boost::system::error_code& ec) {
 			if (!ec)
 			{
-				const int port_size = sizeof(unsigned short) / sizeof(char);
+				const int port_size = sizeof(port_type);
 				char* remote_port_buf = new char[port_size];
 				net::async_read(*new_socket,
 					net::buffer(remote_port_buf, port_size),
@@ -141,7 +142,7 @@ void server::connect(const std::string &addr_str)
 					}
 					else
 					{
-						net::ip::tcp::endpoint remote_endpoint_new(addr, *reinterpret_cast<unsigned short*>(remote_port_buf));
+						net::ip::tcp::endpoint remote_endpoint_new(addr, *reinterpret_cast<port_type*>(remote_port_buf));
 						std::shared_ptr<pre_session_c> pre_session_c_ptr(std::make_shared<pre_session_c>(local_port, remote_endpoint_new, this, io_service));
 						pre_session_c_ptr->start();
 						pre_sessions.emplace(pre_session_c_ptr);
@@ -174,12 +175,12 @@ void server::read_data()
 
 	if (fs::exists(publickeysFile))
 	{
-		unsigned int pubCount = 0, keyLen = 0;
+		size_t pubCount = 0, keyLen = 0;
 		std::ifstream publicIn(publickeysFile, std::ios_base::in | std::ios_base::binary);
-		publicIn.read(reinterpret_cast<char*>(&pubCount), sizeof(unsigned int) / sizeof(char));
+		publicIn.read(reinterpret_cast<char*>(&pubCount), sizeof(size_t));
 		for (; pubCount > 0; pubCount--)
 		{
-			publicIn.read(reinterpret_cast<char*>(&keyLen), sizeof(unsigned int) / sizeof(char));
+			publicIn.read(reinterpret_cast<char*>(&keyLen), sizeof(size_t));
 			char *buf = new char[keyLen];
 			publicIn.read(buf, keyLen);
 			certifiedKeys.emplace(std::string(buf, keyLen));
@@ -188,21 +189,21 @@ void server::read_data()
 	}
 
 	e0str = getPublicKey();
-	unsigned short e0len = wxUINT16_SWAP_ON_BE(static_cast<unsigned short>(e0str.size()));
-	e0str = std::string(reinterpret_cast<const char*>(&e0len), sizeof(unsigned short) / sizeof(char)) + e0str;
+	key_length_type e0len = boost::endian::native_to_little<key_length_type>(static_cast<key_length_type>(e0str.size()));
+	e0str = std::string(reinterpret_cast<const char*>(&e0len), sizeof(key_length_type)) + e0str;
 }
 
 void server::write_data()
 {
-	unsigned int pubCount = certifiedKeys.size(), keyLen = 0;
+	size_t pubCount = certifiedKeys.size(), keyLen = 0;
 	std::ofstream publicIn(publickeysFile, std::ios_base::out | std::ios_base::binary);
-	publicIn.write(reinterpret_cast<char*>(&pubCount), sizeof(unsigned int) / sizeof(char));
+	publicIn.write(reinterpret_cast<char*>(&pubCount), sizeof(size_t));
 
 	std::unordered_set<std::string>::iterator itr = certifiedKeys.begin(), itrEnd = certifiedKeys.end();
 	for (; itr != itrEnd; itr++)
 	{
-		keyLen = static_cast<unsigned int>(itr->size());
-		publicIn.write(reinterpret_cast<char*>(&keyLen), sizeof(unsigned int) / sizeof(char));
+		keyLen = static_cast<size_t>(itr->size());
+		publicIn.write(reinterpret_cast<char*>(&keyLen), sizeof(size_t));
 		publicIn.write(itr->data(), keyLen);
 	}
 }

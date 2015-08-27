@@ -3,7 +3,7 @@
 #ifndef _H_SESSION
 #define _H_SESSION
 
-typedef unsigned short port_type;
+typedef uint16_t port_type;
 const port_type portListener = 4826, portConnect = 4827;
 typedef int id_type;
 
@@ -34,7 +34,7 @@ protected:
 	void read_key_header();
 	void read_key();
 
-	unsigned short key_length;
+	key_length_type key_length;
 	char *key_buffer;
 
 	net::io_service &io_service;

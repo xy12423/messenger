@@ -39,15 +39,15 @@ fileSendThread::ExitCode fileSendThread::Entry()
 			std::ifstream fin(task.path.string(), std::ios::in | std::ios::binary);
 			if (fin.is_open())
 			{
-				unsigned int blockCountAll = static_cast<unsigned int>(fs::file_size(task.path));
+				data_length_type blockCountAll = static_cast<data_length_type>(fs::file_size(task.path));
 				if (blockCountAll % fileBlockLen == 0)
 					blockCountAll /= fileBlockLen;
 				else
 					blockCountAll = blockCountAll / fileBlockLen + 1;
 				std::wstring fileName = task.path.leaf().wstring();
 				{
-					unsigned int lenSend = wxUINT32_SWAP_ON_BE(blockCountAll);
-					std::string head(reinterpret_cast<const char*>(&blockCountAll), sizeof(unsigned int) / sizeof(char));
+					data_length_type lenSend = wxUINT32_SWAP_ON_BE(blockCountAll);
+					std::string head(reinterpret_cast<const char*>(&blockCountAll), sizeof(data_length_type));
 					head.insert(0, "\x02");
 					wxCharBuffer nameBuf = wxConvUTF8.cWC2MB(fileName.c_str());
 					std::string name(nameBuf, nameBuf.length());

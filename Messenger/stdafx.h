@@ -3,6 +3,7 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#include <cstdint>
 #include <cstring>
 #include <cctype>
 #include <climits>
@@ -20,6 +21,7 @@
 
 #include <boost/filesystem.hpp>
 #include <boost/asio.hpp>
+#include <boost/endian/conversion.hpp>
 namespace fs = boost::filesystem;
 namespace net = boost::asio;
 

@@ -37,17 +37,17 @@ net::io_service main_io_service;
 iosrvThread *threadNetwork;
 
 #define checkErr(x) if (dataItr + (x) > dataEnd) throw(0)
-#define read_uint(x)											\
-	checkErr(size_uint);										\
-	memcpy(reinterpret_cast<char*>(&(x)), dataItr, size_uint);	\
-	dataItr += size_uint
+#define read_uint(x)												\
+	checkErr(size_length);											\
+	memcpy(reinterpret_cast<char*>(&(x)), dataItr, size_length);	\
+	dataItr += size_length
 
 void wx_srv_interface::on_data(id_type id, const std::string &data)
 {
 	try
 	{
+		const size_t size_length = sizeof(data_length_type);
 		const char *dataItr = data.data(), *dataEnd = data.data() + data.size();
-		const size_t size_uint = sizeof(unsigned int) / sizeof(char);
 		user_ext_data &usr = user_ext.at(id);
 
 		byte type;
@@ -61,7 +61,7 @@ void wx_srv_interface::on_data(id_type id, const std::string &data)
 				if (frm == nullptr)
 					throw(0);
 
-				unsigned int sizeRecv;
+				data_length_type sizeRecv;
 				read_uint(sizeRecv);
 
 				checkErr(sizeRecv);
@@ -87,12 +87,12 @@ void wx_srv_interface::on_data(id_type id, const std::string &data)
 			}
 			case 2:
 			{
-				unsigned int recvLE;
+				data_length_type recvLE;
 				read_uint(recvLE);
-				unsigned int blockCount = wxUINT32_SWAP_ON_BE(static_cast<unsigned int>(recvLE));
+				data_length_type blockCount = wxUINT32_SWAP_ON_BE(static_cast<data_length_type>(recvLE));
 
 				read_uint(recvLE);
-				unsigned int fNameLen = wxUINT32_SWAP_ON_BE(static_cast<unsigned int>(recvLE));
+				data_length_type fNameLen = wxUINT32_SWAP_ON_BE(static_cast<data_length_type>(recvLE));
 
 				std::wstring fName;
 				{
@@ -123,9 +123,9 @@ void wx_srv_interface::on_data(id_type id, const std::string &data)
 			}
 			case 3:
 			{
-				unsigned int recvLE;
+				data_length_type recvLE;
 				read_uint(recvLE);
-				unsigned int recvLen = wxUINT32_SWAP_ON_BE(static_cast<unsigned int>(recvLE));
+				data_length_type recvLen = wxUINT32_SWAP_ON_BE(static_cast<data_length_type>(recvLE));
 
 				checkErr(recvLen);
 

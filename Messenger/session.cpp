@@ -7,8 +7,8 @@
 void pre_session::read_key_header()
 {
 	net::async_read(*socket,
-		net::buffer(reinterpret_cast<char*>(&(this->key_length)), sizeof(unsigned short) / sizeof(char)),
-		net::transfer_at_least(sizeof(unsigned short) / sizeof(char)),
+		net::buffer(reinterpret_cast<char*>(&(this->key_length)), sizeof(key_length_type)),
+		net::transfer_at_least(sizeof(key_length_type)),
 		[this](boost::system::error_code ec, std::size_t length)
 	{
 		if (ec)
@@ -173,13 +173,13 @@ void session::send(const std::string& data, const std::wstring& message)
 void session::read_header()
 {
 	net::async_read(*socket,
-		net::buffer(read_msg_buffer, 4),
-		net::transfer_at_least(4),
+		net::buffer(read_msg_buffer, sizeof(data_length_type)),
+		net::transfer_at_least(sizeof(data_length_type)),
 		[this](boost::system::error_code ec, std::size_t length)
 	{
 		if (!ec)
 		{
-			unsigned int sizeRecv = *(reinterpret_cast<unsigned int*>(read_msg_buffer));
+			data_length_type sizeRecv = *(reinterpret_cast<data_length_type*>(read_msg_buffer));
 			read_data(sizeRecv, std::make_shared<std::string>());
 		}
 		else
