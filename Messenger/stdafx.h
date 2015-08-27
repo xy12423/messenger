@@ -19,7 +19,9 @@
 #include <mutex>
 
 #include <boost/filesystem.hpp>
+#include <boost/asio.hpp>
 namespace fs = boost::filesystem;
+namespace net = boost::asio;
 
 #include <cryptopp/cryptlib.h>
 #include <cryptopp/osrng.h>
@@ -34,7 +36,6 @@ namespace fs = boost::filesystem;
 #	include <wx/wx.h>
 #endif
 #include <wx/msgqueue.h>
-#include <wx/socket.h>
 #include <wx/file.h>
 #ifdef _MSC_VER
 #	ifdef _DEBUG

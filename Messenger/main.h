@@ -5,6 +5,27 @@
 
 #include "threads.h"
 
+class textStream : public std::streambuf
+{
+public:
+	textStream(wxTextCtrl *_text) { text = _text; }
+
+protected:
+	int_type overflow(int_type c)
+	{
+		buf.push_back(c);
+		if (c == '\n')
+		{
+			text->AppendText(buf);
+			buf.clear();
+		}
+		return c;
+	}
+private:
+	wxTextCtrl *text;
+	std::string buf;
+};
+
 class mainFrame : public wxFrame
 {
 public:
@@ -31,24 +52,33 @@ public:
 	void buttonSend_Click(wxCommandEvent& event);
 	void buttonSendFile_Click(wxCommandEvent& event);
 
-	wxSocketServer *socketListener;
-	void socketListener_Notify(wxSocketEvent& event);
-	void socketBeginC1_Notify(wxSocketEvent& event);
-	void socketBeginC2_Notify(wxSocketEvent& event);
-	void socketBeginS1_Notify(wxSocketEvent& event);
-	void socketBeginS2_Notify(wxSocketEvent& event);
-	void socketData_Notify(wxSocketEvent& event);
-	void newReq();
-	void newCon(wxIPV4address addr);
-
-	wxTextCtrl *textInfo;
 	void thread_Message(wxThreadEvent& event);
 
 	void mainFrame_Close(wxCloseEvent& event);
 
-	const short portListener = 4826, portConnect = 4827;
+	wxTextCtrl *textInfo;
+	textStream *textStrm;
+	std::streambuf *cout_orig, *cerr_orig;
+
+	std::list<int> userIDs;
 
 	wxDECLARE_EVENT_TABLE();
+};
+
+class wx_srv_interface :public server_interface
+{
+public:
+	virtual void on_data(id_type id, const std::string &data);
+
+	virtual void on_join(id_type id);
+	virtual void on_leave(id_type id);
+
+	virtual void on_unknown_key(id_type id) {};
+
+	void set_frame(mainFrame *_frm) { frm = _frm; }
+private:
+	std::unordered_set<iosrvThread*> threads;
+	mainFrame *frm;
 };
 
 class MyApp : public wxApp
