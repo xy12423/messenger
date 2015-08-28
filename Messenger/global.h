@@ -3,22 +3,17 @@
 #ifndef _H_GLOB
 #define _H_GLOB
 
-struct user
+struct user_ext_data
 {
-	user(){ blockLast = -1; }
-	int uID;
-	wxIPV4address addr;
-	wxSocketBase *con;
-	CryptoPP::ECIES<CryptoPP::ECP>::Encryptor e1;
-
+	std::wstring addr;
 	wxString log;
 
 	std::string recvFile;
 	int blockLast;
 };
-typedef std::unordered_map<int, user> userList;
 
+typedef uint16_t key_length_type;
+typedef uint32_t data_length_type;
 void insLen(std::string &data);
-std::string num2str(long long n);
 
 #endif

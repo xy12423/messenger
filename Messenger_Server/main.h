@@ -7,6 +7,9 @@ class server;
 typedef std::deque<std::string> chat_message_queue;
 typedef std::shared_ptr<net::ip::tcp::socket> socket_ptr;
 
+enum modes{ RELAY, CENTER };
+extern modes mode;
+
 struct user
 {
 	enum group_type{ GUEST, USER, ADMIN };
@@ -71,22 +74,17 @@ public:
 
 	void start();
 	void send_message(const std::string& msg);
-	void send_fileheader(const std::string& data);
-	void send_fileblock(const std::string& block);
+	void send(const std::string& data);
 	std::string get_address(){ return socket->remote_endpoint().address().to_string(); }
 	session_state get_state(){ return state; }
 
 	friend class pre_session;
 private:
 	void read_header();
-	void read_message_header();
-	void read_fileheader_header();
-	void read_fileblock_header();
-	void read_message(size_t size, std::string *read_msg);
-	void read_fileheader(size_t size, std::string *read_msg);
-	void read_fileblock(size_t size, std::string *read_msg);
+	void read_data(size_t sizeLast, std::shared_ptr<std::string> buf);
 	void write();
 
+	void process_data(const std::string &data);
 	void process_message(const std::string &originMsg);
 
 	socket_ptr socket;
@@ -109,15 +107,16 @@ public:
 	server(boost::asio::io_service& io_service,
 		const net::ip::tcp::endpoint& endpoint)
 		: io_service(io_service),
-		acceptor(io_service, endpoint)
+		acceptor(io_service, endpoint),
+		timer(io_service)
 	{
 		read_config();
 		start();
+		ping();
 	}
 
 	void send_message(std::shared_ptr<session> from, const std::string& msg);
-	void send_fileheader(std::shared_ptr<session> from, const std::string& data);
-	void send_fileblock(std::shared_ptr<session> from, const std::string& block);
+	void send(std::shared_ptr<session> from, const std::string& data);
 	void pre_session_over(std::shared_ptr<pre_session> _pre){ pre_sessions.erase(_pre); }
 	void join(std::shared_ptr<session> _user);
 	void leave(std::shared_ptr<session> _user);
@@ -131,12 +130,14 @@ public:
 private:
 	void start();
 	void accept(boost::system::error_code ec);
+	void ping();
 
 	const char* config_file = ".config";
 	void read_config();
 	void write_config();
 
-	boost::asio::io_service &io_service;
+	net::io_service &io_service;
+	net::deadline_timer timer;
 	socket_ptr accepting;
 	net::ip::tcp::acceptor acceptor;
 

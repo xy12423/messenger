@@ -75,9 +75,12 @@ void pre_session::read_key()
 			CryptoPP::StringSource keySource(keyStr, true);
 			item.e1.AccessPublicKey().Load(keySource);
 
+			if (mode == CENTER)
+				newUser->send_message(username_msg);
+			else
+				srv->send_message(nullptr, "New user " + socket->remote_endpoint().address().to_string());
 			srv->join(newUser);
 			newUser->start();
-			newUser->send_message(username_msg);
 		}
 		srv->pre_session_over(shared_from_this());
 	});
@@ -90,37 +93,20 @@ void session::start()
 
 void session::send_message(const std::string& msg)
 {
-	bool write_in_progress = !write_msgs.empty();
-	std::string write_msg;
-	encrypt(msg, write_msg, e1);
-	insLen(write_msg);
-	write_msg.insert(0, "\x01");
-	write_msgs.push_back(write_msg);
-	if (!write_in_progress)
-	{
-		write();
-	}
+	std::string send_msg(msg);
+	insLen(send_msg);
+	send_msg.insert(0, "\x01");
+	send(send_msg);
 }
 
-void session::send_fileheader(const std::string& data)
+void session::send(const std::string& data)
 {
-	bool write_in_progress = !write_msgs.empty();
-	std::string write_msg(data);
-	write_msg.insert(0, "\x02");
-	write_msgs.push_back(write_msg);
-	if (!write_in_progress)
-	{
-		write();
-	}
-}
-
-void session::send_fileblock(const std::string& block)
-{
+	if (data.empty())
+		return;
 	bool write_in_progress = !write_msgs.empty();
 	std::string write_msg;
-	encrypt(block, write_msg, e1);
+	encrypt(data, write_msg, e1);
 	insLen(write_msg);
-	write_msg.insert(0, "\x03");
 	write_msgs.push_back(write_msg);
 	if (!write_in_progress)
 	{
@@ -131,270 +117,130 @@ void session::send_fileblock(const std::string& block)
 void session::read_header()
 {
 	boost::asio::async_read(*socket,
-		boost::asio::buffer(read_msg_buffer, 1),
-		boost::asio::transfer_at_least(1),
+		boost::asio::buffer(read_msg_buffer, 4),
+		boost::asio::transfer_at_least(4),
 		[this](boost::system::error_code ec, std::size_t length)
 	{
 		if (!ec)
 		{
-			switch (read_msg_buffer[0])
+			unsigned int sizeRecv = *(reinterpret_cast<unsigned int*>(read_msg_buffer));
+			read_data(sizeRecv, std::make_shared<std::string>());
+		}
+		else
+		{
+			srv->leave(shared_from_this());
+		}
+	});
+}
+
+void session::read_data(size_t sizeLast, std::shared_ptr<std::string> buf)
+{
+	try
+	{
+		if (sizeLast > msg_buffer_size)
+		{
+			boost::asio::async_read(*socket,
+				boost::asio::buffer(read_msg_buffer, msg_buffer_size),
+				boost::asio::transfer_at_least(msg_buffer_size),
+				[this, sizeLast, buf](boost::system::error_code ec, std::size_t length)
 			{
-				case 1:
-					read_message_header();
-					break;
-				case 2:
-					read_fileheader_header();
-					break;
-				case 3:
-					read_fileblock_header();
-					break;
-				default:
-					start();
+				if (!ec)
+				{
+					buf->append(read_msg_buffer, length);
+					read_data(sizeLast - length, buf);
+				}
+				else
+				{
+					srv->leave(shared_from_this());
+				}
+			});
+		}
+		else
+		{
+			boost::asio::async_read(*socket,
+				boost::asio::buffer(read_msg_buffer, sizeLast),
+				boost::asio::transfer_at_least(sizeLast),
+				[this, buf](boost::system::error_code ec, std::size_t length)
+			{
+				if (!ec)
+				{
+					buf->append(read_msg_buffer, length);
+					std::string msg;
+					decrypt(*buf, msg);
+					process_data(msg);
+				}
+				else
+				{
+					srv->leave(shared_from_this());
+				}
+			});
+		}
+	}
+	catch (std::runtime_error ex)
+	{
+		std::cerr << ex.what() << std::endl;
+		srv->leave(shared_from_this());
+	}
+}
+
+#define checkErr if (in.fail()) throw(0)
+
+void session::process_data(const std::string &data)
+{
+	char *buf = NULL;
+	try
+	{
+		std::stringstream in;
+		in.write(data.data(), data.size());
+
+		byte type;
+		in.read(reinterpret_cast<char*>(&type), sizeof(byte));
+		switch (type)
+		{
+			case 0:
+				break;
+			case 1:
+			{
+				unsigned int sizeRecv;
+				in.read(reinterpret_cast<char*>(&sizeRecv), sizeof(unsigned int) / sizeof(char));
+				checkErr;
+
+				buf = new char[sizeRecv];
+				in.read(buf, sizeRecv);
+				std::string str(buf, sizeRecv);
+				delete[] buf;
+				buf = NULL;
+
+				if (mode == CENTER)
+					process_message(str);
+				else
+					srv->send_message(shared_from_this(), str);
+
+				break;
+			}
+			default:
+			{
+				if (mode == RELAY)
+					srv->send(shared_from_this(), std::string(data.data() + 1, data.size() - 1));
 			}
 		}
-		else
-		{
-			srv->leave(shared_from_this());
-		}
-	});
-}
-
-void session::read_message_header()
-{
-	auto self(shared_from_this());
-	boost::asio::async_read(*socket,
-		boost::asio::buffer(read_msg_buffer, sizeof(unsigned int)),
-		boost::asio::transfer_at_least(sizeof(unsigned int)),
-		[this, self](boost::system::error_code ec, std::size_t length)
+	}
+	catch (std::exception ex)
 	{
-		if (!ec)
-		{
-			unsigned int sizeRecv = *(reinterpret_cast<unsigned int*>(read_msg_buffer));
-			read_message(sizeRecv, new std::string());
-		}
-		else
-		{
-			srv->leave(shared_from_this());
-		}
-	});
-}
-
-void session::read_fileheader_header()
-{
-	auto self(shared_from_this());
-	boost::asio::async_read(*socket,
-		boost::asio::buffer(read_msg_buffer, sizeof(unsigned int) * 2),
-		boost::asio::transfer_at_least(sizeof(unsigned int) * 2),
-		[this, self](boost::system::error_code ec, std::size_t length)
+		std::cout << ex.what() << "\n";
+	}
+	catch (...)
 	{
-		if (!ec)
-		{
-			std::string *read_msg = new std::string(read_msg_buffer, length);
-			unsigned int sizeName = *(reinterpret_cast<unsigned int*>(read_msg_buffer + sizeof(unsigned int)));
-			read_fileheader(sizeName, read_msg);
-		}
-		else
-		{
-			srv->leave(shared_from_this());
-		}
-	});
-}
-
-void session::read_fileblock_header()
-{
-	auto self(shared_from_this());
-	boost::asio::async_read(*socket,
-		boost::asio::buffer(read_msg_buffer, sizeof(unsigned int)),
-		boost::asio::transfer_at_least(sizeof(unsigned int)),
-		[this, self](boost::system::error_code ec, std::size_t length)
-	{
-		if (!ec)
-		{
-			unsigned int sizeRecv = *(reinterpret_cast<unsigned int*>(read_msg_buffer));
-			read_fileblock(sizeRecv, new std::string());
-		}
-		else
-		{
-			srv->leave(shared_from_this());
-		}
-	});
-}
-
-void session::read_message(size_t size, std::string *read_msg)
-{
+	}
 	try
 	{
-		if (size > msg_buffer_size)
-		{
-			boost::asio::async_read(*socket,
-				boost::asio::buffer(read_msg_buffer, msg_buffer_size),
-				boost::asio::transfer_at_least(msg_buffer_size),
-				[this, size, read_msg](boost::system::error_code ec, std::size_t length)
-			{
-				if (!ec)
-				{
-					read_msg->append(read_msg_buffer, length);
-					read_message(size - length, read_msg);
-				}
-				else
-				{
-					srv->leave(shared_from_this());
-				}
-			});
-		}
-		else
-		{
-			boost::asio::async_read(*socket,
-				boost::asio::buffer(read_msg_buffer, size),
-				boost::asio::transfer_at_least(size),
-				[this, read_msg](boost::system::error_code ec, std::size_t length)
-			{
-				if (!ec)
-				{
-					read_msg->append(read_msg_buffer, length);
-					std::string msg;
-					decrypt(*read_msg, msg);
-					process_message(msg);
-				}
-				else
-				{
-					srv->leave(shared_from_this());
-				}
-				delete read_msg;
-			});
-		}
+		if (buf != NULL)
+			delete[] buf;
 	}
-	catch (std::runtime_error ex)
+	catch (...)
 	{
-		std::cerr << ex.what() << std::endl;
-		delete read_msg;
 	}
 	start();
-}
-
-void session::read_fileheader(size_t size, std::string *read_msg)
-{
-	try
-	{
-		if (size > msg_buffer_size)
-		{
-			boost::asio::async_read(*socket,
-				boost::asio::buffer(read_msg_buffer, msg_buffer_size),
-				boost::asio::transfer_at_least(msg_buffer_size),
-				[this, size, read_msg](boost::system::error_code ec, std::size_t length)
-			{
-				if (!ec)
-				{
-					read_msg->append(read_msg_buffer, length);
-					read_fileheader(size - length, read_msg);
-				}
-				else
-				{
-					srv->leave(shared_from_this());
-				}
-			});
-		}
-		else
-		{
-			boost::asio::async_read(*socket,
-				boost::asio::buffer(read_msg_buffer, size),
-				boost::asio::transfer_at_least(size),
-				[this, read_msg](boost::system::error_code ec, std::size_t length)
-			{
-				if (!ec)
-				{
-					read_msg->append(read_msg_buffer, length);
-					if (state == LOGGED_IN)
-						srv->send_fileheader(shared_from_this(), *read_msg);
-					delete read_msg;
-				}
-				else
-				{
-					srv->leave(shared_from_this());
-				}
-			});
-		}
-	}
-	catch (std::runtime_error ex)
-	{
-		std::cerr << ex.what() << std::endl;
-		delete read_msg;
-	}
-	start();
-}
-
-void session::read_fileblock(size_t size, std::string *read_msg)
-{
-	try
-	{
-		if (size > msg_buffer_size)
-		{
-			boost::asio::async_read(*socket,
-				boost::asio::buffer(read_msg_buffer, msg_buffer_size),
-				boost::asio::transfer_at_least(msg_buffer_size),
-				[this, size, read_msg](boost::system::error_code ec, std::size_t length)
-			{
-				if (!ec)
-				{
-					read_msg->append(read_msg_buffer, length);
-					read_fileblock(size - length, read_msg);
-				}
-				else
-				{
-					srv->leave(shared_from_this());
-				}
-			});
-		}
-		else
-		{
-			boost::asio::async_read(*socket,
-				boost::asio::buffer(read_msg_buffer, size),
-				boost::asio::transfer_at_least(size),
-				[this, read_msg](boost::system::error_code ec, std::size_t length)
-			{
-				if (!ec)
-				{
-					read_msg->append(read_msg_buffer, length);
-					std::string msg;
-					decrypt(*read_msg, msg);
-					if (state == LOGGED_IN)
-						srv->send_fileblock(shared_from_this(), msg);
-				}
-				else
-				{
-					srv->leave(shared_from_this());
-				}
-				delete read_msg;
-			});
-		}
-	}
-	catch (std::runtime_error ex)
-	{
-		std::cerr << ex.what() << std::endl;
-		delete read_msg;
-	}
-	start();
-}
-
-void session::write()
-{
-	boost::asio::async_write(*socket,
-		boost::asio::buffer(write_msgs.front()),
-		[this](boost::system::error_code ec, std::size_t /*length*/)
-	{
-		if (!ec)
-		{
-			write_msgs.pop_front();
-			if (!write_msgs.empty())
-			{
-				write();
-			}
-		}
-		else
-		{
-			srv->leave(shared_from_this());
-		}
-	});
 }
 
 void session::process_message(const std::string &origin_msg)
@@ -439,4 +285,25 @@ void session::process_message(const std::string &origin_msg)
 			break;
 		}
 	}
+}
+
+void session::write()
+{
+	boost::asio::async_write(*socket,
+		boost::asio::buffer(write_msgs.front()),
+		[this](boost::system::error_code ec, std::size_t /*length*/)
+	{
+		if (!ec)
+		{
+			write_msgs.pop_front();
+			if (!write_msgs.empty())
+			{
+				write();
+			}
+		}
+		else
+		{
+			srv->leave(shared_from_this());
+		}
+	});
 }
