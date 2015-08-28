@@ -33,8 +33,8 @@ fileSendThread *threadFileSend;
 server* srv;
 std::unordered_map<int, user_ext_data> user_ext;
 wx_srv_interface inter;
-net::io_service main_io_service;
-iosrvThread *threadNetwork;
+net::io_service main_io_service, misc_io_service;
+iosrvThread *threadNetwork, *threadMisc;
 
 #define checkErr(x) if (dataItr + (x) > dataEnd) throw(0)
 #define read_uint(x)												\
@@ -267,6 +267,12 @@ mainFrame::mainFrame(const wxString& title)
 		delete threadFileSend;
 		throw(std::runtime_error("Can't create fileSendThread"));
 	}
+	threadMisc = new iosrvThread(misc_io_service);
+	if (threadMisc->Run() != wxTHREAD_NO_ERROR)
+	{
+		delete threadMisc;
+		throw(std::runtime_error("Can't create iosrvThread"));
+	}
 
 	textStrm = new textStream(textInfo);
 	cout_orig = std::cout.rdbuf();
@@ -329,7 +335,9 @@ void mainFrame::buttonSend_Click(wxCommandEvent& event)
 			int uID = *itr;
 			insLen(msgutf8);
 			msgutf8.insert(0, "\x01");
-			srv->send_data(uID, msgutf8, wxT(""));
+			misc_io_service.post([uID, msgutf8]() {
+				srv->send_data(uID, msgutf8, session::priority_msg, wxT(""));
+			});
 			textMsg->AppendText("Me:" + msg + '\n');
 			user_ext[uID].log.append("Me:" + msg + '\n');
 		}
@@ -371,6 +379,12 @@ void mainFrame::mainFrame_Close(wxCloseEvent& event)
 		std::cerr.rdbuf(cerr_orig);
 		delete textStrm;
 
+		threadFileSend->Delete();
+
+		threadMisc->iosrv_work.reset();
+		threadMisc->iosrv.stop();
+		threadMisc->Delete();
+
 		inter.set_frame(nullptr);
 	}
 	catch (std::exception ex)
@@ -395,8 +409,8 @@ bool MyApp::OnInit()
 		srv = new server(main_io_service, &inter, net::ip::tcp::endpoint(net::ip::tcp::v4(), portListener));
 
 		form = new mainFrame(wxT("Messenger"));
-		inter.set_frame(form);
 		form->Show();
+		inter.set_frame(form);
 	}
 	catch (std::exception ex)
 	{
@@ -411,8 +425,6 @@ int MyApp::OnExit()
 {
 	try
 	{
-		threadFileSend->Delete();
-
 		threadNetwork->iosrv_work.reset();
 		threadNetwork->iosrv.stop();
 		threadNetwork->Delete();

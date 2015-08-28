@@ -96,10 +96,13 @@ public:
 	}
 
 	void start();
-	void send(const std::string& data, const std::wstring& message);
+	void send(const std::string& data, int priority, const std::wstring& message);
 
 	std::string get_address() { return socket->remote_endpoint().address().to_string(); }
 	port_type get_port() { return local_port; }
+
+	static const int priority_msg = 20;
+	static const int priority_file = 10;
 
 	friend class pre_session_s;
 	friend class pre_session_c;
@@ -117,14 +120,17 @@ private:
 
 	char *read_msg_buffer;
 	const size_t msg_buffer_size = 0x4000;
+
 	struct write_task {
 		write_task() {};
-		write_task(const std::string& _data, const std::wstring& _msg) :data(_data), msg(_msg) {}
-		write_task(std::string&& _data, std::wstring&& _msg) :data(_data), msg(_msg) {}
+		write_task(const std::string& _data, int _priority, const std::wstring& _msg) :data(_data), msg(_msg) { priority = _priority; }
+		write_task(std::string&& _data, int _priority, std::wstring&& _msg) :data(_data), msg(_msg) { priority = _priority; }
 		std::string data;
 		std::wstring msg;
+		int priority;
 	};
-	std::list<write_task> write_que;
+	typedef std::list<write_task> write_que_tp;
+	write_que_tp write_que;
 	bool writing;
 
 	server *srv;
@@ -176,7 +182,7 @@ public:
 
 	void on_data(id_type id, const std::string& data);
 
-	bool send_data(id_type id, const std::string& data, const std::wstring& message);
+	bool send_data(id_type id, const std::string& data, int priority, const std::wstring& message);
 
 	void pre_session_over(std::shared_ptr<pre_session> _pre);
 	id_type join(const session_ptr &_user);

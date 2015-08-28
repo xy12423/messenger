@@ -150,7 +150,7 @@ void session::start()
 	read_header();
 }
 
-void session::send(const std::string& data, const std::wstring& message)
+void session::send(const std::string& data, int priority, const std::wstring& message)
 {
 	if (data.empty())
 		return;
@@ -159,9 +159,19 @@ void session::send(const std::string& data, const std::wstring& message)
 	encrypt(data, write_msg, e1);
 	insLen(write_msg);
 
-	io_service.post([write_msg, message, this]() {
+	io_service.post([write_msg, message, priority, this]() {
 		bool write_not_in_progress = write_que.empty();
-		write_que.push_back(write_task(std::move(write_msg), std::move(message)));
+		write_que_tp::iterator itr = write_que.begin(), itrEnd = write_que.end();
+		for (; itr != itrEnd; itr++)
+		{
+			if (priority > itr->priority)
+			{
+				write_que.insert(itr, write_task(std::move(write_msg), priority, std::move(message)));
+				break;
+			}
+		}
+		if (itr == itrEnd)
+			write_que.push_back(write_task(std::move(write_msg), priority, std::move(message)));
 
 		if (write_not_in_progress)
 		{
@@ -272,15 +282,16 @@ void session::process_data(const std::string &data)
 
 void session::write()
 {
+	write_que_tp::iterator write_itr = write_que.begin();
 	net::async_write(*socket,
-		net::buffer(write_que.front().data),
-		[this](boost::system::error_code ec, std::size_t /*length*/)
+		net::buffer(write_itr->data),
+		[this, write_itr](boost::system::error_code ec, std::size_t /*length*/)
 	{
 		if (!ec)
 		{
-			if (!write_que.front().msg.empty())
-				std::cout << write_que.front().msg << std::endl;
-			write_que.pop_front();
+			if (!write_itr->msg.empty())
+				std::cout << write_itr->msg << std::endl;
+			write_que.erase(write_itr);
 			if (!write_que.empty())
 			{
 				write();

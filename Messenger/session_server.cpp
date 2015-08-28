@@ -102,13 +102,13 @@ void server::on_data(id_type id, const std::string& data)
 	inter->on_data(id, data);
 }
 
-bool server::send_data(id_type id, const std::string& data, const std::wstring& message)
+bool server::send_data(id_type id, const std::string& data, int priority, const std::wstring& message)
 {
 	sessionList::iterator itr(sessions.find(id));
 	if (itr == sessions.end())
 		return false;
 	session_ptr sptr = itr->second;
-	sptr->send(data, message);
+	sptr->send(data, priority, message);
 	return true;
 }
 

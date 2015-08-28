@@ -28,7 +28,7 @@ fileSendThread::ExitCode fileSendThread::Entry()
 {
 	while (!TestDestroy())
 	{
-		char *block = NULL;
+		char *block = nullptr;
 		try
 		{
 			fileSendTask task;
@@ -56,7 +56,7 @@ fileSendThread::ExitCode fileSendThread::Entry()
 
 					if (TestDestroy())
 						break;
-					srv->send_data(task.uID, head, wxT("Sending file ") + fileName + wxT(" To ") + user_ext[task.uID].addr);
+					srv->send_data(task.uID, head, session::priority_file, wxT("Sending file ") + fileName + wxT(" To ") + user_ext[task.uID].addr);
 				}
 
 				block = new char[fileBlockLen];
@@ -71,9 +71,11 @@ fileSendThread::ExitCode fileSendThread::Entry()
 					buf.insert(0, "\x03");
 					if (TestDestroy())
 						break;
-					srv->send_data(task.uID, buf, fileName + wxT(":Sended block ") + std::to_wstring(blockCount) + wxT("/") + std::to_wstring(blockCountAll) + wxT(" To ") + user_ext[task.uID].addr);
+					srv->send_data(task.uID, buf, session::priority_file, fileName + wxT(":Sended block ") + std::to_wstring(blockCount) + wxT("/") + std::to_wstring(blockCountAll) + wxT(" To ") + user_ext[task.uID].addr);
 					blockCount++;
 				}
+				delete[] block;
+				block = nullptr;
 
 				fin.close();
 			}
@@ -81,18 +83,18 @@ fileSendThread::ExitCode fileSendThread::Entry()
 		catch (std::exception ex)
 		{
 			std::cerr << ex.what() << std::endl;
-			if (block != NULL)
+			if (block != nullptr)
 				delete[] block;
 		}
 		catch (int)
 		{
 			std::cerr << "Finished Sending (disconnected)\n" << std::endl;
-			if (block != NULL)
+			if (block != nullptr)
 				delete[] block;
 		}
 		catch (...)
 		{
-			if (block != NULL)
+			if (block != nullptr)
 				delete[] block;
 		}
 	}

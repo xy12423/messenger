@@ -27,8 +27,10 @@ void initKey()
 		d0.AccessKey() = privateKey;
 }
 
+std::mutex enc_mutex;
 void encrypt(const std::string &str, std::string &ret, ECIES<ECP>::Encryptor &e1)
 {
+	std::unique_lock<std::mutex> lck(enc_mutex);
 	ret.clear();
 	StringSource ss1(str, true, new PK_EncryptorFilter(prng, e1, new StringSink(ret)));
 }
