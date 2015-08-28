@@ -24,6 +24,7 @@
 
 #include <boost/filesystem.hpp>
 #include <boost/asio.hpp>
+#include <boost/date_time/posix_time/posix_time.hpp>
 #include <boost/bind.hpp>
 namespace fs = boost::filesystem;
 namespace net = boost::asio;
@@ -39,11 +40,11 @@ namespace net = boost::asio;
 
 #ifdef _MSC_VER
 #ifdef _DEBUG
-#pragma comment (lib, "zlibd.lib")
-#pragma comment (lib, "cryptlibd.lib")
+#pragma comment (lib, "zlibd-mt.lib")
+#pragma comment (lib, "cryptlibd-mt.lib")
 #else
-#pragma comment (lib, "zlib.lib")
-#pragma comment (lib, "cryptlib.lib")
+#pragma comment (lib, "zlib-mt.lib")
+#pragma comment (lib, "cryptlib-mt.lib")
 #endif
 #pragma comment (lib, "ws2_32.lib")
 #pragma comment (lib, "winmm.lib")
