@@ -109,7 +109,6 @@ public:
 private:
 	void read_header();
 	void read_data(size_t sizeLast, std::shared_ptr<std::string> buf);
-	void process_data(const std::string &data);
 	void write();
 
 	net::io_service &io_service;
@@ -154,13 +153,15 @@ public:
 class server
 {
 public:
-	server(net::io_service& _io_service,
+	server(net::io_service& _main_io_service,
+		net::io_service& _misc_io_service,
 		server_interface *_inter,
 		const net::ip::tcp::endpoint& endpoint
 		)
-		: io_service(_io_service),
-		acceptor(io_service, endpoint),
-		resolver(io_service)
+		: main_io_service(_main_io_service),
+		misc_io_service(_misc_io_service),
+		acceptor(main_io_service, endpoint),
+		resolver(main_io_service)
 	{
 		inter = _inter;
 		for (int i = 5001; i <= 10000; i++)
@@ -180,7 +181,7 @@ public:
 		write_data();
 	}
 
-	void on_data(id_type id, const std::string& data);
+	void on_data(id_type id, std::shared_ptr<std::string> data);
 
 	bool send_data(id_type id, const std::string& data, int priority, const std::wstring& message);
 
@@ -203,7 +204,7 @@ private:
 	void read_data();
 	void write_data();
 
-	net::io_service &io_service;
+	net::io_service &main_io_service, &misc_io_service;
 	socket_ptr accepting;
 	net::ip::tcp::acceptor acceptor;
 	net::ip::tcp::resolver resolver;

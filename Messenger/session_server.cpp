@@ -29,7 +29,7 @@ void server::start()
 {
 	if (closing)
 		return;
-	accepting = std::make_shared<net::ip::tcp::socket>(io_service);
+	accepting = std::make_shared<net::ip::tcp::socket>(main_io_service);
 	acceptor.async_accept(*accepting,
 		[this](boost::system::error_code ec) {
 		accept(ec);
@@ -49,7 +49,7 @@ void server::accept(error_code ec)
 		else
 		{
 			net::ip::tcp::endpoint localAddr(net::ip::tcp::v4(), port);
-			std::shared_ptr<pre_session_s> pre_session_s_ptr(std::make_shared<pre_session_s>(port, localAddr, this, io_service));
+			std::shared_ptr<pre_session_s> pre_session_s_ptr(std::make_shared<pre_session_s>(port, localAddr, this, main_io_service));
 			pre_session_s_ptr->start();
 			pre_sessions.emplace(pre_session_s_ptr);
 
@@ -97,9 +97,13 @@ void server::leave(id_type _user)
 	sessions.erase(_user);
 }
 
-void server::on_data(id_type id, const std::string& data)
+void server::on_data(id_type id, std::shared_ptr<std::string> data)
 {
-	inter->on_data(id, data);
+	misc_io_service.post([this, id, data]() {
+		std::string decrypted_data;
+		decrypt(*data, decrypted_data);
+		inter->on_data(id, decrypted_data);
+	});
 }
 
 bool server::send_data(id_type id, const std::string& data, int priority, const std::wstring& message)
@@ -119,7 +123,7 @@ void server::connect(const std::string &addr_str)
 		std::cerr << "Socket:No port available" << std::endl;
 	else
 	{
-		socket_ptr new_socket(std::make_shared<net::ip::tcp::socket>(io_service));
+		socket_ptr new_socket(std::make_shared<net::ip::tcp::socket>(main_io_service));
 		net::ip::address addr(net::ip::address::from_string(addr_str));
 		net::ip::tcp::endpoint local_endpoint(net::ip::tcp::v4(), portConnect), remote_endpoint(addr, portListener);
 
@@ -132,7 +136,7 @@ void server::connect(const std::string &addr_str)
 				char* remote_port_buf = new char[port_size];
 				net::async_read(*new_socket,
 					net::buffer(remote_port_buf, port_size),
-					net::transfer_at_least(port_size),
+					net::transfer_exactly(port_size),
 					[this, new_socket, addr, remote_port_buf, local_port](boost::system::error_code ec, std::size_t length)
 				{
 					if (ec)
@@ -143,7 +147,7 @@ void server::connect(const std::string &addr_str)
 					else
 					{
 						net::ip::tcp::endpoint remote_endpoint_new(addr, *reinterpret_cast<port_type*>(remote_port_buf));
-						std::shared_ptr<pre_session_c> pre_session_c_ptr(std::make_shared<pre_session_c>(local_port, remote_endpoint_new, this, io_service));
+						std::shared_ptr<pre_session_c> pre_session_c_ptr(std::make_shared<pre_session_c>(local_port, remote_endpoint_new, this, main_io_service));
 						pre_session_c_ptr->start();
 						pre_sessions.emplace(pre_session_c_ptr);
 

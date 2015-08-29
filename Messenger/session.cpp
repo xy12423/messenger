@@ -1,14 +1,13 @@
 #include "stdafx.h"
 #include "global.h"
-#include "session.h"
 #include "crypto.h"
-#include "main.h"
+#include "session.h"
 
 void pre_session::read_key_header()
 {
 	net::async_read(*socket,
 		net::buffer(reinterpret_cast<char*>(&(this->key_length)), sizeof(key_length_type)),
-		net::transfer_at_least(sizeof(key_length_type)),
+		net::transfer_exactly(sizeof(key_length_type)),
 		[this](boost::system::error_code ec, std::size_t length)
 	{
 		if (ec)
@@ -27,7 +26,7 @@ void pre_session::read_key()
 	key_buffer = new char[key_length];
 	net::async_read(*socket,
 		net::buffer(key_buffer, key_length),
-		net::transfer_at_least(key_length),
+		net::transfer_exactly(key_length),
 		[this](boost::system::error_code ec, std::size_t length)
 	{
 		if (ec)
@@ -184,7 +183,7 @@ void session::read_header()
 {
 	net::async_read(*socket,
 		net::buffer(read_msg_buffer, sizeof(data_length_type)),
-		net::transfer_at_least(sizeof(data_length_type)),
+		net::transfer_exactly(sizeof(data_length_type)),
 		[this](boost::system::error_code ec, std::size_t length)
 	{
 		if (!ec)
@@ -209,7 +208,7 @@ void session::read_data(size_t sizeLast, std::shared_ptr<std::string> buf)
 		{
 			net::async_read(*socket,
 				net::buffer(read_msg_buffer, msg_buffer_size),
-				net::transfer_at_least(msg_buffer_size),
+				net::transfer_exactly(msg_buffer_size),
 				[this, sizeLast, buf](boost::system::error_code ec, std::size_t length)
 			{
 				if (!ec)
@@ -229,15 +228,14 @@ void session::read_data(size_t sizeLast, std::shared_ptr<std::string> buf)
 		{
 			net::async_read(*socket,
 				net::buffer(read_msg_buffer, sizeLast),
-				net::transfer_at_least(sizeLast),
+				net::transfer_exactly(sizeLast),
 				[this, buf](boost::system::error_code ec, std::size_t length)
 			{
 				if (!ec)
 				{
 					buf->append(read_msg_buffer, length);
-					std::string msg;
-					decrypt(*buf, msg);
-					process_data(msg);
+					srv->on_data(id, buf);
+					start();
 				}
 				else
 				{
@@ -254,30 +252,6 @@ void session::read_data(size_t sizeLast, std::shared_ptr<std::string> buf)
 		if (!exiting)
 			srv->leave(id);
 	}
-}
-
-#define checkErr if (in.fail()) throw(0)
-
-void session::process_data(const std::string &data)
-{
-	try
-	{
-		switch (data.front())
-		{
-			case 0:
-				break;
-			default:
-				srv->on_data(id, data);
-		}
-	}
-	catch (std::exception ex)
-	{
-		std::cerr << ex.what() << std::endl;
-	}
-	catch (...)
-	{
-	}
-	start();
 }
 
 void session::write()

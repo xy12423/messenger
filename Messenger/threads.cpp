@@ -48,7 +48,7 @@ fileSendThread::ExitCode fileSendThread::Entry()
 				{
 					data_length_type lenSend = wxUINT32_SWAP_ON_BE(blockCountAll);
 					std::string head(reinterpret_cast<const char*>(&blockCountAll), sizeof(data_length_type));
-					head.insert(0, "\x02");
+					head.insert(0, "\xFE");
 					wxCharBuffer nameBuf = wxConvUTF8.cWC2MB(fileName.c_str());
 					std::string name(nameBuf, nameBuf.length());
 					insLen(name);
@@ -68,7 +68,7 @@ fileSendThread::ExitCode fileSendThread::Entry()
 					std::streamsize count = fin.gcount();
 					buf.assign(block, count);
 					insLen(buf);
-					buf.insert(0, "\x03");
+					buf.insert(0, "\xFD");
 					if (TestDestroy())
 						break;
 					srv->send_data(task.uID, buf, session::priority_file, fileName + wxT(":Sended block ") + std::to_wstring(blockCount) + wxT("/") + std::to_wstring(blockCountAll) + wxT(" To ") + user_ext[task.uID].addr);

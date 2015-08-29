@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "global.h"
+#include "crypto.h"
 #include "session.h"
 #include "threads.h"
 #include "main.h"
@@ -56,7 +57,7 @@ void wx_srv_interface::on_data(id_type id, const std::string &data)
 		dataItr += 1;
 		switch (type)
 		{
-			case 1:
+			case 0xFF:
 			{
 				if (frm == nullptr)
 					throw(0);
@@ -85,7 +86,7 @@ void wx_srv_interface::on_data(id_type id, const std::string &data)
 
 				break;
 			}
-			case 2:
+			case 0xFE:
 			{
 				data_length_type recvLE;
 				read_uint(recvLE);
@@ -121,7 +122,7 @@ void wx_srv_interface::on_data(id_type id, const std::string &data)
 
 				break;
 			}
-			case 3:
+			case 0xFD:
 			{
 				data_length_type recvLE;
 				read_uint(recvLE);
@@ -267,12 +268,6 @@ mainFrame::mainFrame(const wxString& title)
 		delete threadFileSend;
 		throw(std::runtime_error("Can't create fileSendThread"));
 	}
-	threadMisc = new iosrvThread(misc_io_service);
-	if (threadMisc->Run() != wxTHREAD_NO_ERROR)
-	{
-		delete threadMisc;
-		throw(std::runtime_error("Can't create iosrvThread"));
-	}
 
 	textStrm = new textStream(textInfo);
 	cout_orig = std::cout.rdbuf();
@@ -334,7 +329,7 @@ void mainFrame::buttonSend_Click(wxCommandEvent& event)
 			for (int i = listUser->GetSelection(); i > 0; itr++)i--;
 			int uID = *itr;
 			insLen(msgutf8);
-			msgutf8.insert(0, "\x01");
+			msgutf8.insert(0, "\xFF");
 			misc_io_service.post([uID, msgutf8]() {
 				srv->send_data(uID, msgutf8, session::priority_msg, wxT(""));
 			});
@@ -381,10 +376,6 @@ void mainFrame::mainFrame_Close(wxCloseEvent& event)
 
 		threadFileSend->Delete();
 
-		threadMisc->iosrv_work.reset();
-		threadMisc->iosrv.stop();
-		threadMisc->Delete();
-
 		inter.set_frame(nullptr);
 	}
 	catch (std::exception ex)
@@ -406,7 +397,13 @@ bool MyApp::OnInit()
 			delete threadNetwork;
 			throw(std::runtime_error("Can't create iosrvThread"));
 		}
-		srv = new server(main_io_service, &inter, net::ip::tcp::endpoint(net::ip::tcp::v4(), portListener));
+		threadMisc = new iosrvThread(misc_io_service);
+		if (threadMisc->Run() != wxTHREAD_NO_ERROR)
+		{
+			delete threadMisc;
+			throw(std::runtime_error("Can't create iosrvThread"));
+		}
+		srv = new server(main_io_service, misc_io_service, &inter, net::ip::tcp::endpoint(net::ip::tcp::v4(), portListener));
 
 		form = new mainFrame(wxT("Messenger"));
 		form->Show();
@@ -425,6 +422,10 @@ int MyApp::OnExit()
 {
 	try
 	{
+		threadMisc->iosrv_work.reset();
+		threadMisc->iosrv.stop();
+		threadMisc->Delete();
+
 		threadNetwork->iosrv_work.reset();
 		threadNetwork->iosrv.stop();
 		threadNetwork->Delete();
