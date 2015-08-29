@@ -40,6 +40,8 @@ fileSendThread::ExitCode fileSendThread::Entry()
 			if (fin.is_open())
 			{
 				data_length_type blockCountAll = static_cast<data_length_type>(fs::file_size(task.path));
+				if (blockCountAll == 0)
+					throw(0);
 				if (blockCountAll % fileBlockLen == 0)
 					blockCountAll /= fileBlockLen;
 				else
@@ -48,7 +50,7 @@ fileSendThread::ExitCode fileSendThread::Entry()
 				{
 					data_length_type lenSend = wxUINT32_SWAP_ON_BE(blockCountAll);
 					std::string head(reinterpret_cast<const char*>(&blockCountAll), sizeof(data_length_type));
-					head.insert(0, "\xFE");
+					head.insert(0, 1, pac_type_file_h);
 					wxCharBuffer nameBuf = wxConvUTF8.cWC2MB(fileName.c_str());
 					std::string name(nameBuf, nameBuf.length());
 					insLen(name);
@@ -68,7 +70,7 @@ fileSendThread::ExitCode fileSendThread::Entry()
 					std::streamsize count = fin.gcount();
 					buf.assign(block, count);
 					insLen(buf);
-					buf.insert(0, "\xFD");
+					buf.insert(0, 1, pac_type_file_b);
 					if (TestDestroy())
 						break;
 					srv->send_data(task.uID, buf, session::priority_file, fileName + wxT(":Sended block ") + std::to_wstring(blockCount) + wxT("/") + std::to_wstring(blockCountAll) + wxT(" To ") + user_ext[task.uID].addr);
@@ -88,7 +90,7 @@ fileSendThread::ExitCode fileSendThread::Entry()
 		}
 		catch (int)
 		{
-			std::cerr << "Finished Sending (disconnected)\n" << std::endl;
+			std::cerr << "No Empty File\n" << std::endl;
 			if (block != nullptr)
 				delete[] block;
 		}

@@ -57,7 +57,7 @@ void wx_srv_interface::on_data(id_type id, const std::string &data)
 		dataItr += 1;
 		switch (type)
 		{
-			case 0xFF:
+			case pac_type_msg:
 			{
 				if (frm == nullptr)
 					throw(0);
@@ -86,7 +86,7 @@ void wx_srv_interface::on_data(id_type id, const std::string &data)
 
 				break;
 			}
-			case 0xFE:
+			case pac_type_file_h:
 			{
 				data_length_type recvLE;
 				read_uint(recvLE);
@@ -122,7 +122,7 @@ void wx_srv_interface::on_data(id_type id, const std::string &data)
 
 				break;
 			}
-			case 0xFD:
+			case pac_type_file_b:
 			{
 				data_length_type recvLE;
 				read_uint(recvLE);
@@ -329,7 +329,7 @@ void mainFrame::buttonSend_Click(wxCommandEvent& event)
 			for (int i = listUser->GetSelection(); i > 0; itr++)i--;
 			int uID = *itr;
 			insLen(msgutf8);
-			msgutf8.insert(0, "\xFF");
+			msgutf8.insert(0, 1, pac_type_msg);
 			misc_io_service.post([uID, msgutf8]() {
 				srv->send_data(uID, msgutf8, session::priority_msg, wxT(""));
 			});

@@ -139,12 +139,7 @@ void server::connect(const std::string &addr_str)
 					net::transfer_exactly(port_size),
 					[this, new_socket, addr, remote_port_buf, local_port](boost::system::error_code ec, std::size_t length)
 				{
-					if (ec)
-					{
-						std::cerr << "Socket Error:" << ec.message() << std::endl;
-						freePort(ports, local_port);
-					}
-					else
+					if (!ec)
 					{
 						net::ip::tcp::endpoint remote_endpoint_new(addr, *reinterpret_cast<port_type*>(remote_port_buf));
 						std::shared_ptr<pre_session_c> pre_session_c_ptr(std::make_shared<pre_session_c>(local_port, remote_endpoint_new, this, main_io_service));
@@ -152,6 +147,11 @@ void server::connect(const std::string &addr_str)
 						pre_sessions.emplace(pre_session_c_ptr);
 
 						new_socket->close();
+					}
+					else
+					{
+						std::cerr << "Socket Error:" << ec.message() << std::endl;
+						freePort(ports, local_port);
 					}
 					delete[] remote_port_buf;
 				});

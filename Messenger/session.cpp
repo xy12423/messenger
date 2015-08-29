@@ -10,14 +10,14 @@ void pre_session::read_key_header()
 		net::transfer_exactly(sizeof(key_length_type)),
 		[this](boost::system::error_code ec, std::size_t length)
 	{
-		if (ec)
+		if (!ec)
+			read_key();
+		else
 		{
 			std::cerr << "Socket Error:" << ec.message() << std::endl;
 			if (!exiting)
 				srv->pre_session_over(shared_from_this());
 		}
-		else
-			read_key();
 	});
 }
 
@@ -29,15 +29,15 @@ void pre_session::read_key()
 		net::transfer_exactly(key_length),
 		[this](boost::system::error_code ec, std::size_t length)
 	{
-		if (ec)
+		if (!ec)
+		{
+			stage2();
+		}
+		else
 		{
 			std::cerr << "Socket Error:" << ec.message() << std::endl;
 			if (!exiting)
 				srv->pre_session_over(shared_from_this());
-		}
-		else
-		{
-			stage2();
 		}
 	});
 }
@@ -46,14 +46,14 @@ void pre_session_s::start()
 {
 	acceptor.async_accept(*socket, [this](boost::system::error_code ec)
 	{
-		if (ec)
+		if (!ec)
+			stage1();
+		else
 		{
 			std::cerr << "Socket Error:" << ec.message() << std::endl;
 			if (!exiting)
 				srv->pre_session_over(shared_from_this());
 		}
-		else
-			stage1();
 	});
 }
 
@@ -63,15 +63,15 @@ void pre_session_s::stage1()
 		net::buffer(srv->get_public_key()),
 		[this](boost::system::error_code ec, std::size_t length)
 	{
-		if (ec)
+		if (!ec)
+		{
+			read_key_header();
+		}
+		else
 		{
 			std::cerr << "Socket Error:" << ec.message() << std::endl;
 			if (!exiting)
 				srv->pre_session_over(shared_from_this());
-		}
-		else
-		{
-			read_key_header();
 		}
 	});
 	acceptor.close();
@@ -103,14 +103,14 @@ void pre_session_c::start()
 	socket->async_connect(ep,
 		[this](boost::system::error_code ec)
 	{
-		if (ec)
+		if (!ec)
+			stage1();
+		else
 		{
 			std::cerr << "Socket Error:" << ec.message() << std::endl;
 			if (!exiting)
 				srv->pre_session_over(shared_from_this());
 		}
-		else
-			stage1();
 	});
 }
 
@@ -120,11 +120,7 @@ void pre_session_c::stage2()
 		net::buffer(srv->get_public_key()),
 		[this](boost::system::error_code ec, std::size_t length)
 	{
-		if (ec)
-		{
-			std::cerr << "Socket Error:" << ec.message() << std::endl;
-		}
-		else
+		if (!ec)
 		{
 			session_ptr newUser(std::make_shared<session>(srv, local_port, std::move(io_service), std::move(socket)));
 
@@ -136,8 +132,12 @@ void pre_session_c::stage2()
 			newUser->id = srv->join(newUser);
 			srv->check_key(newUser->id, key_string);
 			newUser->start();
-			
+
 			passed = true;
+		}
+		else
+		{
+			std::cerr << "Socket Error:" << ec.message() << std::endl;
 		}
 		if (!exiting)
 			srv->pre_session_over(shared_from_this());
