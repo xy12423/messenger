@@ -49,7 +49,7 @@ void server::accept(error_code ec)
 		else
 		{
 			net::ip::tcp::endpoint localAddr(net::ip::tcp::v4(), port);
-			std::shared_ptr<pre_session_s> pre_session_s_ptr(std::make_shared<pre_session_s>(port, localAddr, this, main_io_service));
+			std::shared_ptr<pre_session_s> pre_session_s_ptr(std::make_shared<pre_session_s>(port, localAddr, this, main_io_service, misc_io_service));
 			pre_session_s_ptr->start();
 			pre_sessions.emplace(pre_session_s_ptr);
 
@@ -102,6 +102,23 @@ void server::on_data(id_type id, std::shared_ptr<std::string> data)
 	misc_io_service.post([this, id, data]() {
 		std::string decrypted_data;
 		decrypt(*data, decrypted_data);
+
+		session_id_type sid = sessions[id]->get_session_id();
+		if (*reinterpret_cast<const session_id_type*>(decrypted_data.data()) != boost::endian::little_to_native<session_id_type>(sid))
+		{
+			std::cerr << "Error:Checking failed" << std::endl;
+			leave(id);
+		}
+
+		std::string sha256_buf(decrypted_data, sizeof(session_id_type), sha256_size), sha256_result;
+		decrypted_data.erase(0, sizeof(session_id_type) + sha256_size);
+		calcSHA256(decrypted_data, sha256_result);
+		if (sha256_result != sha256_buf)
+		{
+			std::cerr << "Error:Hashing failed" << std::endl;
+			leave(id);
+		}
+
 		inter->on_data(id, decrypted_data);
 	});
 }
@@ -142,7 +159,7 @@ void server::connect(const std::string &addr_str)
 					if (!ec)
 					{
 						net::ip::tcp::endpoint remote_endpoint_new(addr, *reinterpret_cast<port_type*>(remote_port_buf));
-						std::shared_ptr<pre_session_c> pre_session_c_ptr(std::make_shared<pre_session_c>(local_port, remote_endpoint_new, this, main_io_service));
+						std::shared_ptr<pre_session_c> pre_session_c_ptr(std::make_shared<pre_session_c>(local_port, remote_endpoint_new, this, main_io_service, misc_io_service));
 						pre_session_c_ptr->start();
 						pre_sessions.emplace(pre_session_c_ptr);
 

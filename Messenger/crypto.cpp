@@ -50,3 +50,17 @@ std::string getPublicKey()
 
 	return ret;
 }
+
+void calcSHA256(const std::string &msg, std::string &ret)
+{
+	CryptoPP::SHA256 sha256;
+	char result[sha256_size];
+	memset(result, 0, sizeof(result));
+	sha256.CalculateDigest(reinterpret_cast<byte*>(result), reinterpret_cast<const byte*>(msg.c_str()), msg.size());
+	ret.append(result, sha256_size);
+}
+
+rand_num_type genRandomNumber()
+{
+	return prng.GenerateWord32();
+}

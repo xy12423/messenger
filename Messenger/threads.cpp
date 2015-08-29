@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "global.h"
+#include "crypto.h"
 #include "session.h"
 #include "threads.h"
 
@@ -17,7 +18,8 @@ iosrvThread::ExitCode iosrvThread::Entry()
 		{
 			iosrv.run();
 		}
-		catch(...){}
+		catch (std::exception ex) { std::cerr << ex.what() << std::endl; }
+		catch (...) {}
 	}
 	return NULL;
 }
