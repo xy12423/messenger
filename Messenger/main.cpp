@@ -69,9 +69,8 @@ void wx_srv_interface::on_data(id_type id, const std::string &data)
 				std::string msg_utf8(dataItr, sizeRecv);
 				dataItr += sizeRecv;
 
-				user_ext_data &ext = user_ext[id];
-				wxString msg(ext.addr + ':' + wxConvUTF8.cMB2WC(msg_utf8.c_str()) + '\n');
-				ext.log.append(msg);
+				wxString msg(usr.addr + ':' + wxConvUTF8.cMB2WC(msg_utf8.c_str()) + '\n');
+				usr.log.append(msg);
 				if (frm->listUser->GetSelection() != -1)
 				{
 					std::list<int>::iterator itr = frm->userIDs.begin();
@@ -79,10 +78,10 @@ void wx_srv_interface::on_data(id_type id, const std::string &data)
 					if (id == *itr)
 						frm->textMsg->AppendText(msg);
 					else
-						frm->textInfo->AppendText("Received message from " + ext.addr + "\n");
+						frm->textInfo->AppendText("Received message from " + usr.addr + "\n");
 				}
 				else
-					frm->textInfo->AppendText("Received message from " + ext.addr + "\n"); 
+					frm->textInfo->AppendText("Received message from " + usr.addr + "\n");
 
 				break;
 			}
@@ -422,12 +421,10 @@ int MyApp::OnExit()
 {
 	try
 	{
-		threadMisc->iosrv_work.reset();
-		threadMisc->iosrv.stop();
+		threadMisc->stop();
 		threadMisc->Delete();
 
-		threadNetwork->iosrv_work.reset();
-		threadNetwork->iosrv.stop();
+		threadNetwork->stop();
 		threadNetwork->Delete();
 
 		delete srv;

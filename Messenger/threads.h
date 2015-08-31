@@ -8,9 +8,11 @@ class iosrvThread :public wxThread
 public:
 	iosrvThread(net::io_service& _iosrv) : wxThread(wxTHREAD_DETACHED), iosrv(_iosrv) {};
 
+	void stop() { iosrv_work.reset(); iosrv.stop(); }
+protected:
 	net::io_service& iosrv;
 	std::shared_ptr<net::io_service::work> iosrv_work;
-protected:
+
 	ExitCode Entry();
 };
 
