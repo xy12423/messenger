@@ -292,6 +292,13 @@ void cli_server_interface::process_command(std::string cmd, user_log::group_type
 			}
 		}
 	}
+	else if (section == "con")
+	{
+		if (group == user_log::ADMIN)
+		{
+			srv->connect(cmd);
+		}
+	}
 	else if (section == "stop")
 	{
 		if (group == user_log::ADMIN)
@@ -341,13 +348,31 @@ int main(int argc, char *argv[])
 
 		std::shared_ptr<net::io_service::work> main_iosrv_work = std::make_shared<net::io_service::work>(main_io_service);
 		std::thread main_iosrv_thread([]() {
-			main_io_service.run();
+			bool abnormally_exit;
+			do
+			{
+				abnormally_exit = false;
+				try
+				{
+					main_io_service.run();
+				}
+				catch (...) { abnormally_exit = true; }
+			} while (abnormally_exit);
 		});
 		main_iosrv_thread.detach();
 
 		std::shared_ptr<net::io_service::work> misc_iosrv_work = std::make_shared<net::io_service::work>(misc_io_service);
 		std::thread misc_iosrv_thread([]() {
-			misc_io_service.run();
+			bool abnormally_exit;
+			do
+			{
+				abnormally_exit = false;
+				try
+				{
+					misc_io_service.run();
+				}
+				catch (...) { abnormally_exit = true; }
+			} while (abnormally_exit);
 		});
 		misc_iosrv_thread.detach();
 
