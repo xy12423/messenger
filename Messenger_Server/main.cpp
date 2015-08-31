@@ -204,10 +204,9 @@ void cli_server_interface::on_join(id_type id)
 void cli_server_interface::on_leave(id_type id)
 {
 	user_ext_list::iterator itr = user_ext.find(id);
-	itr->second.current_stage = user_ext_data::LOGIN_NAME;
-	broadcast_msg(-1, del_user + itr->second.addr);
-
+	std::string send_msg = del_user + itr->second.addr;
 	user_ext.erase(itr);
+	broadcast_msg(-1, send_msg);
 }
 
 void cli_server_interface::broadcast_msg(id_type src, const std::string &msg)
