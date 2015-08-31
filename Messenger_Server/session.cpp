@@ -377,7 +377,7 @@ void session::start()
 	read_header();
 }
 
-void session::send(const std::string& data, int priority, const std::wstring& message)
+void session::send(const std::string& data, int priority, const std::string& message)
 {
 	if (data.empty())
 		return;
@@ -494,7 +494,7 @@ void session::write()
 		if (!ec)
 		{
 			if (!write_itr->msg.empty())
-				std::wcout << write_itr->msg << std::endl;
+				std::cout << write_itr->msg << std::endl;
 			write_que.erase(write_itr);
 			if (!write_que.empty())
 			{

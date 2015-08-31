@@ -123,7 +123,7 @@ void server::on_data(id_type id, std::shared_ptr<std::string> data)
 	});
 }
 
-bool server::send_data(id_type id, const std::string& data, int priority, const std::wstring& message)
+bool server::send_data(id_type id, const std::string& data, int priority, const std::string& message)
 {
 	sessionList::iterator itr(sessions.find(id));
 	if (itr == sessions.end())

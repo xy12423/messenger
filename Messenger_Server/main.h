@@ -5,12 +5,12 @@
 
 enum modes{ RELAY, CENTER };
 
-struct user
+struct user_log
 {
 	enum group_type{ GUEST, USER, ADMIN };
 
-	user(){ group = GUEST; }
-	user(const std::string &_name, const std::string &_passwd, group_type _group) :
+	user_log(){ group = GUEST; }
+	user_log(const std::string &_name, const std::string &_passwd, group_type _group) :
 		name(_name), passwd(_passwd)
 	{
 		group = _group;
@@ -18,13 +18,21 @@ struct user
 
 	std::string name, passwd;
 	group_type group;
+};
+typedef std::unordered_map<std::string, user_log> user_log_list;
 
+struct user_ext_data
+{
+	enum stage { LOGIN_NAME, LOGIN_PASS, LOGGED_IN };
+	stage current_stage = LOGIN_NAME;
+
+	std::string name;
 	std::string addr;
 
 	std::string recvFile;
 	int blockLast;
 };
-typedef std::unordered_map<id_type, user> user_list;
+typedef std::unordered_map<int, user_ext_data> user_ext_list;
 
 class cli_server_interface :public server_interface
 {
@@ -36,27 +44,9 @@ public:
 
 	virtual void on_unknown_key(id_type id, const std::string& key) {};
 
-	void process_command(const std::string &cmd, user::group_type type);
-};
-
-class iosrv_thread
-{
-public:
-	iosrv_thread(net::io_service& _iosrv)
-		:iosrv(_iosrv), run_thread(&iosrv_thread::run, this)
-	{
-		iosrv_work = std::make_shared<net::io_service::work>(iosrv);
-		run_thread.detach();
-	}
-
-	void stop() { iosrv_work.reset(); iosrv.stop(); }
-private:
-	net::io_service& iosrv;
-	std::shared_ptr<net::io_service::work> iosrv_work;
-
-	std::thread run_thread;
-
-	void run() { iosrv.run(); }
+	void broadcast_msg(id_type id, const std::string &msg);
+	void broadcast_data(id_type id, const std::string &data, int priority);
+	void process_command(std::string cmd, user_log::group_type type);
 };
 
 #endif
