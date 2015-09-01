@@ -83,7 +83,11 @@ id_type server::join(const session_ptr &_user)
 	id_type newID = nextID;
 	nextID++;
 	sessions.emplace(newID, _user);
-	inter->on_join(newID);
+
+	try{ inter->on_join(newID); }
+	catch (std::exception ex) { std::cerr << ex.what() << std::endl; }
+	catch (...) {}
+
 	return newID;
 }
 
@@ -92,7 +96,11 @@ void server::leave(id_type _user)
 	sessionList::iterator itr(sessions.find(_user));
 	if (itr == sessions.end())
 		return;
-	inter->on_leave(_user);
+
+	try { inter->on_leave(_user); }
+	catch (std::exception ex) { std::cerr << ex.what() << std::endl; }
+	catch (...) {}
+
 	freePort(ports, itr->second->get_port());
 	sessions.erase(_user);
 }
@@ -119,7 +127,9 @@ void server::on_data(id_type id, std::shared_ptr<std::string> data)
 			leave(id);
 		}
 
-		inter->on_data(id, decrypted_data);
+		try { inter->on_data(id, decrypted_data); }
+		catch (std::exception ex) { std::cerr << ex.what() << std::endl; }
+		catch (...) {}
 	});
 }
 

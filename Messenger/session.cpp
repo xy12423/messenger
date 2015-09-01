@@ -256,120 +256,190 @@ void pre_session_s::stage1()
 
 void pre_session_s::stage2()
 {
-	key_string.assign(key_buffer.get(), key_length);
-	CryptoPP::StringSource keySource(key_string, true);
-	e1.AccessPublicKey().Load(keySource);
+	try
+	{
+		key_string.assign(key_buffer.get(), key_length);
+		CryptoPP::StringSource keySource(key_string, true);
+		e1.AccessPublicKey().Load(keySource);
 
-	session_id = boost::endian::native_to_little<rand_num_type>(genRandomNumber());
-	rand_num = boost::endian::native_to_little<rand_num_type>(genRandomNumber());
-	stage = 0;
-	write_session_id();
+		session_id = boost::endian::native_to_little<rand_num_type>(genRandomNumber());
+		rand_num = boost::endian::native_to_little<rand_num_type>(genRandomNumber());
+		stage = 0;
+		write_session_id();
+	}
+	catch (std::exception ex)
+	{
+		std::cerr << ex.what() << std::endl;
+		if (!exiting)
+			srv->pre_session_over(shared_from_this());
+	}
+	catch (...)
+	{
+		if (!exiting)
+			srv->pre_session_over(shared_from_this());
+	}
 }
 
 void pre_session_s::sid_packet_done()
 {
-	switch (stage)
+	try
 	{
-		case 0:
-			check_session_id();
-			break;
-		case 1:
-			read_session_id(true);
-			break;
-		case 2:
-			write_session_id();
-			break;
-		case 3:
+		switch (stage)
 		{
-			session_ptr newUser(std::make_shared<session>(srv, local_port, std::move(io_service), std::move(socket), e1, session_id));
+			case 0:
+				check_session_id();
+				break;
+			case 1:
+				read_session_id(true);
+				break;
+			case 2:
+				write_session_id();
+				break;
+			case 3:
+			{
+				session_ptr newUser(std::make_shared<session>(srv, local_port, std::move(io_service), std::move(socket), e1, session_id));
 
-			newUser->id = srv->join(newUser);
-			srv->check_key(newUser->id, key_string);
-			newUser->start();
+				newUser->id = srv->join(newUser);
+				srv->check_key(newUser->id, key_string);
+				newUser->start();
 
-			passed = true;
+				passed = true;
 
-			if (!exiting)
-				srv->pre_session_over(shared_from_this());
+				if (!exiting)
+					srv->pre_session_over(shared_from_this());
 
-			break;
+				break;
+			}
 		}
+		stage++;
 	}
-	stage++;
+	catch (std::exception ex)
+	{
+		std::cerr << ex.what() << std::endl;
+		if (!exiting)
+			srv->pre_session_over(shared_from_this());
+	}
+	catch (...)
+	{
+		if (!exiting)
+			srv->pre_session_over(shared_from_this());
+	}
 }
 
 void pre_session_c::start()
 {
-	socket->open(net::ip::tcp::v4());
-	socket->bind(net::ip::tcp::endpoint(net::ip::tcp::v4(), local_port));
-	socket->async_connect(ep,
-		[this](boost::system::error_code ec)
+	try
 	{
-		if (!ec)
-			stage1();
-		else
+		socket->open(net::ip::tcp::v4());
+		socket->bind(net::ip::tcp::endpoint(net::ip::tcp::v4(), local_port));
+		socket->async_connect(ep,
+			[this](boost::system::error_code ec)
 		{
-			std::cerr << "Socket Error:" << ec.message() << std::endl;
-			if (!exiting)
-				srv->pre_session_over(shared_from_this());
-		}
-	});
+			if (!ec)
+				stage1();
+			else
+			{
+				std::cerr << "Socket Error:" << ec.message() << std::endl;
+				if (!exiting)
+					srv->pre_session_over(shared_from_this());
+			}
+		});
+	}
+	catch (std::exception ex)
+	{
+		std::cerr << ex.what() << std::endl;
+		if (!exiting)
+			srv->pre_session_over(shared_from_this());
+	}
+	catch (...)
+	{
+		if (!exiting)
+			srv->pre_session_over(shared_from_this());
+	}
 }
 
 void pre_session_c::stage2()
 {
-	net::async_write(*socket,
-		net::buffer(srv->get_public_key()),
-		[this](boost::system::error_code ec, std::size_t length)
+	try
 	{
-		if (!ec)
+		net::async_write(*socket,
+			net::buffer(srv->get_public_key()),
+			[this](boost::system::error_code ec, std::size_t length)
 		{
-			key_string.assign(key_buffer.get(), key_length);
-			CryptoPP::StringSource keySource(key_string, true);
-			e1.AccessPublicKey().Load(keySource);
+			if (!ec)
+			{
+				key_string.assign(key_buffer.get(), key_length);
+				CryptoPP::StringSource keySource(key_string, true);
+				e1.AccessPublicKey().Load(keySource);
 
-			read_session_id(false);
-		}
-		else
-		{
-			std::cerr << "Socket Error:" << ec.message() << std::endl;
-			if (!exiting)
-				srv->pre_session_over(shared_from_this());
-		}
-	});
+				read_session_id(false);
+			}
+			else
+			{
+				std::cerr << "Socket Error:" << ec.message() << std::endl;
+				if (!exiting)
+					srv->pre_session_over(shared_from_this());
+			}
+		});
+	}
+	catch (std::exception ex)
+	{
+		std::cerr << ex.what() << std::endl;
+		if (!exiting)
+			srv->pre_session_over(shared_from_this());
+	}
+	catch (...)
+	{
+		if (!exiting)
+			srv->pre_session_over(shared_from_this());
+	}
 }
 
 void pre_session_c::sid_packet_done()
 {
-	switch (stage)
+	try
 	{
-		case 0:
-			write_session_id();
-			break;
-		case 1:
-			rand_num = boost::endian::native_to_little<rand_num_type>(genRandomNumber());
-			write_session_id();
-			break;
-		case 2:
-			check_session_id();
-			break;
-		case 3:
+		switch (stage)
 		{
-			session_ptr newUser(std::make_shared<session>(srv, local_port, std::move(io_service), std::move(socket), e1, session_id));
+			case 0:
+				write_session_id();
+				break;
+			case 1:
+				rand_num = boost::endian::native_to_little<rand_num_type>(genRandomNumber());
+				write_session_id();
+				break;
+			case 2:
+				check_session_id();
+				break;
+			case 3:
+			{
+				session_ptr newUser(std::make_shared<session>(srv, local_port, std::move(io_service), std::move(socket), e1, session_id));
 
-			newUser->id = srv->join(newUser);
-			srv->check_key(newUser->id, key_string);
-			newUser->start();
+				newUser->id = srv->join(newUser);
+				srv->check_key(newUser->id, key_string);
+				newUser->start();
 
-			passed = true;
+				passed = true;
 
-			if (!exiting)
-				srv->pre_session_over(shared_from_this());
+				if (!exiting)
+					srv->pre_session_over(shared_from_this());
 
-			break;
+				break;
+			}
 		}
+		stage++;
 	}
-	stage++;
+	catch (std::exception ex)
+	{
+		std::cerr << ex.what() << std::endl;
+		if (!exiting)
+			srv->pre_session_over(shared_from_this());
+	}
+	catch (...)
+	{
+		if (!exiting)
+			srv->pre_session_over(shared_from_this());
+	}
 }
 
 void session::start()
@@ -411,23 +481,37 @@ void session::send(const std::string& data, int priority, const std::wstring& me
 
 void session::read_header()
 {
-	net::async_read(*socket,
-		net::buffer(read_msg_buffer, sizeof(data_length_type)),
-		net::transfer_exactly(sizeof(data_length_type)),
-		[this](boost::system::error_code ec, std::size_t length)
+	try
 	{
-		if (!ec)
+		net::async_read(*socket,
+			net::buffer(read_msg_buffer, sizeof(data_length_type)),
+			net::transfer_exactly(sizeof(data_length_type)),
+			[this](boost::system::error_code ec, std::size_t length)
 		{
-			data_length_type sizeRecv = *(reinterpret_cast<data_length_type*>(read_msg_buffer));
-			read_data(sizeRecv, std::make_shared<std::string>());
-		}
-		else
-		{
-			std::cerr << "Socket Error:" << ec.message() << std::endl;
-			if (!exiting)
-				srv->leave(id);
-		}
-	});
+			if (!ec)
+			{
+				data_length_type sizeRecv = *(reinterpret_cast<data_length_type*>(read_msg_buffer));
+				read_data(sizeRecv, std::make_shared<std::string>());
+			}
+			else
+			{
+				std::cerr << "Socket Error:" << ec.message() << std::endl;
+				if (!exiting)
+					srv->leave(id);
+			}
+		});
+	}
+	catch (std::exception ex)
+	{
+		std::cerr << ex.what() << std::endl;
+		if (!exiting)
+			srv->leave(id);
+	}
+	catch (...)
+	{
+		if (!exiting)
+			srv->leave(id);
+	}
 }
 
 void session::read_data(size_t sizeLast, std::shared_ptr<std::string> buf)
@@ -476,9 +560,14 @@ void session::read_data(size_t sizeLast, std::shared_ptr<std::string> buf)
 			});
 		}
 	}
-	catch (std::runtime_error ex)
+	catch (std::exception ex)
 	{
 		std::cerr << ex.what() << std::endl;
+		if (!exiting)
+			srv->leave(id);
+	}
+	catch (...)
+	{
 		if (!exiting)
 			srv->leave(id);
 	}
