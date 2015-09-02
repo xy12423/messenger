@@ -116,7 +116,7 @@ public:
 	}
 
 	void start();
-	void send(const std::string& data, int priority, const std::wstring& message);
+	void send(const std::string& data, int priority, const std::string& message);
 
 	std::string get_address() { return socket->remote_endpoint().address().to_string(); }
 	port_type get_port() { return local_port; }
@@ -145,10 +145,10 @@ private:
 
 	struct write_task {
 		write_task() {};
-		write_task(const std::string& _data, int _priority, const std::wstring& _msg) :data(_data), msg(_msg) { priority = _priority; }
-		write_task(std::string&& _data, int _priority, std::wstring&& _msg) :data(_data), msg(_msg) { priority = _priority; }
+		write_task(const std::string& _data, int _priority, const std::string& _msg) :data(_data), msg(_msg) { priority = _priority; }
+		write_task(std::string&& _data, int _priority, std::string&& _msg) :data(_data), msg(_msg) { priority = _priority; }
 		std::string data;
-		std::wstring msg;
+		std::string msg;
 		int priority;
 	};
 	typedef std::list<write_task> write_que_tp;
@@ -206,7 +206,7 @@ public:
 
 	void on_data(id_type id, std::shared_ptr<std::string> data);
 
-	bool send_data(id_type id, const std::string& data, int priority, const std::wstring& message);
+	bool send_data(id_type id, const std::string& data, int priority, const std::string& message);
 
 	void pre_session_over(std::shared_ptr<pre_session> _pre);
 	id_type join(const session_ptr &_user);

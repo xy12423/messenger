@@ -191,12 +191,16 @@ void pre_session::write_session_id()
 {
 	misc_io_service.post([this]() {
 		std::string send_data, send_raw, sha256_buf;
+
 		sha256_buf.append(reinterpret_cast<char*>(&session_id), sizeof(session_id_type));
 		sha256_buf.append(reinterpret_cast<char*>(&rand_num), sizeof(rand_num_type));
+
 		calcSHA256(sha256_buf, send_raw);
 		send_raw.append(sha256_buf);
+
 		encrypt(send_raw, send_data, e1);
 		insLen(send_data);
+
 		char* send_buf = new char[send_data.size()];
 		memcpy(send_buf, send_data.data(), send_data.size());
 
@@ -273,11 +277,6 @@ void pre_session_s::stage2()
 		if (!exiting)
 			srv->pre_session_over(shared_from_this());
 	}
-	catch (...)
-	{
-		if (!exiting)
-			srv->pre_session_over(shared_from_this());
-	}
 }
 
 void pre_session_s::sid_packet_done()
@@ -319,11 +318,6 @@ void pre_session_s::sid_packet_done()
 		if (!exiting)
 			srv->pre_session_over(shared_from_this());
 	}
-	catch (...)
-	{
-		if (!exiting)
-			srv->pre_session_over(shared_from_this());
-	}
 }
 
 void pre_session_c::start()
@@ -348,11 +342,6 @@ void pre_session_c::start()
 	catch (std::exception ex)
 	{
 		std::cerr << ex.what() << std::endl;
-		if (!exiting)
-			srv->pre_session_over(shared_from_this());
-	}
-	catch (...)
-	{
 		if (!exiting)
 			srv->pre_session_over(shared_from_this());
 	}
@@ -385,11 +374,6 @@ void pre_session_c::stage2()
 	catch (std::exception ex)
 	{
 		std::cerr << ex.what() << std::endl;
-		if (!exiting)
-			srv->pre_session_over(shared_from_this());
-	}
-	catch (...)
-	{
 		if (!exiting)
 			srv->pre_session_over(shared_from_this());
 	}
@@ -435,11 +419,6 @@ void pre_session_c::sid_packet_done()
 		if (!exiting)
 			srv->pre_session_over(shared_from_this());
 	}
-	catch (...)
-	{
-		if (!exiting)
-			srv->pre_session_over(shared_from_this());
-	}
 }
 
 void session::start()
@@ -447,7 +426,7 @@ void session::start()
 	read_header();
 }
 
-void session::send(const std::string& data, int priority, const std::wstring& message)
+void session::send(const std::string& data, int priority, const std::string& message)
 {
 	if (data.empty())
 		return;
@@ -507,11 +486,6 @@ void session::read_header()
 		if (!exiting)
 			srv->leave(id);
 	}
-	catch (...)
-	{
-		if (!exiting)
-			srv->leave(id);
-	}
 }
 
 void session::read_data(size_t sizeLast, std::shared_ptr<std::string> buf)
@@ -563,11 +537,6 @@ void session::read_data(size_t sizeLast, std::shared_ptr<std::string> buf)
 	catch (std::exception ex)
 	{
 		std::cerr << ex.what() << std::endl;
-		if (!exiting)
-			srv->leave(id);
-	}
-	catch (...)
-	{
 		if (!exiting)
 			srv->leave(id);
 	}

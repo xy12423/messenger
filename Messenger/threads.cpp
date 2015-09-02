@@ -60,7 +60,10 @@ fileSendThread::ExitCode fileSendThread::Entry()
 
 					if (TestDestroy())
 						break;
-					srv->send_data(task.uID, head, session::priority_file, wxT("Sending file ") + fileName + wxT(" To ") + user_ext[task.uID].addr);
+					wxCharBuffer msg = wxConvLocal.cWC2MB(
+						(wxT("Sending file ") + fileName + wxT(" To ") + user_ext[task.uID].addr).c_str()
+						);
+					srv->send_data(task.uID, head, session::priority_file, std::string(msg.data(), msg.length()));
 				}
 
 				block = new char[fileBlockLen];
@@ -75,7 +78,10 @@ fileSendThread::ExitCode fileSendThread::Entry()
 					buf.insert(0, 1, pac_type_file_b);
 					if (TestDestroy())
 						break;
-					srv->send_data(task.uID, buf, session::priority_file, fileName + wxT(":Sended block ") + std::to_wstring(blockCount) + wxT("/") + std::to_wstring(blockCountAll) + wxT(" To ") + user_ext[task.uID].addr);
+					wxCharBuffer msg = wxConvLocal.cWC2MB(
+						(fileName + wxT(":Sended block ") + std::to_wstring(blockCount) + wxT("/") + std::to_wstring(blockCountAll) + wxT(" To ") + user_ext[task.uID].addr).c_str()
+						);
+					srv->send_data(task.uID, buf, session::priority_file, std::string(msg.data(), msg.length()));
 					blockCount++;
 				}
 				delete[] block;
