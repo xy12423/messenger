@@ -6,15 +6,15 @@
 
 net::io_service main_io_service, misc_io_service;
 server *srv;
-cli_server_interface *inter;
+cli_server_interface inter;
 volatile bool server_on = true;
 
 user_log_list user_logs;
 user_ext_list user_ext;
 
 const char *config_file = ".config";
-const char *new_user = "New user:", *del_user = "Leaving user:";
-const char *input_name = "Username:", *input_pass = "Password:", *welcome = "Welcome";
+const char *msg_new_user = "New user:", *msg_del_user = "Leaving user:";
+const char *msg_input_name = "Username:", *msg_input_pass = "Password:", *msg_welcome = "Welcome";
 
 modes mode = RELAY;
 
@@ -103,7 +103,7 @@ void cli_server_interface::on_data(id_type id, const std::string &data)
 							usr.name = std::move(msg);
 							usr.current_stage = user_ext_data::LOGIN_PASS;
 							
-							std::string msg_send(input_pass);
+							std::string msg_send(msg_input_pass);
 							insLen(msg_send);
 							msg_send.insert(0, 1, pac_type_msg);
 							srv->send_data(id, msg_send, session::priority_msg, "");
@@ -120,9 +120,9 @@ void cli_server_interface::on_data(id_type id, const std::string &data)
 								calcSHA256(msg, tmp);
 								if (itr->second.passwd == tmp)
 								{
-									broadcast_msg(-1, new_user + usr.addr);
+									broadcast_msg(-1, msg_new_user + usr.name + '(' + usr.addr + ')');
 
-									std::string msg_send(welcome);
+									std::string msg_send(msg_welcome);
 									insLen(msg_send);
 									msg_send.insert(0, 1, pac_type_msg);
 									srv->send_data(id, msg_send, session::priority_msg, "");
@@ -133,7 +133,7 @@ void cli_server_interface::on_data(id_type id, const std::string &data)
 
 							if (usr.current_stage == user_ext_data::LOGIN_NAME)
 							{
-								std::string msg_send(input_name);
+								std::string msg_send(msg_input_name);
 								insLen(msg_send);
 								msg_send.insert(0, 1, pac_type_msg);
 								srv->send_data(id, msg_send, session::priority_msg, "");
@@ -192,26 +192,35 @@ void cli_server_interface::on_join(id_type id)
 
 	if (mode == CENTER)
 	{
-		std::string msg_send(input_name);
+		std::string msg_send(msg_input_name);
 		insLen(msg_send);
 		msg_send.insert(0, 1, pac_type_msg);
 		srv->send_data(id, msg_send, session::priority_msg, "");
 	}
 	else
-		broadcast_msg(-1, new_user + ext.addr);
+		broadcast_msg(-1, msg_new_user + ext.addr);
 }
 
 void cli_server_interface::on_leave(id_type id)
 {
 	user_ext_list::iterator itr = user_ext.find(id);
-	std::string send_msg = del_user + itr->second.addr;
+	std::string msg_send(msg_del_user);
+	if (mode == CENTER)
+		msg_send.append(itr->second.name + '(' + itr->second.addr + ')');
+	else
+		msg_send.append(itr->second.addr);
 	user_ext.erase(itr);
-	broadcast_msg(-1, send_msg);
+	broadcast_msg(-1, msg_send);
 }
 
 void cli_server_interface::broadcast_msg(id_type src, const std::string &msg)
 {
-	std::string msg_send(user_ext[src].addr);
+	std::string msg_send;
+	user_ext_data &usr = user_ext[src];
+	if (mode == CENTER)
+		msg_send = usr.name + '(' + usr.addr + ')';
+	else
+		msg_send = usr.addr;
 	msg_send.push_back(':');
 	msg_send.append(msg);
 
@@ -376,14 +385,13 @@ int main(int argc, char *argv[])
 		});
 		misc_iosrv_thread.detach();
 
-		user_ext[-1].addr = "Server";
-		inter = new cli_server_interface;
-		srv = new server(main_io_service, misc_io_service, inter, net::ip::tcp::endpoint(net::ip::tcp::v4(), portListener));
+		user_ext[-1].name = user_ext[-1].addr = "Server";
+		srv = new server(main_io_service, misc_io_service, &inter, net::ip::tcp::endpoint(net::ip::tcp::v4(), portListener));
 		std::string command;
 		while (server_on)
 		{
 			std::getline(std::cin, command);
-			inter->process_command(command, user_log::ADMIN);
+			inter.process_command(command, user_log::ADMIN);
 		}
 
 		write_config();
@@ -393,8 +401,6 @@ int main(int argc, char *argv[])
 
 		main_iosrv_work.reset();
 		main_io_service.stop();
-
-		delete inter;
 #ifdef NDEBUG
 	}
 	catch (std::exception& e)
