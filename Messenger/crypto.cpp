@@ -10,7 +10,7 @@ extern const char* privatekeyFile;
 void genKey()
 {
 	ECIES<ECP>::PrivateKey privateKey;
-	privateKey.Initialize(prng, ASN1::secp521r1());
+	privateKey.GenerateRandom(prng, MakeParameters(Name::GroupOID(), ASN1::secp521r1()));
 	FileSink fs(privatekeyFile, true);
 	privateKey.Save(fs);
 	d0.AccessKey() = privateKey;

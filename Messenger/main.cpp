@@ -261,6 +261,12 @@ mainFrame::mainFrame(const wxString& title)
 		wxTE_MULTILINE | wxTE_READONLY
 		);
 
+	const int entry_count = 1;
+	wxAcceleratorEntry entries[entry_count];
+	entries[0].Set(wxACCEL_CTRL, WXK_RETURN, ID_BUTTONSEND);
+	wxAcceleratorTable accel(entry_count, entries);
+	SetAcceleratorTable(accel);
+
 	threadFileSend = new fileSendThread();
 	if (threadFileSend->Run() != wxTHREAD_NO_ERROR)
 	{
