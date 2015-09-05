@@ -99,6 +99,12 @@ private:
 class session
 {
 public:
+	static const int priority_sys = 30;
+	static const int priority_msg = 20;
+	static const int priority_file = 10;
+
+	typedef std::function<void()> write_callback;
+
 	session(server *_srv, port_type _local_port, net::io_service& _iosrv, socket_ptr &&_socket, CryptoPP::ECIES<CryptoPP::ECP>::Encryptor &_e1, session_id_type _session_id)
 		:io_service(_iosrv), socket(_socket), e1(_e1), session_id_in_byte(reinterpret_cast<char*>(&_session_id), sizeof(session_id_type))
 	{
@@ -117,13 +123,11 @@ public:
 
 	void start();
 	void send(const std::string& data, int priority, const std::string& message);
+	void stop_file_transfer();
 
 	std::string get_address() { return socket->remote_endpoint().address().to_string(); }
 	port_type get_port() { return local_port; }
 	session_id_type get_session_id() const { return session_id; };
-
-	static const int priority_msg = 20;
-	static const int priority_file = 10;
 
 	friend class pre_session_s;
 	friend class pre_session_c;
@@ -142,13 +146,13 @@ private:
 
 	char *read_msg_buffer;
 	const size_t msg_buffer_size = 0x4000;
-
 	struct write_task {
 		write_task() {};
-		write_task(const std::string& _data, int _priority, const std::string& _msg) :data(_data), msg(_msg) { priority = _priority; }
-		write_task(std::string&& _data, int _priority, std::string&& _msg) :data(_data), msg(_msg) { priority = _priority; }
+		//write_task(const std::string& _data, int _priority, const write_callback& _callback) :data(_data), callback(_callback) { priority = _priority; }
+		write_task(const std::string& _data, int _priority, write_callback&& _callback) :data(_data), callback(_callback) { priority = _priority; }
+		//write_task(std::string&& _data, int _priority, write_callback&& _callback) :data(_data), callback(_callback) { priority = _priority; }
 		std::string data;
-		std::string msg;
+		write_callback callback;
 		int priority;
 	};
 	typedef std::list<write_task> write_que_tp;

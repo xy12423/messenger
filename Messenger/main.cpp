@@ -14,6 +14,9 @@ EVT_BUTTON(ID_BUTTONDEL, mainFrame::buttonDel_Click)
 
 EVT_BUTTON(ID_BUTTONSEND, mainFrame::buttonSend_Click)
 EVT_BUTTON(ID_BUTTONSENDFILE, mainFrame::buttonSendFile_Click)
+EVT_BUTTON(ID_BUTTONCANCELSEND, mainFrame::buttonCancelSend_Click)
+EVT_BUTTON(ID_BUTTONIMPORTKEY, mainFrame::buttonImportKey_Click)
+EVT_BUTTON(ID_BUTTONEXPORTKEY, mainFrame::buttonExportKey_Click)
 
 EVT_THREAD(wxID_ANY, mainFrame::thread_Message)
 
@@ -240,18 +243,33 @@ mainFrame::mainFrame(const wxString& title)
 	textInput = new wxTextCtrl(panel, ID_TEXTINPUT,
 		wxEmptyString,
 		wxPoint(180, 321),
-		wxSize(340, 90),
+		wxSize(412, 42),
 		wxTE_MULTILINE
 		);
 	buttonSend = new wxButton(panel, ID_BUTTONSEND,
 		wxT("Send"),
-		wxPoint(526, 321),
-		wxSize(66, 42)
+		wxPoint(180, 369),
+		wxSize(77, 42)
 		);
 	buttonSendFile = new wxButton(panel, ID_BUTTONSENDFILE,
 		wxT("Send File"),
-		wxPoint(526, 369),
-		wxSize(66, 42)
+		wxPoint(263, 369),
+		wxSize(78, 42)
+		);
+	buttonCancelSend = new wxButton(panel, ID_BUTTONCANCELSEND,
+		wxT("Cancel"),
+		wxPoint(347, 369),
+		wxSize(78, 42)
+		);
+	buttonImportKey = new wxButton(panel, ID_BUTTONIMPORTKEY,
+		wxT("Import key"),
+		wxPoint(431, 369),
+		wxSize(78, 42)
+		);
+	buttonExportKey = new wxButton(panel, ID_BUTTONEXPORTKEY,
+		wxT("Export key"),
+		wxPoint(515, 369),
+		wxSize(77, 42)
 		);
 
 	textInfo = new wxTextCtrl(panel, ID_TEXTINFO,
@@ -358,6 +376,58 @@ void mainFrame::buttonSendFile_Click(wxCommandEvent& event)
 			int uID = *itr;
 			threadFileSend->taskQue.Post(fileSendTask(uID, fs::path(path)));
 		}
+	}
+}
+
+void mainFrame::buttonCancelSend_Click(wxCommandEvent& event)
+{
+	if (listUser->GetSelection() != -1)
+	{
+		std::list<int>::iterator itr = userIDs.begin();
+		for (int i = listUser->GetSelection(); i > 0; itr++)i--;
+		int uID = *itr;
+		srv->get_session(uID)->stop_file_transfer();
+	}
+}
+
+void mainFrame::buttonImportKey_Click(wxCommandEvent& event)
+{
+	wxFileDialog fileDlg(this);
+	fileDlg.ShowModal();
+	std::wstring path = fileDlg.GetPath().ToStdWstring();
+	if ((!path.empty()) && fs::exists(path))
+	{
+		size_t pubCount = 0, keyLen = 0;
+		std::ifstream publicIn(path, std::ios_base::in | std::ios_base::binary);
+		publicIn.read(reinterpret_cast<char*>(&pubCount), sizeof(size_t));
+		for (; pubCount > 0; pubCount--)
+		{
+			publicIn.read(reinterpret_cast<char*>(&keyLen), sizeof(size_t));
+			char *buf = new char[keyLen];
+			publicIn.read(buf, keyLen);
+			srv->certify_key(std::string(buf, keyLen));
+			delete[] buf;
+		}
+	}
+}
+
+void mainFrame::buttonExportKey_Click(wxCommandEvent& event)
+{
+	wxFileDialog fileDlg(this);
+	fileDlg.ShowModal();
+	std::wstring path = fileDlg.GetPath().ToStdWstring();
+	if (!path.empty())
+	{
+		std::ofstream publicOut(path, std::ios_base::out | std::ios_base::binary);
+		size_t pubCount = 1;
+		publicOut.write(reinterpret_cast<char*>(&pubCount), sizeof(size_t));
+
+		std::string key = getPublicKey();
+		size_t keySize = key.size();
+		publicOut.write(reinterpret_cast<char*>(&keySize), sizeof(size_t));
+		publicOut.write(key.data(), keySize);
+
+		publicOut.close();
 	}
 }
 

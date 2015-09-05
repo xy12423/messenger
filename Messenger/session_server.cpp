@@ -217,6 +217,8 @@ void server::read_data()
 			certifiedKeys.emplace(std::string(buf, keyLen));
 			delete[] buf;
 		}
+
+		publicIn.close();
 	}
 
 	e0str = getPublicKey();
@@ -226,15 +228,17 @@ void server::read_data()
 
 void server::write_data()
 {
-	size_t pubCount = certifiedKeys.size(), keyLen = 0;
-	std::ofstream publicIn(publickeysFile, std::ios_base::out | std::ios_base::binary);
-	publicIn.write(reinterpret_cast<char*>(&pubCount), sizeof(size_t));
+	size_t pubCount = certifiedKeys.size(), keySize = 0;
+	std::ofstream publicOut(publickeysFile, std::ios_base::out | std::ios_base::binary);
+	publicOut.write(reinterpret_cast<char*>(&pubCount), sizeof(size_t));
 
 	std::unordered_set<std::string>::iterator itr = certifiedKeys.begin(), itrEnd = certifiedKeys.end();
 	for (; itr != itrEnd; itr++)
 	{
-		keyLen = static_cast<size_t>(itr->size());
-		publicIn.write(reinterpret_cast<char*>(&keyLen), sizeof(size_t));
-		publicIn.write(itr->data(), keyLen);
+		keySize = static_cast<size_t>(itr->size());
+		publicOut.write(reinterpret_cast<char*>(&keySize), sizeof(size_t));
+		publicOut.write(itr->data(), keySize);
 	}
+
+	publicOut.close();
 }

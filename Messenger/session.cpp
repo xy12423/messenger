@@ -439,22 +439,52 @@ void session::send(const std::string& data, int priority, const std::string& mes
 
 	io_service.post([write_msg, message, priority, this]() {
 		bool write_not_in_progress = write_que.empty();
+
 		write_que_tp::iterator itr = write_que.begin(), itrEnd = write_que.end();
 		for (; itr != itrEnd; itr++)
 		{
 			if (priority > itr->priority)
 			{
-				write_que.insert(itr, write_task(std::move(write_msg), priority, std::move(message)));
+				if (message.empty())
+					write_que.insert(itr, write_task(write_msg, priority, []() {}));
+				else
+					write_que.insert(itr, write_task(write_msg, priority, [message]() {std::cout << message << std::endl; }));
 				break;
 			}
 		}
 		if (itr == itrEnd)
-			write_que.push_back(write_task(std::move(write_msg), priority, std::move(message)));
+		{
+			if (message.empty())
+				write_que.push_back(write_task(write_msg, priority, []() {}));
+			else
+				write_que.push_back(write_task(write_msg, priority, [message]() {std::cout << message << std::endl; }));
+		}
 
 		if (write_not_in_progress)
 		{
 			write();
 		}
+	});
+}
+
+void session::stop_file_transfer()
+{
+	io_service.post([this]() {
+		bool write_not_in_progress = write_que.empty();
+
+		write_que.push_back(write_task("", priority_sys, [this]() {
+			write_que_tp::iterator itr = write_que.begin(), itrEnd = write_que.end();
+			for (; itr != itrEnd;)
+			{
+				if (itr->priority == priority_file)
+					itr = write_que.erase(itr);
+				else
+					itr++;
+			}
+		}));
+		
+		if (write_not_in_progress)
+			write();
 	});
 }
 
@@ -545,25 +575,32 @@ void session::read_data(size_t sizeLast, std::shared_ptr<std::string> buf)
 void session::write()
 {
 	write_que_tp::iterator write_itr = write_que.begin();
-	net::async_write(*socket,
-		net::buffer(write_itr->data),
-		[this, write_itr](boost::system::error_code ec, std::size_t /*length*/)
+	if (write_itr->data.empty())
 	{
-		if (!ec)
+		write_itr->callback();
+		write_que.erase(write_itr);
+		if (!write_que.empty())
+			write();
+	}
+	else
+	{
+		net::async_write(*socket,
+			net::buffer(write_itr->data),
+			[this, write_itr](boost::system::error_code ec, std::size_t /*length*/)
 		{
-			if (!write_itr->msg.empty())
-				std::cout << write_itr->msg << std::endl;
-			write_que.erase(write_itr);
-			if (!write_que.empty())
+			if (!ec)
 			{
-				write();
+				write_itr->callback();
+				write_que.erase(write_itr);
+				if (!write_que.empty())
+					write();
 			}
-		}
-		else
-		{
-			std::cerr << "Socket Error:" << ec.message() << std::endl;
-			if (!exiting)
-				srv->leave(id);
-		}
-	});
+			else
+			{
+				std::cerr << "Socket Error:" << ec.message() << std::endl;
+				if (!exiting)
+					srv->leave(id);
+			}
+		});
+	}
 }
