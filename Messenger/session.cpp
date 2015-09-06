@@ -574,33 +574,31 @@ void session::read_data(size_t sizeLast, std::shared_ptr<std::string> buf)
 
 void session::write()
 {
-	write_que_tp::iterator write_itr = write_que.begin();
-	if (write_itr->data.empty())
+	write_que_tp::iterator write_itr = write_que.begin(), write_que_end = write_que.end();
+	while (write_itr->data.empty())
 	{
 		write_itr->callback();
-		write_que.erase(write_itr);
-		if (!write_que.empty())
-			write();
+		write_itr = write_que.erase(write_itr);
+		if (write_itr == write_que_end)
+			return;
 	}
-	else
+
+	net::async_write(*socket,
+		net::buffer(write_itr->data),
+		[this, write_itr](boost::system::error_code ec, std::size_t /*length*/)
 	{
-		net::async_write(*socket,
-			net::buffer(write_itr->data),
-			[this, write_itr](boost::system::error_code ec, std::size_t /*length*/)
+		if (!ec)
 		{
-			if (!ec)
-			{
-				write_itr->callback();
-				write_que.erase(write_itr);
-				if (!write_que.empty())
-					write();
-			}
-			else
-			{
-				std::cerr << "Socket Error:" << ec.message() << std::endl;
-				if (!exiting)
-					srv->leave(id);
-			}
-		});
-	}
+			write_itr->callback();
+			write_que.erase(write_itr);
+			if (!write_que.empty())
+				write();
+		}
+		else
+		{
+			std::cerr << "Socket Error:" << ec.message() << std::endl;
+			if (!exiting)
+				srv->leave(id);
+		}
+	});
 }
