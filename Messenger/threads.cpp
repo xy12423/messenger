@@ -29,7 +29,7 @@ const int fileBlockLen = 0x100000;
 void fileSendThread::start(int uID, const fs::path &path)
 {
 	iosrv.post([this, uID, path]() {
-		bool not_writing = tasks.empty();
+		bool write_not_in_progress = tasks.empty();
 		tasks.push_back(fileSendTask(uID, path));
 		fileSendTask &newTask = tasks.back();
 
@@ -45,20 +45,20 @@ void fileSendThread::start(int uID, const fs::path &path)
 			newTask.blockCountAll = blockCountAll;
 
 			std::wstring fileName = path.leaf().wstring();
-			data_length_type lenSend = wxUINT32_SWAP_ON_BE(blockCountAll);
-			std::string head(reinterpret_cast<const char*>(&blockCountAll), sizeof(data_length_type));
+			data_length_type blockCountAll_LE = wxUINT32_SWAP_ON_BE(blockCountAll);
+			std::string head(reinterpret_cast<const char*>(&blockCountAll_LE), sizeof(data_length_type));
 			head.insert(0, 1, pac_type_file_h);
 			wxCharBuffer nameBuf = wxConvUTF8.cWC2MB(fileName.c_str());
 			std::string name(nameBuf, nameBuf.length());
 			insLen(name);
 			head.append(name);
 
-			wxCharBuffer msg = wxConvLocal.cWC2MB(
+			wxCharBuffer msgBuf = wxConvLocal.cWC2MB(
 				(wxT("Sending file ") + fileName + wxT(" To ") + user_ext[uID].addr).c_str()
 				);
-			srv->send_data(uID, head, session::priority_file, std::string(msg.data(), msg.length()));
+			srv->send_data(uID, head, session::priority_file, std::string(msgBuf.data(), msgBuf.length()));
 			
-			if (not_writing)
+			if (write_not_in_progress)
 				write();
 		}
 	});
@@ -80,19 +80,25 @@ void fileSendThread::stop(int uID)
 void fileSendThread::write()
 {
 	std::unique_ptr<char[]> block = std::make_unique<char[]>(fileBlockLen);
-	std::string buf;
+	std::string sendBuf;
 
 	fileSendTask &task = tasks.front();
 	task.fin.read(block.get(), fileBlockLen);
-	std::streamsize count = task.fin.gcount();
-	buf.assign(block.get(), count);
-	insLen(buf);
-	buf.insert(0, 1, pac_type_file_b);
+	std::streamsize sizeRead = task.fin.gcount();
+	sendBuf.assign(block.get(), sizeRead);
+	insLen(sendBuf);
+	sendBuf.insert(0, 1, pac_type_file_b);
 	wxCharBuffer msgBuf = wxConvLocal.cWC2MB(
 		(task.fileName + wxT(":Sended block ") + std::to_wstring(task.blockCount) + wxT("/") + std::to_wstring(task.blockCountAll) + wxT(" To ") + user_ext[task.uID].addr).c_str()
 		);
 	std::string msg(msgBuf.data(), msgBuf.length());
-	srv->send_data(task.uID, buf, session::priority_file, [msg, this]() { std::cout << msg << std::endl; iosrv.post([this]() { if (!tasks.empty()) write(); }); });
+	srv->send_data(task.uID, sendBuf, session::priority_file, [msg, this]() {
+		std::cout << msg << std::endl;
+		iosrv.post([this]() {
+			if (!tasks.empty())
+				write();
+		});
+	});
 	task.blockCount++;
 
 	if (task.fin.eof())

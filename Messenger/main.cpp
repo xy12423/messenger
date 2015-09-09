@@ -42,15 +42,15 @@ iosrvThread *threadNetwork, *threadMisc;
 
 #define checkErr(x) if (dataItr + (x) > dataEnd) throw(0)
 #define read_uint(x)												\
-	checkErr(size_length);											\
-	memcpy(reinterpret_cast<char*>(&(x)), dataItr, size_length);	\
-	dataItr += size_length
+	checkErr(sizeof_data_length);											\
+	memcpy(reinterpret_cast<char*>(&(x)), dataItr, sizeof_data_length);	\
+	dataItr += sizeof_data_length
 
 void wx_srv_interface::on_data(id_type id, const std::string &data)
 {
 	try
 	{
-		const size_t size_length = sizeof(data_length_type);
+		const size_t sizeof_data_length = sizeof(data_length_type);
 		const char *dataItr = data.data(), *dataEnd = data.data() + data.size();
 		user_ext_data &usr = user_ext.at(id);
 
@@ -65,12 +65,12 @@ void wx_srv_interface::on_data(id_type id, const std::string &data)
 				if (frm == nullptr)
 					throw(0);
 
-				data_length_type sizeRecv;
-				read_uint(sizeRecv);
+				data_length_type sizeMsg;
+				read_uint(sizeMsg);
 
-				checkErr(sizeRecv);
-				std::string msg_utf8(dataItr, sizeRecv);
-				dataItr += sizeRecv;
+				checkErr(sizeMsg);
+				std::string msg_utf8(dataItr, sizeMsg);
+				dataItr += sizeMsg;
 
 				wxString msg(usr.addr + ':' + wxConvUTF8.cMB2WC(msg_utf8.c_str()) + '\n');
 				usr.log.append(msg);
@@ -92,7 +92,7 @@ void wx_srv_interface::on_data(id_type id, const std::string &data)
 			{
 				data_length_type recvLE;
 				read_uint(recvLE);
-				data_length_type blockCount = wxUINT32_SWAP_ON_BE(static_cast<data_length_type>(recvLE));
+				data_length_type blockCountAll = wxUINT32_SWAP_ON_BE(static_cast<data_length_type>(recvLE));
 
 				read_uint(recvLE);
 				data_length_type fNameLen = wxUINT32_SWAP_ON_BE(static_cast<data_length_type>(recvLE));
@@ -119,7 +119,7 @@ void wx_srv_interface::on_data(id_type id, const std::string &data)
 					fName = fName + "_" + std::to_string(i);
 				}
 				usr.recvFile = wxConvLocal.cWC2MB(fName.c_str());
-				usr.blockLast = blockCount;
+				usr.blockLast = blockCountAll;
 				std::cout << "Receiving file " << fName << " from " << usr.addr << std::endl;
 
 				break;
@@ -128,15 +128,15 @@ void wx_srv_interface::on_data(id_type id, const std::string &data)
 			{
 				data_length_type recvLE;
 				read_uint(recvLE);
-				data_length_type recvLen = wxUINT32_SWAP_ON_BE(static_cast<data_length_type>(recvLE));
+				data_length_type dataSize = wxUINT32_SWAP_ON_BE(static_cast<data_length_type>(recvLE));
 
-				checkErr(recvLen);
+				checkErr(dataSize);
 
 				if (usr.blockLast > 0)
 				{
 					std::ofstream fout(usr.recvFile, std::ios::out | std::ios::binary | std::ios::app);
-					fout.write(dataItr, recvLen);
-					dataItr += recvLen;
+					fout.write(dataItr, dataSize);
+					dataItr += dataSize;
 					fout.close();
 					usr.blockLast--;
 					
