@@ -143,6 +143,16 @@ bool server::send_data(id_type id, const std::string& data, int priority, const 
 	return true;
 }
 
+bool server::send_data(id_type id, const std::string& data, int priority, session::write_callback &&callback)
+{
+	sessionList::iterator itr(sessions.find(id));
+	if (itr == sessions.end())
+		return false;
+	session_ptr sptr = itr->second;
+	sptr->send(data, priority, std::move(callback));
+	return true;
+}
+
 void server::connect(const std::string &addr_str)
 {
 	int local_port = newPort(ports);

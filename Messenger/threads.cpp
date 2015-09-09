@@ -26,87 +26,90 @@ iosrvThread::ExitCode iosrvThread::Entry()
 
 const int fileBlockLen = 0x100000;
 
+void fileSendThread::start(int uID, const fs::path &path)
+{
+	iosrv.post([this, uID, path]() {
+		bool not_writing = tasks.empty();
+		tasks.push_back(fileSendTask(uID, path));
+		fileSendTask &newTask = tasks.back();
+
+		if (newTask.fin.is_open())
+		{
+			data_length_type blockCountAll = static_cast<data_length_type>(fs::file_size(path));
+			if (blockCountAll == 0)
+				throw(0);
+			if (blockCountAll % fileBlockLen == 0)
+				blockCountAll /= fileBlockLen;
+			else
+				blockCountAll = blockCountAll / fileBlockLen + 1;
+			newTask.blockCountAll = blockCountAll;
+
+			std::wstring fileName = path.leaf().wstring();
+			data_length_type lenSend = wxUINT32_SWAP_ON_BE(blockCountAll);
+			std::string head(reinterpret_cast<const char*>(&blockCountAll), sizeof(data_length_type));
+			head.insert(0, 1, pac_type_file_h);
+			wxCharBuffer nameBuf = wxConvUTF8.cWC2MB(fileName.c_str());
+			std::string name(nameBuf, nameBuf.length());
+			insLen(name);
+			head.append(name);
+
+			wxCharBuffer msg = wxConvLocal.cWC2MB(
+				(wxT("Sending file ") + fileName + wxT(" To ") + user_ext[uID].addr).c_str()
+				);
+			srv->send_data(uID, head, session::priority_file, std::string(msg.data(), msg.length()));
+			
+			if (not_writing)
+				write();
+		}
+	});
+}
+
+void fileSendThread::stop(int uID)
+{
+	iosrv.post([this, uID]() {
+		for (std::list<fileSendTask>::iterator itr = tasks.begin(), itrEnd = tasks.end(); itr != itrEnd;)
+		{
+			if (itr->uID == uID)
+				itr = tasks.erase(itr);
+			else
+				itr++;
+		}
+	});
+}
+
+void fileSendThread::write()
+{
+	std::unique_ptr<char[]> block = std::make_unique<char[]>(fileBlockLen);
+	std::string buf;
+
+	fileSendTask &task = tasks.front();
+	task.fin.read(block.get(), fileBlockLen);
+	std::streamsize count = task.fin.gcount();
+	buf.assign(block.get(), count);
+	insLen(buf);
+	buf.insert(0, 1, pac_type_file_b);
+	wxCharBuffer msgBuf = wxConvLocal.cWC2MB(
+		(task.fileName + wxT(":Sended block ") + std::to_wstring(task.blockCount) + wxT("/") + std::to_wstring(task.blockCountAll) + wxT(" To ") + user_ext[task.uID].addr).c_str()
+		);
+	std::string msg(msgBuf.data(), msgBuf.length());
+	srv->send_data(task.uID, buf, session::priority_file, [msg, this]() { std::cout << msg << std::endl; iosrv.post([this]() { if (!tasks.empty()) write(); }); });
+	task.blockCount++;
+
+	if (task.fin.eof())
+		tasks.pop_front();
+}
+
 fileSendThread::ExitCode fileSendThread::Entry()
 {
+	iosrv_work = std::make_shared<net::io_service::work>(iosrv);
 	while (!TestDestroy())
 	{
-		char *block = nullptr;
 		try
 		{
-			fileSendTask task;
-			wxMessageQueueError err = taskQue.ReceiveTimeout(checkInterval, task);
-			if (err != wxMSGQUEUE_NO_ERROR)
-				continue;
-
-			std::ifstream fin(task.path.string(), std::ios::in | std::ios::binary);
-			if (fin.is_open())
-			{
-				data_length_type blockCountAll = static_cast<data_length_type>(fs::file_size(task.path));
-				if (blockCountAll == 0)
-					throw(0);
-				if (blockCountAll % fileBlockLen == 0)
-					blockCountAll /= fileBlockLen;
-				else
-					blockCountAll = blockCountAll / fileBlockLen + 1;
-				std::wstring fileName = task.path.leaf().wstring();
-				{
-					data_length_type lenSend = wxUINT32_SWAP_ON_BE(blockCountAll);
-					std::string head(reinterpret_cast<const char*>(&blockCountAll), sizeof(data_length_type));
-					head.insert(0, 1, pac_type_file_h);
-					wxCharBuffer nameBuf = wxConvUTF8.cWC2MB(fileName.c_str());
-					std::string name(nameBuf, nameBuf.length());
-					insLen(name);
-					head.append(name);
-
-					if (TestDestroy())
-						break;
-					wxCharBuffer msg = wxConvLocal.cWC2MB(
-						(wxT("Sending file ") + fileName + wxT(" To ") + user_ext[task.uID].addr).c_str()
-						);
-					srv->send_data(task.uID, head, session::priority_file, std::string(msg.data(), msg.length()));
-				}
-
-				block = new char[fileBlockLen];
-				std::string buf;
-				int blockCount = 1;
-				while (!(fin.eof() || TestDestroy()))
-				{
-					fin.read(block, fileBlockLen);
-					std::streamsize count = fin.gcount();
-					buf.assign(block, count);
-					insLen(buf);
-					buf.insert(0, 1, pac_type_file_b);
-					if (TestDestroy())
-						break;
-					wxCharBuffer msg = wxConvLocal.cWC2MB(
-						(fileName + wxT(":Sended block ") + std::to_wstring(blockCount) + wxT("/") + std::to_wstring(blockCountAll) + wxT(" To ") + user_ext[task.uID].addr).c_str()
-						);
-					srv->send_data(task.uID, buf, session::priority_file, std::string(msg.data(), msg.length()));
-					blockCount++;
-				}
-				delete[] block;
-				block = nullptr;
-
-				fin.close();
-			}
+			iosrv.run();
 		}
-		catch (std::exception ex)
-		{
-			std::cerr << ex.what() << std::endl;
-			if (block != nullptr)
-				delete[] block;
-		}
-		catch (int)
-		{
-			std::cerr << "No Empty File\n" << std::endl;
-			if (block != nullptr)
-				delete[] block;
-		}
-		catch (...)
-		{
-			if (block != nullptr)
-				delete[] block;
-		}
+		catch (std::exception ex) { std::cerr << ex.what() << std::endl; }
+		catch (...) {}
 	}
 	return NULL;
 }

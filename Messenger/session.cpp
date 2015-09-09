@@ -428,6 +428,14 @@ void session::start()
 
 void session::send(const std::string& data, int priority, const std::string& message)
 {
+	if (message.empty())
+		send(data, priority, []() {});
+	else
+		send(data, priority, [message]() {std::cout << message << std::endl; });
+}
+
+void session::send(const std::string& data, int priority, write_callback &&callback)
+{
 	if (data.empty())
 		return;
 	
@@ -437,7 +445,9 @@ void session::send(const std::string& data, int priority, const std::string& mes
 	encrypt(write_buf, write_msg, e1);
 	insLen(write_msg);
 
-	io_service.post([write_msg, message, priority, this]() {
+	write_task new_task(write_msg, priority, std::move(callback));
+
+	io_service.post([new_task, priority, this]() {
 		bool write_not_in_progress = write_que.empty();
 
 		write_que_tp::iterator itr = write_que.begin(), itrEnd = write_que.end();
@@ -445,20 +455,12 @@ void session::send(const std::string& data, int priority, const std::string& mes
 		{
 			if (priority > itr->priority)
 			{
-				if (message.empty())
-					write_que.insert(itr, write_task(write_msg, priority, []() {}));
-				else
-					write_que.insert(itr, write_task(write_msg, priority, [message]() {std::cout << message << std::endl; }));
+				write_que.insert(itr, new_task);
 				break;
 			}
 		}
 		if (itr == itrEnd)
-		{
-			if (message.empty())
-				write_que.push_back(write_task(write_msg, priority, []() {}));
-			else
-				write_que.push_back(write_task(write_msg, priority, [message]() {std::cout << message << std::endl; }));
-		}
+			write_que.push_back(new_task);
 
 		if (write_not_in_progress)
 		{
@@ -469,22 +471,15 @@ void session::send(const std::string& data, int priority, const std::string& mes
 
 void session::stop_file_transfer()
 {
-	io_service.post([this]() {
-		bool write_not_in_progress = write_que.empty();
-
-		write_que.push_back(write_task("", priority_sys, [this]() {
-			write_que_tp::iterator itr = write_que.begin(), itrEnd = write_que.end();
-			for (; itr != itrEnd;)
-			{
-				if (itr->priority == priority_file)
-					itr = write_que.erase(itr);
-				else
-					itr++;
-			}
-		}));
-		
-		if (write_not_in_progress)
-			write();
+	send("", priority_sys, [this]() {
+		write_que_tp::iterator itr = write_que.begin(), itrEnd = write_que.end();
+		for (; itr != itrEnd;)
+		{
+			if (itr->priority == priority_file)
+				itr = write_que.erase(itr);
+			else
+				itr++;
+		}
 	});
 }
 

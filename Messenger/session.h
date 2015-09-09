@@ -123,6 +123,7 @@ public:
 
 	void start();
 	void send(const std::string& data, int priority, const std::string& message);
+	void send(const std::string& data, int priority, write_callback &&callback);
 	void stop_file_transfer();
 
 	std::string get_address() { return socket->remote_endpoint().address().to_string(); }
@@ -148,9 +149,8 @@ private:
 	const size_t msg_buffer_size = 0x4000;
 	struct write_task {
 		write_task() {};
-		//write_task(const std::string& _data, int _priority, const write_callback& _callback) :data(_data), callback(_callback) { priority = _priority; }
 		write_task(const std::string& _data, int _priority, write_callback&& _callback) :data(_data), callback(_callback) { priority = _priority; }
-		//write_task(std::string&& _data, int _priority, write_callback&& _callback) :data(_data), callback(_callback) { priority = _priority; }
+		write_task(std::string&& _data, int _priority, write_callback&& _callback) :data(_data), callback(_callback) { priority = _priority; }
 		std::string data;
 		write_callback callback;
 		int priority;
@@ -211,6 +211,7 @@ public:
 	void on_data(id_type id, std::shared_ptr<std::string> data);
 
 	bool send_data(id_type id, const std::string& data, int priority, const std::string& message);
+	bool send_data(id_type id, const std::string& data, int priority, session::write_callback &&callback);
 
 	void pre_session_over(std::shared_ptr<pre_session> _pre);
 	id_type join(const session_ptr &_user);

@@ -354,7 +354,7 @@ void mainFrame::buttonSend_Click(wxCommandEvent& event)
 			insLen(msgutf8);
 			msgutf8.insert(0, 1, pac_type_msg);
 			misc_io_service.post([uID, msgutf8]() {
-				srv->send_data(uID, msgutf8, session::priority_msg, "");
+				srv->send_data(uID, msgutf8, session::priority_msg, std::string());
 			});
 			textMsg->AppendText("Me:" + msg + '\n');
 			user_ext[uID].log.append("Me:" + msg + '\n');
@@ -374,7 +374,7 @@ void mainFrame::buttonSendFile_Click(wxCommandEvent& event)
 			std::list<int>::iterator itr = userIDs.begin();
 			for (int i = listUser->GetSelection(); i > 0; itr++)i--;
 			int uID = *itr;
-			threadFileSend->taskQue.Post(fileSendTask(uID, fs::path(path)));
+			threadFileSend->start(uID, fs::path(path));
 		}
 	}
 }
@@ -386,6 +386,7 @@ void mainFrame::buttonCancelSend_Click(wxCommandEvent& event)
 		std::list<int>::iterator itr = userIDs.begin();
 		for (int i = listUser->GetSelection(); i > 0; itr++)i--;
 		int uID = *itr;
+		threadFileSend->stop(uID);
 		srv->get_session(uID)->stop_file_transfer();
 	}
 }
@@ -449,6 +450,7 @@ void mainFrame::mainFrame_Close(wxCloseEvent& event)
 		std::cerr.rdbuf(cerr_orig);
 		delete textStrm;
 
+		threadFileSend->stop_thread();
 		threadFileSend->Delete();
 
 		inter.set_frame(nullptr);
