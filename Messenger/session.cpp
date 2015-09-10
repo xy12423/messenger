@@ -74,8 +74,8 @@ void pre_session::read_session_id_body(bool check_sid)
 				std::string raw_data(sid_packet_buffer.get(), sid_packet_length), data;
 				decrypt(raw_data, data);
 
-				std::string send_buf(data, sha256_size), sha256_buf(data, 0, sha256_size), sha256_result;
-				calcSHA256(send_buf, sha256_result);
+				std::string sha256_buf(data, 0, sha256_size), sha256_result;
+				calcSHA256(data, sha256_result, sha256_size);
 				if (sha256_buf != sha256_result)
 				{
 					std::cerr << "Error:Hashing failed" << std::endl;
@@ -84,12 +84,13 @@ void pre_session::read_session_id_body(bool check_sid)
 				}
 				else
 				{
+					data.erase(0, sha256_size);
 					try
 					{
 						if (check_sid)
 						{
 							session_id_type recv_session_id;
-							memcpy(reinterpret_cast<char*>(&recv_session_id), send_buf.data(), sizeof(session_id_type));
+							memcpy(reinterpret_cast<char*>(&recv_session_id), data.data(), sizeof(session_id_type));
 							if (recv_session_id != session_id)
 							{
 								std::cerr << "Error:Checking failed" << std::endl;
@@ -99,8 +100,8 @@ void pre_session::read_session_id_body(bool check_sid)
 							}
 						}
 						else
-							memcpy(reinterpret_cast<char*>(&session_id), send_buf.data(), sizeof(session_id_type));
-						memcpy(reinterpret_cast<char*>(&rand_num), send_buf.data() + sizeof(session_id_type), sizeof(rand_num_type));
+							memcpy(reinterpret_cast<char*>(&session_id), data.data(), sizeof(session_id_type));
+						memcpy(reinterpret_cast<char*>(&rand_num), data.data() + sizeof(session_id_type), sizeof(rand_num_type));
 
 						sid_packet_done();
 					}
@@ -150,8 +151,8 @@ void pre_session::check_session_id_body()
 				std::string raw_data(sid_packet_buffer.get(), sid_packet_length), data;
 				decrypt(raw_data, data);
 
-				std::string send_buf(data, sha256_size), sha256_buf(data, 0, sha256_size), sha256_result;
-				calcSHA256(send_buf, sha256_result);
+				std::string sha256_buf(data, 0, sha256_size), sha256_result;
+				calcSHA256(data, sha256_result, sha256_size);
 				if (sha256_buf != sha256_result)
 				{
 					std::cerr << "Error:Hashing failed" << std::endl;
@@ -160,10 +161,12 @@ void pre_session::check_session_id_body()
 				}
 				else
 				{
+					data.erase(0, sha256_size);
+
 					session_id_type recv_session_id;
 					rand_num_type recv_rand_num;
-					memcpy(reinterpret_cast<char*>(&recv_session_id), send_buf.data(), sizeof(session_id_type));
-					memcpy(reinterpret_cast<char*>(&recv_rand_num), send_buf.data() + sizeof(session_id_type), sizeof(rand_num_type));
+					memcpy(reinterpret_cast<char*>(&recv_session_id), data.data(), sizeof(session_id_type));
+					memcpy(reinterpret_cast<char*>(&recv_rand_num), data.data() + sizeof(session_id_type), sizeof(rand_num_type));
 
 					if ((recv_session_id != session_id) || (recv_rand_num != rand_num))
 					{
@@ -439,13 +442,15 @@ void session::send(const std::string& data, int priority, write_callback &&callb
 	if (data.empty())
 		return;
 	
-	std::string write_buf(session_id_in_byte), write_msg;
-	calcSHA256(data, write_buf);
-	write_buf.append(data);
-	encrypt(write_buf, write_msg, e1);
-	insLen(write_msg);
+	//data_buf:data with sid only; write_raw:data with SHA and sid; write_data:encrypted data, ready for sending
+	std::string data_buf(session_id_in_byte), write_raw, write_data;
+	data_buf.append(data);
+	calcSHA256(data_buf, write_raw);
+	write_raw.append(data_buf);
+	encrypt(write_raw, write_data, e1);
+	insLen(write_data);
 
-	write_task new_task(write_msg, priority, std::move(callback));
+	write_task new_task(write_data, priority, std::move(callback));
 
 	io_service.post([new_task, priority, this]() {
 		bool write_not_in_progress = write_que.empty();

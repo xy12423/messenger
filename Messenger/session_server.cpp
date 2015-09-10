@@ -110,22 +110,24 @@ void server::on_data(id_type id, std::shared_ptr<std::string> data)
 	misc_io_service.post([this, id, data]() {
 		std::string decrypted_data;
 		decrypt(*data, decrypted_data);
-
-		session_id_type sid = sessions[id]->get_session_id();
-		if (*reinterpret_cast<const session_id_type*>(decrypted_data.data()) != boost::endian::little_to_native<session_id_type>(sid))
-		{
-			std::cerr << "Error:Checking failed" << std::endl;
-			leave(id);
-		}
-
-		std::string sha256_buf(decrypted_data, sizeof(session_id_type), sha256_size), sha256_result;
-		decrypted_data.erase(0, sizeof(session_id_type) + sha256_size);
-		calcSHA256(decrypted_data, sha256_result);
+		
+		std::string sha256_buf(decrypted_data, 0, sha256_size), sha256_result;
+		calcSHA256(decrypted_data, sha256_result, sha256_size);
 		if (sha256_result != sha256_buf)
 		{
 			std::cerr << "Error:Hashing failed" << std::endl;
 			leave(id);
+			return;
 		}
+
+		session_id_type sid = sessions[id]->get_session_id();
+		if (*reinterpret_cast<const session_id_type*>(decrypted_data.data() + sha256_size) != boost::endian::little_to_native<session_id_type>(sid))
+		{
+			std::cerr << "Error:Checking failed" << std::endl;
+			leave(id);
+			return;
+		}
+		decrypted_data.erase(0, sizeof(session_id_type) + sha256_size);
 
 		try { inter->on_data(id, decrypted_data); }
 		catch (std::exception ex) { std::cerr << ex.what() << std::endl; }

@@ -51,12 +51,12 @@ std::string getPublicKey()
 	return ret;
 }
 
-void calcSHA256(const std::string &msg, std::string &ret)
+void calcSHA256(const std::string &msg, std::string &ret, size_t input_shift)
 {
 	CryptoPP::SHA256 sha256;
 	char result[sha256_size];
 	memset(result, 0, sizeof(result));
-	sha256.CalculateDigest(reinterpret_cast<byte*>(result), reinterpret_cast<const byte*>(msg.c_str()), msg.size());
+	sha256.CalculateDigest(reinterpret_cast<byte*>(result), reinterpret_cast<const byte*>(msg.data() + input_shift), msg.size() - input_shift);
 	ret.append(result, sha256_size);
 }
 
