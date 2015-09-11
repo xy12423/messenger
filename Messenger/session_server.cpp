@@ -135,14 +135,14 @@ void server::on_data(id_type id, std::shared_ptr<std::string> data)
 	});
 }
 
+bool server::send_data(id_type id, const std::string& data, int priority)
+{
+	return send_data(id, data, priority, []() {});
+}
+
 bool server::send_data(id_type id, const std::string& data, int priority, const std::string& message)
 {
-	sessionList::iterator itr(sessions.find(id));
-	if (itr == sessions.end())
-		return false;
-	session_ptr sptr = itr->second;
-	sptr->send(data, priority, message);
-	return true;
+	return send_data(id, data, priority, [message]() {std::cout << message << std::endl; });
 }
 
 bool server::send_data(id_type id, const std::string& data, int priority, session::write_callback &&callback)

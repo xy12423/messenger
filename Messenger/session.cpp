@@ -429,14 +429,6 @@ void session::start()
 	read_header();
 }
 
-void session::send(const std::string& data, int priority, const std::string& message)
-{
-	if (message.empty())
-		send(data, priority, []() {});
-	else
-		send(data, priority, [message]() {std::cout << message << std::endl; });
-}
-
 void session::send(const std::string& data, int priority, write_callback &&callback)
 {
 	if (data.empty())

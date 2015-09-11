@@ -122,7 +122,6 @@ public:
 	}
 
 	void start();
-	void send(const std::string& data, int priority, const std::string& message);
 	void send(const std::string& data, int priority, write_callback &&callback);
 	void stop_file_transfer();
 
@@ -210,6 +209,7 @@ public:
 
 	void on_data(id_type id, std::shared_ptr<std::string> data);
 
+	bool send_data(id_type id, const std::string& data, int priority);
 	bool send_data(id_type id, const std::string& data, int priority, const std::string& message);
 	bool send_data(id_type id, const std::string& data, int priority, session::write_callback &&callback);
 

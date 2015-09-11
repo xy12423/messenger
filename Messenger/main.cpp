@@ -354,7 +354,7 @@ void mainFrame::buttonSend_Click(wxCommandEvent& event)
 			insLen(msgutf8);
 			msgutf8.insert(0, 1, pac_type_msg);
 			misc_io_service.post([uID, msgutf8]() {
-				srv->send_data(uID, msgutf8, session::priority_msg, std::string());
+				srv->send_data(uID, msgutf8, session::priority_msg);
 			});
 			textMsg->AppendText("Me:" + msg + '\n');
 			user_ext[uID].log.append("Me:" + msg + '\n');
