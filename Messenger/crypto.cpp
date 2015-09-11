@@ -10,7 +10,7 @@ extern const char* privatekeyFile;
 void genKey()
 {
 	ECIES<ECP>::PrivateKey privateKey;
-	privateKey.Initialize(prng, ASN1::secp521r1());
+	privateKey.GenerateRandom(prng, MakeParameters(Name::GroupOID(), ASN1::secp521r1()));
 	FileSink fs(privatekeyFile, true);
 	privateKey.Save(fs);
 	d0.AccessKey() = privateKey;
@@ -49,4 +49,18 @@ std::string getPublicKey()
 	e0.GetPublicKey().Save(buf);
 
 	return ret;
+}
+
+void calcSHA256(const std::string &msg, std::string &ret, size_t input_shift)
+{
+	CryptoPP::SHA256 sha256;
+	char result[sha256_size];
+	memset(result, 0, sizeof(result));
+	sha256.CalculateDigest(reinterpret_cast<byte*>(result), reinterpret_cast<const byte*>(msg.data() + input_shift), msg.size() - input_shift);
+	ret.append(result, sha256_size);
+}
+
+rand_num_type genRandomNumber()
+{
+	return prng.GenerateWord32();
 }

@@ -20,22 +20,17 @@ void initKey()
 {
 	ECIES<ECP>::PrivateKey privateKey;
 	FileSource fs(privatekeyFile, true);
-	try
-	{
-		privateKey.Load(fs);
-		if (!privateKey.Validate(prng, 3))
-			genKey();
-		else
-			d0.AccessKey() = privateKey;
-	}
-	catch (...)
-	{
+	privateKey.Load(fs);
+	if (!privateKey.Validate(prng, 3))
 		genKey();
-	}
+	else
+		d0.AccessKey() = privateKey;
 }
 
+std::mutex enc_mutex;
 void encrypt(const std::string &str, std::string &ret, ECIES<ECP>::Encryptor &e1)
 {
+	std::unique_lock<std::mutex> lck(enc_mutex);
 	ret.clear();
 	StringSource ss1(str, true, new PK_EncryptorFilter(prng, e1, new StringSink(ret)));
 }
@@ -56,11 +51,16 @@ std::string getPublicKey()
 	return ret;
 }
 
-void calcSHA512(const std::string &msg, std::string &ret)
+void calcSHA256(const std::string &msg, std::string &ret, int input_shift)
 {
-	CryptoPP::SHA512 sha512;
-	char result[64];
+	CryptoPP::SHA256 sha256;
+	char result[sha256_size];
 	memset(result, 0, sizeof(result));
-	sha512.CalculateDigest(reinterpret_cast<byte*>(result), reinterpret_cast<const byte*>(msg.c_str()), msg.size());
-	ret = std::string(result, 64);
+	sha256.CalculateDigest(reinterpret_cast<byte*>(result), reinterpret_cast<const byte*>(msg.data() + input_shift), msg.size() - input_shift);
+	ret.append(result, sha256_size);
+}
+
+rand_num_type genRandomNumber()
+{
+	return prng.GenerateWord32();
 }

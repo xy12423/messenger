@@ -33,7 +33,7 @@ public:
 	enum itemID{
 		ID_FRAME,
 		ID_LISTUSER, ID_BUTTONADD, ID_BUTTONDEL,
-		ID_TEXTMSG, ID_TEXTINPUT, ID_BUTTONSEND, ID_BUTTONSENDFILE,
+		ID_TEXTMSG, ID_TEXTINPUT, ID_BUTTONSEND, ID_BUTTONSENDFILE, ID_BUTTONCANCELSEND, ID_BUTTONIMPORTKEY, ID_BUTTONEXPORTKEY,
 		ID_TEXTINFO,
 		ID_SOCKETLISTENER, ID_SOCKETDATA,
 		ID_SOCKETBEGIN_C1, ID_SOCKETBEGIN_C2, ID_SOCKETBEGIN_S1, ID_SOCKETBEGIN_S2
@@ -48,9 +48,12 @@ public:
 	void buttonDel_Click(wxCommandEvent& event);
 
 	wxTextCtrl *textMsg, *textInput;
-	wxButton *buttonSend, *buttonSendFile;
+	wxButton *buttonSend, *buttonSendFile, *buttonCancelSend, *buttonImportKey, *buttonExportKey;
 	void buttonSend_Click(wxCommandEvent& event);
 	void buttonSendFile_Click(wxCommandEvent& event);
+	void buttonCancelSend_Click(wxCommandEvent& event);
+	void buttonImportKey_Click(wxCommandEvent& event);
+	void buttonExportKey_Click(wxCommandEvent& event);
 
 	void thread_Message(wxThreadEvent& event);
 
