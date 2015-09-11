@@ -3,6 +3,7 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#include <cstdint>
 #include <cstring>
 #include <cctype>
 #include <climits>
@@ -11,21 +12,16 @@
 #include <string>
 #include <list>
 #include <vector>
-#include <deque>
 #include <set>
 #include <map>
 #include <unordered_set>
 #include <unordered_map>
 #include <algorithm>
 #include <mutex>
-#include <thread>
-#include <memory>
-#include <utility>
 
 #include <boost/filesystem.hpp>
 #include <boost/asio.hpp>
-#include <boost/date_time/posix_time/posix_time.hpp>
-#include <boost/bind.hpp>
+#include <boost/endian/conversion.hpp>
 namespace fs = boost::filesystem;
 namespace net = boost::asio;
 
@@ -33,9 +29,7 @@ namespace net = boost::asio;
 #include <cryptopp/osrng.h>
 #include <cryptopp/oids.h>
 #include <cryptopp/asn.h>
-#include <cryptopp/ec2n.h>
 #include <cryptopp/eccrypto.h>
-#include <cryptopp/sha.h>
 #include <cryptopp/files.h>
 
 #ifdef _MSC_VER

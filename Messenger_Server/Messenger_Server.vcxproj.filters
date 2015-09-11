@@ -27,7 +27,10 @@
     <ClInclude Include="crypto.h">
       <Filter>头文件</Filter>
     </ClInclude>
-    <ClInclude Include="utils.h">
+    <ClInclude Include="global.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="session.h">
       <Filter>头文件</Filter>
     </ClInclude>
   </ItemGroup>
@@ -44,7 +47,10 @@
     <ClCompile Include="session.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
-    <ClCompile Include="utils.cpp">
+    <ClCompile Include="global.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="session_server.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>
