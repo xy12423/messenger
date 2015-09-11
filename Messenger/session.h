@@ -6,6 +6,7 @@
 typedef uint16_t port_type;
 const port_type portListener = 4826, portConnect = 4827;
 typedef int id_type;
+typedef uint32_t session_id_type;
 
 class server_interface;
 class server;
@@ -14,30 +15,46 @@ typedef std::shared_ptr<net::ip::tcp::socket> socket_ptr;
 class pre_session : public std::enable_shared_from_this<pre_session>
 {
 public:
-	pre_session(server *_srv, port_type _local_port, net::io_service &io_srv)
+	pre_session(server *_srv, port_type _local_port, net::io_service &io_srv, net::io_service &misc_io_srv)
 		:io_service(io_srv),
+		misc_io_service(misc_io_srv),
 		socket(std::make_shared<net::ip::tcp::socket>(io_service))
 	{
 		srv = _srv;
 		local_port = _local_port;
-		key_buffer = nullptr;
 	}
 
-	~pre_session() { if (!passed) { exiting = true; socket->close(); } if (key_buffer != nullptr) delete[] key_buffer; }
+	~pre_session() { if (!passed) { exiting = true; socket->close(); } }
 
 	port_type get_port() { return local_port; }
 	virtual void start() = 0;
 private:
 	virtual void stage1() = 0;
 	virtual void stage2() = 0;
+	virtual void sid_packet_done() = 0;
 protected:
 	void read_key_header();
 	void read_key();
 
-	key_length_type key_length;
-	char *key_buffer;
+	void read_session_id(bool check_sid);
+	void read_session_id_body(bool check_sid);
+	void check_session_id();
+	void check_session_id_body();
+	void write_session_id();
 
-	net::io_service &io_service;
+	key_length_type key_length;
+	std::unique_ptr<char[]> key_buffer;
+	std::string key_string;
+
+	data_length_type sid_packet_length;
+	std::unique_ptr<char[]> sid_packet_buffer;
+	int stage = 0;
+
+	CryptoPP::ECIES<CryptoPP::ECP>::Encryptor e1;
+	session_id_type session_id;
+	rand_num_type rand_num;
+
+	net::io_service &io_service, &misc_io_service;
 	socket_ptr socket;
 
 	server *srv;
@@ -48,8 +65,8 @@ protected:
 class pre_session_s :public pre_session
 {
 public:
-	pre_session_s(port_type local_port, const net::ip::tcp::endpoint& endpoint, server *_srv, net::io_service &io_srv)
-		:pre_session(_srv, local_port, io_srv),
+	pre_session_s(port_type local_port, const net::ip::tcp::endpoint& endpoint, server *_srv, net::io_service &io_srv, net::io_service &misc_io_srv)
+		:pre_session(_srv, local_port, io_srv, misc_io_srv),
 		acceptor(io_service, endpoint)
 	{}
 
@@ -57,6 +74,7 @@ public:
 private:
 	virtual void stage1();
 	virtual void stage2();
+	virtual void sid_packet_done();
 
 	net::ip::tcp::acceptor acceptor;
 };
@@ -64,8 +82,8 @@ private:
 class pre_session_c :public pre_session
 {
 public:
-	pre_session_c(port_type local_port, const net::ip::tcp::endpoint& endpoint, server *_srv, net::io_service &io_srv)
-		:pre_session(_srv, local_port, io_srv),
+	pre_session_c(port_type local_port, const net::ip::tcp::endpoint& endpoint, server *_srv, net::io_service &io_srv, net::io_service &misc_io_srv)
+		:pre_session(_srv, local_port, io_srv, misc_io_srv),
 		ep(endpoint)
 	{}
 
@@ -73,6 +91,7 @@ public:
 private:
 	virtual void stage1() { read_key_header(); };
 	virtual void stage2();
+	virtual void sid_packet_done();
 
 	net::ip::tcp::endpoint ep;
 };
@@ -80,11 +99,18 @@ private:
 class session
 {
 public:
-	session(server *_srv, port_type _local_port, net::io_service& _iosrv, socket_ptr &&_socket)
-		:io_service(_iosrv), socket(_socket)
+	static const int priority_sys = 30;
+	static const int priority_msg = 20;
+	static const int priority_file = 10;
+
+	typedef std::function<void()> write_callback;
+
+	session(server *_srv, port_type _local_port, net::io_service& _iosrv, socket_ptr &&_socket, CryptoPP::ECIES<CryptoPP::ECP>::Encryptor &_e1, session_id_type _session_id)
+		:io_service(_iosrv), socket(_socket), e1(_e1), session_id_in_byte(reinterpret_cast<char*>(&_session_id), sizeof(session_id_type))
 	{
 		srv = _srv;
 		local_port = _local_port;
+		session_id = _session_id;
 		read_msg_buffer = new char[msg_buffer_size];
 	}
 
@@ -96,37 +122,36 @@ public:
 	}
 
 	void start();
-	void send(const std::string& data, int priority, const std::wstring& message);
+	void send(const std::string& data, int priority, write_callback &&callback);
+	void stop_file_transfer();
 
 	std::string get_address() { return socket->remote_endpoint().address().to_string(); }
 	port_type get_port() { return local_port; }
-
-	static const int priority_msg = 20;
-	static const int priority_file = 10;
+	session_id_type get_session_id() const { return session_id; };
 
 	friend class pre_session_s;
 	friend class pre_session_c;
 private:
 	void read_header();
 	void read_data(size_t sizeLast, std::shared_ptr<std::string> buf);
-	void process_data(const std::string &data);
 	void write();
 
 	net::io_service &io_service;
 	socket_ptr socket;
 	CryptoPP::ECIES<CryptoPP::ECP>::Encryptor e1;
+	session_id_type session_id;
+	std::string session_id_in_byte;
 
 	id_type id;
 
 	char *read_msg_buffer;
 	const size_t msg_buffer_size = 0x4000;
-
 	struct write_task {
 		write_task() {};
-		write_task(const std::string& _data, int _priority, const std::wstring& _msg) :data(_data), msg(_msg) { priority = _priority; }
-		write_task(std::string&& _data, int _priority, std::wstring&& _msg) :data(_data), msg(_msg) { priority = _priority; }
+		write_task(const std::string& _data, int _priority, write_callback&& _callback) :data(_data), callback(_callback) { priority = _priority; }
+		write_task(std::string&& _data, int _priority, write_callback&& _callback) :data(_data), callback(_callback) { priority = _priority; }
 		std::string data;
-		std::wstring msg;
+		write_callback callback;
 		int priority;
 	};
 	typedef std::list<write_task> write_que_tp;
@@ -154,13 +179,15 @@ public:
 class server
 {
 public:
-	server(net::io_service& _io_service,
+	server(net::io_service& _main_io_service,
+		net::io_service& _misc_io_service,
 		server_interface *_inter,
 		const net::ip::tcp::endpoint& endpoint
 		)
-		: io_service(_io_service),
-		acceptor(io_service, endpoint),
-		resolver(io_service)
+		: main_io_service(_main_io_service),
+		misc_io_service(_misc_io_service),
+		acceptor(main_io_service, endpoint),
+		resolver(main_io_service)
 	{
 		inter = _inter;
 		for (int i = 5001; i <= 10000; i++)
@@ -180,9 +207,11 @@ public:
 		write_data();
 	}
 
-	void on_data(id_type id, const std::string& data);
+	void on_data(id_type id, std::shared_ptr<std::string> data);
 
-	bool send_data(id_type id, const std::string& data, int priority, const std::wstring& message);
+	bool send_data(id_type id, const std::string& data, int priority);
+	bool send_data(id_type id, const std::string& data, int priority, const std::string& message);
+	bool send_data(id_type id, const std::string& data, int priority, session::write_callback &&callback);
 
 	void pre_session_over(std::shared_ptr<pre_session> _pre);
 	id_type join(const session_ptr &_user);
@@ -203,7 +232,7 @@ private:
 	void read_data();
 	void write_data();
 
-	net::io_service &io_service;
+	net::io_service &main_io_service, &misc_io_service;
 	socket_ptr accepting;
 	net::ip::tcp::acceptor acceptor;
 	net::ip::tcp::resolver resolver;
