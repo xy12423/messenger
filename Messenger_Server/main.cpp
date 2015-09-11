@@ -106,7 +106,7 @@ void cli_server_interface::on_data(id_type id, const std::string &data)
 							std::string msg_send(msg_input_pass);
 							insLen(msg_send);
 							msg_send.insert(0, 1, pac_type_msg);
-							srv->send_data(id, msg_send, session::priority_msg, "");
+							srv->send_data(id, msg_send, session::priority_msg);
 							break;
 						}
 						case user_ext_data::LOGIN_PASS:
@@ -125,7 +125,7 @@ void cli_server_interface::on_data(id_type id, const std::string &data)
 									std::string msg_send(msg_welcome);
 									insLen(msg_send);
 									msg_send.insert(0, 1, pac_type_msg);
-									srv->send_data(id, msg_send, session::priority_msg, "");
+									srv->send_data(id, msg_send, session::priority_msg);
 
 									usr.current_stage = user_ext_data::LOGGED_IN;
 								}
@@ -136,7 +136,7 @@ void cli_server_interface::on_data(id_type id, const std::string &data)
 								std::string msg_send(msg_input_name);
 								insLen(msg_send);
 								msg_send.insert(0, 1, pac_type_msg);
-								srv->send_data(id, msg_send, session::priority_msg, "");
+								srv->send_data(id, msg_send, session::priority_msg);
 							}
 							break;
 						}
@@ -195,7 +195,7 @@ void cli_server_interface::on_join(id_type id)
 		std::string msg_send(msg_input_name);
 		insLen(msg_send);
 		msg_send.insert(0, 1, pac_type_msg);
-		srv->send_data(id, msg_send, session::priority_msg, "");
+		srv->send_data(id, msg_send, session::priority_msg);
 	}
 	else
 		broadcast_msg(-1, msg_new_user + ext.addr);
@@ -236,7 +236,7 @@ void cli_server_interface::broadcast_data(id_type src, const std::string &data, 
 		if (target != src && (mode != CENTER || p.second.current_stage == user_ext_data::LOGGED_IN))
 		{
 			misc_io_service.post([target, data, priority]() {
-				srv->send_data(target, data, priority, "");
+				srv->send_data(target, data, priority);
 			});
 		}
 	});

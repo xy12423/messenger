@@ -83,7 +83,11 @@ id_type server::join(const session_ptr &_user)
 	id_type newID = nextID;
 	nextID++;
 	sessions.emplace(newID, _user);
-	inter->on_join(newID);
+
+	try{ inter->on_join(newID); }
+	catch (std::exception ex) { std::cerr << ex.what() << std::endl; }
+	catch (...) {}
+
 	return newID;
 }
 
@@ -92,7 +96,11 @@ void server::leave(id_type _user)
 	sessionList::iterator itr(sessions.find(_user));
 	if (itr == sessions.end())
 		return;
-	inter->on_leave(_user);
+
+	try { inter->on_leave(_user); }
+	catch (std::exception ex) { std::cerr << ex.what() << std::endl; }
+	catch (...) {}
+
 	freePort(ports, itr->second->get_port());
 	sessions.erase(_user);
 }
@@ -102,34 +110,48 @@ void server::on_data(id_type id, std::shared_ptr<std::string> data)
 	misc_io_service.post([this, id, data]() {
 		std::string decrypted_data;
 		decrypt(*data, decrypted_data);
-
-		session_id_type sid = sessions[id]->get_session_id();
-		if (*reinterpret_cast<const session_id_type*>(decrypted_data.data()) != boost::endian::little_to_native<session_id_type>(sid))
-		{
-			std::cerr << "Error:Checking failed" << std::endl;
-			leave(id);
-		}
-
-		std::string sha256_buf(decrypted_data, sizeof(session_id_type), sha256_size), sha256_result;
-		decrypted_data.erase(0, sizeof(session_id_type) + sha256_size);
-		calcSHA256(decrypted_data, sha256_result);
+		
+		std::string sha256_buf(decrypted_data, 0, sha256_size), sha256_result;
+		calcSHA256(decrypted_data, sha256_result, sha256_size);
 		if (sha256_result != sha256_buf)
 		{
 			std::cerr << "Error:Hashing failed" << std::endl;
 			leave(id);
+			return;
 		}
 
-		inter->on_data(id, decrypted_data);
+		session_id_type sid = sessions[id]->get_session_id();
+		if (*reinterpret_cast<const session_id_type*>(decrypted_data.data() + sha256_size) != boost::endian::little_to_native<session_id_type>(sid))
+		{
+			std::cerr << "Error:Checking failed" << std::endl;
+			leave(id);
+			return;
+		}
+		decrypted_data.erase(0, sizeof(session_id_type) + sha256_size);
+
+		try { inter->on_data(id, decrypted_data); }
+		catch (std::exception ex) { std::cerr << ex.what() << std::endl; }
+		catch (...) {}
 	});
 }
 
+bool server::send_data(id_type id, const std::string& data, int priority)
+{
+	return send_data(id, data, priority, []() {});
+}
+
 bool server::send_data(id_type id, const std::string& data, int priority, const std::string& message)
+{
+	return send_data(id, data, priority, [message]() {std::cout << message << std::endl; });
+}
+
+bool server::send_data(id_type id, const std::string& data, int priority, session::write_callback &&callback)
 {
 	sessionList::iterator itr(sessions.find(id));
 	if (itr == sessions.end())
 		return false;
 	session_ptr sptr = itr->second;
-	sptr->send(data, priority, message);
+	sptr->send(data, priority, std::move(callback));
 	return true;
 }
 
@@ -207,6 +229,8 @@ void server::read_data()
 			certifiedKeys.emplace(std::string(buf, keyLen));
 			delete[] buf;
 		}
+
+		publicIn.close();
 	}
 
 	e0str = getPublicKey();
@@ -216,15 +240,17 @@ void server::read_data()
 
 void server::write_data()
 {
-	size_t pubCount = certifiedKeys.size(), keyLen = 0;
-	std::ofstream publicIn(publickeysFile, std::ios_base::out | std::ios_base::binary);
-	publicIn.write(reinterpret_cast<char*>(&pubCount), sizeof(size_t));
+	size_t pubCount = certifiedKeys.size(), keySize = 0;
+	std::ofstream publicOut(publickeysFile, std::ios_base::out | std::ios_base::binary);
+	publicOut.write(reinterpret_cast<char*>(&pubCount), sizeof(size_t));
 
 	std::unordered_set<std::string>::iterator itr = certifiedKeys.begin(), itrEnd = certifiedKeys.end();
 	for (; itr != itrEnd; itr++)
 	{
-		keyLen = static_cast<size_t>(itr->size());
-		publicIn.write(reinterpret_cast<char*>(&keyLen), sizeof(size_t));
-		publicIn.write(itr->data(), keyLen);
+		keySize = static_cast<size_t>(itr->size());
+		publicOut.write(reinterpret_cast<char*>(&keySize), sizeof(size_t));
+		publicOut.write(itr->data(), keySize);
 	}
+
+	publicOut.close();
 }
