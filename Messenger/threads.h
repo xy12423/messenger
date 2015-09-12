@@ -19,8 +19,8 @@ protected:
 struct fileSendTask
 {
 	fileSendTask() { uID = -1; }
-	fileSendTask(int _uID, const fs::path &path):
-		fileName(path.wstring()),
+	fileSendTask(int _uID, const fs::path &path)
+		:fileName(path.wstring()),
 		fin(path.string(), std::ios_base::in | std::ios_base::binary)
 	{
 		uID = _uID;

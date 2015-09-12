@@ -18,6 +18,7 @@
 #include <unordered_map>
 #include <algorithm>
 #include <functional>
+#include <memory>
 #include <mutex>
 
 #include <boost/filesystem.hpp>

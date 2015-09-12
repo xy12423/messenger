@@ -395,7 +395,7 @@ void mainFrame::buttonImportKey_Click(wxCommandEvent& event)
 {
 	wxFileDialog fileDlg(this);
 	fileDlg.ShowModal();
-	std::wstring path = fileDlg.GetPath().ToStdWstring();
+	std::string path = fileDlg.GetPath().ToStdString();
 	if ((!path.empty()) && fs::exists(path))
 	{
 		size_t pubCount = 0, keyLen = 0;
@@ -416,7 +416,7 @@ void mainFrame::buttonExportKey_Click(wxCommandEvent& event)
 {
 	wxFileDialog fileDlg(this);
 	fileDlg.ShowModal();
-	std::wstring path = fileDlg.GetPath().ToStdWstring();
+	std::string path = fileDlg.GetPath().ToStdString();
 	if (!path.empty())
 	{
 		std::ofstream publicOut(path, std::ios_base::out | std::ios_base::binary);
