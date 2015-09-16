@@ -40,7 +40,7 @@ namespace net = boost::asio;
 #	include <wx/wx.h>
 #endif
 #include <wx/msgqueue.h>
-#include <wx/file.h>
+#include <wx/dynlib.h>
 #ifdef _MSC_VER
 #	ifdef _DEBUG
 #		pragma comment (lib, "wxbase30ud.lib")

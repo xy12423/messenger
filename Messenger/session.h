@@ -101,6 +101,7 @@ class session
 public:
 	static const int priority_sys = 30;
 	static const int priority_msg = 20;
+	static const int priority_plugin = 15;
 	static const int priority_file = 10;
 
 	typedef std::function<void()> write_callback;

@@ -28,7 +28,7 @@ void initKey()
 }
 
 std::mutex enc_mutex;
-void encrypt(const std::string &str, std::string &ret, ECIES<ECP>::Encryptor &e1)
+void encrypt(const std::string &str, std::string &ret, const ECIES<ECP>::Encryptor &e1)
 {
 	std::unique_lock<std::mutex> lck(enc_mutex);
 	ret.clear();

@@ -93,4 +93,6 @@ private:
 	mainFrame *form;
 };
 
+const char* plugin_file_name = "plugins.txt";
+
 #endif

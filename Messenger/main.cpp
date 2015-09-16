@@ -3,6 +3,7 @@
 #include "crypto.h"
 #include "session.h"
 #include "threads.h"
+#include "plugin.h"
 #include "main.h"
 
 wxBEGIN_EVENT_TABLE(mainFrame, wxFrame)
@@ -35,7 +36,7 @@ wxEND_EVENT_TABLE()
 fileSendThread *threadFileSend;
 
 server* srv;
-std::unordered_map<int, user_ext_data> user_ext;
+std::unordered_map<id_type, user_ext_data> user_ext;
 wx_srv_interface inter;
 net::io_service main_io_service, misc_io_service;
 iosrvThread *threadNetwork, *threadMisc;
@@ -148,6 +149,12 @@ void wx_srv_interface::on_data(id_type id, const std::string &data)
 
 				break;
 			}
+			default:
+			{
+				if (type & 0x80)
+					plugin_on_data(id, type, dataItr, dataEnd);
+				break;
+			}
 		}
 	}
 	catch (std::exception ex)
@@ -203,6 +210,26 @@ void wx_srv_interface::on_unknown_key(id_type id, const std::string& key)
 	newEvent->SetInt(id);
 	newEvent->SetPayload<std::string>(key);
 	wxQueueEvent(frm, newEvent);
+}
+
+void plugin_SendDataHandler(int to, const char* data, size_t size)
+{
+	std::string data_str(data, size);
+	if (to == -1)
+	{
+		std::for_each(user_ext.begin(), user_ext.end(), [&data_str](const std::pair<id_type, user_ext_data> &p) {
+			id_type id = p.first;
+			misc_io_service.post([id, data_str]() {
+				srv->send_data(id, data_str, session::priority_plugin);
+			});
+		});
+	}
+	else
+	{
+		misc_io_service.post([to, data_str]() {
+			srv->send_data(to, data_str, session::priority_plugin);
+		});
+	}
 }
 
 mainFrame::mainFrame(const wxString& title)
@@ -297,6 +324,21 @@ mainFrame::mainFrame(const wxString& title)
 	std::cout.rdbuf(textStrm);
 	cerr_orig = std::cerr.rdbuf();
 	std::cerr.rdbuf(textStrm);
+
+	if (fs::exists(plugin_file_name))
+	{
+		std::ifstream fin(plugin_file_name);
+		std::string plugin_name_utf8;
+		while (!fin.eof())
+		{
+			std::getline(fin, plugin_name_utf8);
+			if (!plugin_name_utf8.empty())
+			{
+				std::wstring plugin_name(wxConvUTF8.cMB2WC(plugin_name_utf8.c_str()));
+				load_plugin(plugin_name);
+			}
+		}
+	}
 }
 
 void mainFrame::listUser_SelectedIndexChanged(wxCommandEvent& event)
