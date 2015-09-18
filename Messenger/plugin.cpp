@@ -2,50 +2,116 @@
 #include "global.h"
 #include "plugin.h"
 
-struct regRecord
+typedef uint8_t(*RegNextTypePtr)();
+typedef const char*(*RegNextMethodPtr)();
+
+typedef void(*SendDataHandlerPtr)(int to, const char* data, size_t size);
+typedef void(*SetSendDataHandlerPtr)(SendDataHandlerPtr handler);
+
+typedef void*(*GetMethodHandlerPtr)(const char* method_name);
+typedef void(*SetGetMethodHandlerPtr)(GetMethodHandlerPtr handler);
+
+typedef void(*cbOnDataPtr)(int from, uint8_t type, const char* data, const char* dataEnd);
+
+struct TypeReg
 {
-	regRecord() { used = false; callback = nullptr; }
-	regRecord(cbOnDataPtr _callback) { used = true; callback = _callback; }
-	bool used;
-	cbOnDataPtr callback;
-} regRecords[256];
-std::unordered_set<std::shared_ptr<wxDynamicLibrary>> plugins;
+	bool used = false;
+	cbOnDataPtr callback = nullptr;
+	uint8_t redirect;
+} TypeRegs[0x80];
 
-const wchar_t* RegNextTypeFuncName = wxT("RegNextType");
-const wchar_t* SetSendDataHandlerFuncName = wxT("SetSendDataHandler");
-const wchar_t* cbOnDataFuncName = wxT("OnData");
+typedef std::shared_ptr<wxDynamicLibrary> lib_ptr;
 
+enum ExportFunc{
+	RegNextType,
+	RegNextMethod,
+	SetSendDataHandler,
+	SetGetMethodHandler,
+	cbOnData,
+
+	ExportFuncCount
+};
+std::wstring ExportFuncName[ExportFuncCount] = {
+	wxT("RegNextType"),
+	wxT("RegNextMethod"),
+	wxT("SetSendDataHandler"),
+	wxT("SetGetMethodHandler"),
+	wxT("OnData")
+};
+
+std::unordered_set<lib_ptr> plugins;
+std::unordered_map<std::string, void*> plugin_methods;
+
+void* plugin_GetMethodHandler(const char* method_name)
+{
+	std::unordered_map<std::string, void*>::iterator itr = plugin_methods.find(method_name);
+	if (itr != plugin_methods.end())
+		return itr->second;
+	return nullptr;
+}
 extern void plugin_SendDataHandler(int to, const char* data, size_t size);
 
 bool load_plugin(const std::wstring &plugin_full_path)
 {
-	std::shared_ptr<wxDynamicLibrary> plugin = std::make_shared<wxDynamicLibrary>(plugin_full_path);
+	lib_ptr plugin = std::make_shared<wxDynamicLibrary>(plugin_full_path);
 	if (!plugin->IsLoaded())
 		return false;	//Plugin not loaded
-	plugins.emplace(plugin);
 
-	RegNextTypePtr reg = reinterpret_cast<RegNextTypePtr>(plugin->GetSymbol(RegNextTypeFuncName));
-	if (reg == nullptr)
-		return false;	//RegNextType not found
-	SetSendDataHandlerPtr setH = reinterpret_cast<SetSendDataHandlerPtr>(plugin->GetSymbol(SetSendDataHandlerFuncName));
-	if (setH == nullptr)
-		return false;	//cbOnData not found
-	cbOnDataPtr callback = reinterpret_cast<cbOnDataPtr>(plugin->GetSymbol(cbOnDataFuncName));
-	if (callback == nullptr)
-		return false;	//cbOnData not found
-
-	uint8_t nextReg = reg();
-	while (nextReg & 0x80)
+	void *ExportFuncPtr[ExportFuncCount];
+	for (int i = 0; i < ExportFuncCount; i++)
 	{
-		if (regRecords[nextReg].used)
+		ExportFuncPtr[i] = plugin->GetSymbol(ExportFuncName[i]);
+		if (ExportFuncPtr[i] == nullptr)
+			return false;	//Symbol not found
+	}
+	RegNextTypePtr regType = reinterpret_cast<RegNextTypePtr>(ExportFuncPtr[RegNextType]);
+	RegNextMethodPtr regMethod = reinterpret_cast<RegNextMethodPtr>(ExportFuncPtr[RegNextMethod]);
+	cbOnDataPtr callback = reinterpret_cast<cbOnDataPtr>(ExportFuncPtr[cbOnData]);
+
+	reinterpret_cast<SetGetMethodHandlerPtr>(ExportFuncPtr[SetGetMethodHandler])(plugin_GetMethodHandler);
+
+	//Get methods
+	std::unordered_map<std::string, void*> methods;
+	std::unordered_map<std::string, void*>::iterator itrEnd = plugin_methods.end();
+	const char* nextMethodCStr = regMethod();
+	std::string nextMethod;
+	while (nextMethodCStr != nullptr && !(nextMethod.assign(nextMethodCStr)).empty())
+	{
+		if (plugin_methods.find(nextMethod) != itrEnd)
 			return false;	//Confliction
 
-		regRecords[nextReg].used = true;
-		regRecords[nextReg].callback = callback;
+		void* nextMethodPtr = plugin->GetSymbol(nextMethod);
+		if (nextMethodPtr == nullptr)
+			return false;	//Method not found
 
-		nextReg = reg();
+		methods.emplace(nextMethod, nextMethodPtr);
+		nextMethodCStr = regMethod();
 	}
-	setH(plugin_SendDataHandler);
+
+	//Get message types
+	std::unordered_set<uint8_t> types;
+	uint8_t nextType = regType();
+	while (nextType & 0x80)
+	{
+		nextType &= 0x7F;
+		if (TypeRegs[nextType].used)
+			return false;	//Confliction
+		types.emplace(nextType);
+		nextType = regType();
+	}
+
+	std::for_each(methods.begin(), methods.end(), [](const std::pair<std::string, void*> &method) {
+		plugin_methods.emplace(method);
+	});
+	std::for_each(types.begin(), types.end(), [callback](uint8_t type) {
+		TypeRegs[type].used = true;
+		TypeRegs[type].callback = callback;
+		TypeRegs[type].redirect = type | 0x80;
+	});
+
+	reinterpret_cast<SetSendDataHandlerPtr>(ExportFuncPtr[SetSendDataHandler])(plugin_SendDataHandler);
+
+	plugins.emplace(std::move(plugin));
 
 	std::cout << "Plugin loaded:" << wxConvLocal.cWC2MB(plugin_full_path.c_str()) << std::endl;
 	return true;
@@ -53,6 +119,7 @@ bool load_plugin(const std::wstring &plugin_full_path)
 
 void plugin_on_data(int from, uint8_t type, const char* data, const char* dataEnd)
 {
-	if (regRecords[type].used)
-		(*regRecords[type].callback)(from, type, data, dataEnd);
+	type &= 0x7F;
+	if (TypeRegs[type].used)
+		TypeRegs[type].callback(from, TypeRegs[type].redirect, data, dataEnd);
 }
