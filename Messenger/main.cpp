@@ -151,7 +151,7 @@ void wx_srv_interface::on_data(id_type id, const std::string &data)
 			}
 			default:
 			{
-				if (type & 0x80)
+				if ((type & 0x80) != 0)
 					plugin_on_data(id, type, dataItr, dataEnd);
 				break;
 			}
@@ -230,6 +230,11 @@ void plugin_SendDataHandler(int to, const char* data, size_t size)
 			srv->send_data(to, data_str, session::priority_plugin);
 		});
 	}
+}
+
+void plugin_ConnectToHandler(uint32_t addr)
+{
+	srv->connect(addr);
 }
 
 mainFrame::mainFrame(const wxString& title)

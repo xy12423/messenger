@@ -157,13 +157,23 @@ bool server::send_data(id_type id, const std::string& data, int priority, sessio
 
 void server::connect(const std::string &addr_str)
 {
+	connect(net::ip::address::from_string(addr_str));
+}
+
+void server::connect(unsigned long addr_ulong)
+{
+	connect(net::ip::address_v4(addr_ulong));
+}
+
+
+void server::connect(const net::ip::address &addr)
+{
 	int local_port = newPort(ports);
 	if (local_port == -1)
 		std::cerr << "Socket:No port available" << std::endl;
 	else
 	{
 		socket_ptr new_socket(std::make_shared<net::ip::tcp::socket>(main_io_service));
-		net::ip::address addr(net::ip::address::from_string(addr_str));
 		net::ip::tcp::endpoint local_endpoint(net::ip::tcp::v4(), portConnect), remote_endpoint(addr, portListener);
 
 		new_socket->open(net::ip::tcp::v4());

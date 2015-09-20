@@ -127,6 +127,7 @@ public:
 	void stop_file_transfer();
 
 	std::string get_address() { return socket->remote_endpoint().address().to_string(); }
+	unsigned long get_address_ulong() { return socket->remote_endpoint().address().to_v4().to_ulong(); }
 	port_type get_port() { return local_port; }
 	session_id_type get_session_id() const { return session_id; };
 
@@ -187,8 +188,7 @@ public:
 		)
 		: main_io_service(_main_io_service),
 		misc_io_service(_misc_io_service),
-		acceptor(main_io_service, endpoint),
-		resolver(main_io_service)
+		acceptor(main_io_service, endpoint)
 	{
 		inter = _inter;
 		for (int i = 5001; i <= 10000; i++)
@@ -219,6 +219,7 @@ public:
 	void leave(id_type id);
 
 	void connect(const std::string &addr);
+	void connect(unsigned long addr);
 	void disconnect(id_type id);
 
 	const session_ptr& get_session(id_type id) { return sessions.at(id); }
@@ -230,13 +231,14 @@ private:
 	void start();
 	void accept(boost::system::error_code ec);
 
+	void connect(const net::ip::address& addr);
+
 	void read_data();
 	void write_data();
 
 	net::io_service &main_io_service, &misc_io_service;
 	socket_ptr accepting;
 	net::ip::tcp::acceptor acceptor;
-	net::ip::tcp::resolver resolver;
 
 	std::list<int> ports;
 	std::string e0str;

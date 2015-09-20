@@ -5,6 +5,9 @@
 typedef uint8_t(*RegNextTypePtr)();
 typedef const char*(*RegNextMethodPtr)();
 
+typedef void(*ConnectToHandlerPtr)(uint32_t addr);
+typedef void(*SetConnectToHandlerPtr)(ConnectToHandlerPtr handler);
+
 typedef void(*SendDataHandlerPtr)(int to, const char* data, size_t size);
 typedef void(*SetSendDataHandlerPtr)(SendDataHandlerPtr handler);
 
@@ -25,6 +28,7 @@ typedef std::shared_ptr<wxDynamicLibrary> lib_ptr;
 enum ExportFunc{
 	RegNextType,
 	RegNextMethod,
+	SetConnectToHandler,
 	SetSendDataHandler,
 	SetGetMethodHandler,
 	cbOnData,
@@ -34,6 +38,7 @@ enum ExportFunc{
 std::wstring ExportFuncName[ExportFuncCount] = {
 	wxT("RegNextType"),
 	wxT("RegNextMethod"),
+	wxT("SetConnectToHandler"),
 	wxT("SetSendDataHandler"),
 	wxT("SetGetMethodHandler"),
 	wxT("OnData")
@@ -50,6 +55,7 @@ void* plugin_GetMethodHandler(const char* method_name)
 	return nullptr;
 }
 extern void plugin_SendDataHandler(int to, const char* data, size_t size);
+extern void plugin_ConnectToHandler(uint32_t addr);
 
 bool load_plugin(const std::wstring &plugin_full_path)
 {
@@ -109,6 +115,7 @@ bool load_plugin(const std::wstring &plugin_full_path)
 		TypeRegs[type].redirect = type | 0x80;
 	});
 
+	reinterpret_cast<SetConnectToHandlerPtr>(ExportFuncPtr[SetConnectToHandler])(plugin_ConnectToHandler);
 	reinterpret_cast<SetSendDataHandlerPtr>(ExportFuncPtr[SetSendDataHandler])(plugin_SendDataHandler);
 
 	plugins.emplace(std::move(plugin));
@@ -119,7 +126,10 @@ bool load_plugin(const std::wstring &plugin_full_path)
 
 void plugin_on_data(int from, uint8_t type, const char* data, const char* dataEnd)
 {
-	type &= 0x7F;
-	if (TypeRegs[type].used)
-		TypeRegs[type].callback(from, TypeRegs[type].redirect, data, dataEnd);
+	if ((type & 0x80) != 0)
+	{
+		type &= 0x7F;
+		if (TypeRegs[type].used)
+			TypeRegs[type].callback(from, TypeRegs[type].redirect, data, dataEnd);
+	}
 }
