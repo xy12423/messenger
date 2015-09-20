@@ -132,6 +132,8 @@ public:
 	void send(const std::string& data, int priority, write_callback &&callback);
 	void stop_file_transfer();
 
+	void shutdown() { socket->shutdown(socket->shutdown_both); }
+
 	std::string get_address() { return socket->remote_endpoint().address().to_string(); }
 	unsigned long get_address_ulong() { return socket->remote_endpoint().address().to_v4().to_ulong(); }
 	port_type get_port() { return local_port; }

@@ -9,7 +9,7 @@ const char* publickeysFile = ".publickey";
 
 void insLen(std::string &data)
 {
-	data_length_type len = wxUINT32_SWAP_ON_BE(static_cast<data_length_type>(data.size()));
+	data_length_type len = boost::endian::native_to_little<data_length_type>(static_cast<data_length_type>(data.size()));
 	data.insert(0, std::string(reinterpret_cast<const char*>(&len), sizeof(data_length_type)));
 }
 
@@ -101,18 +101,20 @@ void server::leave(user_id_type _user)
 	sessionList::iterator itr(sessions.find(_user));
 	if (itr == sessions.end())
 		return;
+	itr->second->shutdown();
 
 	try { inter->on_leave(_user); }
 	catch (std::exception ex) { std::cerr << ex.what() << std::endl; }
 	catch (...) {}
 
 	freePort(ports, itr->second->get_port());
-	sessions.erase(_user);
+	sessions.erase(itr);
 }
 
 void server::on_data(user_id_type id, std::shared_ptr<std::string> data)
 {
-	misc_io_service.post([this, id, data]() {
+	session_ptr this_session = sessions[id];
+	misc_io_service.post([this, id, data, this_session]() {
 		std::string decrypted_data;
 		decrypt(*data, decrypted_data);
 		
@@ -125,7 +127,7 @@ void server::on_data(user_id_type id, std::shared_ptr<std::string> data)
 			return;
 		}
 
-		session_id_type sid = sessions[id]->get_session_id();
+		session_id_type sid = this_session->get_session_id();
 		if (*reinterpret_cast<const session_id_type*>(decrypted_data.data() + sha256_size) != boost::endian::little_to_native<session_id_type>(sid))
 		{
 			std::cerr << "Error:Checking failed" << std::endl;
