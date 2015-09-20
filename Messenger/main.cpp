@@ -1,5 +1,4 @@
 #include "stdafx.h"
-#include "global.h"
 #include "crypto.h"
 #include "session.h"
 #include "threads.h"
@@ -36,7 +35,7 @@ wxEND_EVENT_TABLE()
 fileSendThread *threadFileSend;
 
 server* srv;
-std::unordered_map<id_type, user_ext_data> user_ext;
+std::unordered_map<user_id_type, user_ext_data> user_ext;
 wx_srv_interface inter;
 net::io_service main_io_service, misc_io_service;
 iosrvThread *threadNetwork, *threadMisc;
@@ -47,7 +46,7 @@ iosrvThread *threadNetwork, *threadMisc;
 	memcpy(reinterpret_cast<char*>(&(x)), dataItr, sizeof_data_length);	\
 	dataItr += sizeof_data_length
 
-void wx_srv_interface::on_data(id_type id, const std::string &data)
+void wx_srv_interface::on_data(user_id_type id, const std::string &data)
 {
 	try
 	{
@@ -173,7 +172,7 @@ void wx_srv_interface::on_data(id_type id, const std::string &data)
 #undef checkErr
 #undef read_uint
 
-void wx_srv_interface::on_join(id_type id)
+void wx_srv_interface::on_join(user_id_type id)
 {
 	if (frm == nullptr)
 		return;
@@ -187,7 +186,7 @@ void wx_srv_interface::on_join(id_type id)
 	frm->userIDs.push_back(id);
 }
 
-void wx_srv_interface::on_leave(id_type id)
+void wx_srv_interface::on_leave(user_id_type id)
 {
 	if (frm == nullptr)
 		return;
@@ -201,7 +200,7 @@ void wx_srv_interface::on_leave(id_type id)
 	user_ext.erase(id);
 }
 
-void wx_srv_interface::on_unknown_key(id_type id, const std::string& key)
+void wx_srv_interface::on_unknown_key(user_id_type id, const std::string& key)
 {
 	if (frm == nullptr)
 		return;
@@ -217,8 +216,8 @@ void plugin_SendDataHandler(int to, const char* data, size_t size)
 	std::string data_str(data, size);
 	if (to == -1)
 	{
-		std::for_each(user_ext.begin(), user_ext.end(), [&data_str](const std::pair<id_type, user_ext_data> &p) {
-			id_type id = p.first;
+		std::for_each(user_ext.begin(), user_ext.end(), [&data_str](const std::pair<user_id_type, user_ext_data> &p) {
+			user_id_type id = p.first;
 			misc_io_service.post([id, data_str]() {
 				srv->send_data(id, data_str, session::priority_plugin);
 			});
@@ -481,7 +480,7 @@ void mainFrame::buttonExportKey_Click(wxCommandEvent& event)
 
 void mainFrame::thread_Message(wxThreadEvent& event)
 {
-	id_type id = event.GetInt();
+	user_id_type id = event.GetInt();
 	int answer = wxMessageBox(wxT("The public key from " + user_ext.at(id).addr + " hasn't shown before.Trust it?"), wxT("Confirm"), wxYES_NO);
 	if (answer != wxYES)
 		srv->disconnect(id);

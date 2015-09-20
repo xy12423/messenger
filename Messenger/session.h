@@ -3,14 +3,20 @@
 #ifndef _H_SESSION
 #define _H_SESSION
 
+typedef uint16_t key_length_type;
+typedef uint32_t data_length_type;
+
 typedef uint16_t port_type;
 const port_type portListener = 4826, portConnect = 4827;
-typedef int id_type;
+
+typedef int user_id_type;
 typedef uint32_t session_id_type;
 
-class server_interface;
-class server;
 typedef std::shared_ptr<net::ip::tcp::socket> socket_ptr;
+
+void insLen(std::string &data);
+
+class server;
 
 class pre_session : public std::enable_shared_from_this<pre_session>
 {
@@ -144,7 +150,7 @@ private:
 	session_id_type session_id;
 	std::string session_id_in_byte;
 
-	id_type id;
+	user_id_type id;
 
 	char *read_msg_buffer;
 	const size_t msg_buffer_size = 0x4000;
@@ -165,17 +171,17 @@ private:
 	volatile bool exiting = false;
 };
 typedef std::shared_ptr<session> session_ptr;
-typedef std::unordered_map<int, session_ptr> sessionList;
+typedef std::unordered_map<user_id_type, session_ptr> sessionList;
 
 class server_interface
 {
 public:
-	virtual void on_data(id_type id, const std::string &data) = 0;
+	virtual void on_data(user_id_type id, const std::string &data) = 0;
 
-	virtual void on_join(id_type id) = 0;
-	virtual void on_leave(id_type id) = 0;
+	virtual void on_join(user_id_type id) = 0;
+	virtual void on_leave(user_id_type id) = 0;
 
-	virtual void on_unknown_key(id_type id, const std::string& key) = 0;
+	virtual void on_unknown_key(user_id_type id, const std::string& key) = 0;
 };
 
 class server
@@ -208,24 +214,24 @@ public:
 		write_data();
 	}
 
-	void on_data(id_type id, std::shared_ptr<std::string> data);
+	void on_data(user_id_type id, std::shared_ptr<std::string> data);
 
-	bool send_data(id_type id, const std::string& data, int priority);
-	bool send_data(id_type id, const std::string& data, int priority, const std::string& message);
-	bool send_data(id_type id, const std::string& data, int priority, session::write_callback &&callback);
+	bool send_data(user_id_type id, const std::string& data, int priority);
+	bool send_data(user_id_type id, const std::string& data, int priority, const std::string& message);
+	bool send_data(user_id_type id, const std::string& data, int priority, session::write_callback &&callback);
 
 	void pre_session_over(std::shared_ptr<pre_session> _pre);
-	id_type join(const session_ptr &_user);
-	void leave(id_type id);
+	user_id_type join(const session_ptr &_user);
+	void leave(user_id_type id);
 
 	void connect(const std::string &addr);
 	void connect(unsigned long addr);
-	void disconnect(id_type id);
+	void disconnect(user_id_type id);
 
-	const session_ptr& get_session(id_type id) { return sessions.at(id); }
+	const session_ptr& get_session(user_id_type id) { return sessions.at(id); }
 	const std::string& get_public_key() { return e0str; }
 
-	void check_key(id_type id, const std::string& key) { if (certifiedKeys.find(key) == certifiedKeys.end()) inter->on_unknown_key(id, key); }
+	void check_key(user_id_type id, const std::string& key) { if (certifiedKeys.find(key) == certifiedKeys.end()) inter->on_unknown_key(id, key); }
 	void certify_key(const std::string& key) { certifiedKeys.emplace(key); }
 private:
 	void start();
@@ -246,7 +252,7 @@ private:
 
 	std::unordered_set<std::shared_ptr<pre_session>> pre_sessions;
 	sessionList sessions;
-	id_type nextID = 0;
+	user_id_type nextID = 0;
 
 	server_interface *inter;
 	volatile bool closing = false;

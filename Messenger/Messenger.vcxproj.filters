@@ -24,9 +24,6 @@
     <ClInclude Include="crypto.h">
       <Filter>头文件</Filter>
     </ClInclude>
-    <ClInclude Include="global.h">
-      <Filter>头文件</Filter>
-    </ClInclude>
     <ClInclude Include="session.h">
       <Filter>头文件</Filter>
     </ClInclude>
@@ -45,9 +42,6 @@
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="crypto.cpp">
-      <Filter>源文件</Filter>
-    </ClCompile>
-    <ClCompile Include="global.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="session.cpp">

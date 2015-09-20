@@ -1,5 +1,4 @@
 #include "stdafx.h"
-#include "global.h"
 #include "crypto.h"
 #include "session.h"
 
@@ -7,6 +6,12 @@ using boost::system::error_code;
 
 const char* privatekeyFile = ".privatekey";
 const char* publickeysFile = ".publickey";
+
+void insLen(std::string &data)
+{
+	data_length_type len = wxUINT32_SWAP_ON_BE(static_cast<data_length_type>(data.size()));
+	data.insert(0, std::string(reinterpret_cast<const char*>(&len), sizeof(data_length_type)));
+}
 
 int newPort(std::list<int> &ports)
 {
@@ -78,9 +83,9 @@ void server::pre_session_over(std::shared_ptr<pre_session> _pre)
 	pre_sessions.erase(_pre);
 }
 
-id_type server::join(const session_ptr &_user)
+user_id_type server::join(const session_ptr &_user)
 {
-	id_type newID = nextID;
+	user_id_type newID = nextID;
 	nextID++;
 	sessions.emplace(newID, _user);
 
@@ -91,7 +96,7 @@ id_type server::join(const session_ptr &_user)
 	return newID;
 }
 
-void server::leave(id_type _user)
+void server::leave(user_id_type _user)
 {
 	sessionList::iterator itr(sessions.find(_user));
 	if (itr == sessions.end())
@@ -105,7 +110,7 @@ void server::leave(id_type _user)
 	sessions.erase(_user);
 }
 
-void server::on_data(id_type id, std::shared_ptr<std::string> data)
+void server::on_data(user_id_type id, std::shared_ptr<std::string> data)
 {
 	misc_io_service.post([this, id, data]() {
 		std::string decrypted_data;
@@ -135,17 +140,17 @@ void server::on_data(id_type id, std::shared_ptr<std::string> data)
 	});
 }
 
-bool server::send_data(id_type id, const std::string& data, int priority)
+bool server::send_data(user_id_type id, const std::string& data, int priority)
 {
 	return send_data(id, data, priority, []() {});
 }
 
-bool server::send_data(id_type id, const std::string& data, int priority, const std::string& message)
+bool server::send_data(user_id_type id, const std::string& data, int priority, const std::string& message)
 {
 	return send_data(id, data, priority, [message]() {std::cout << message << std::endl; });
 }
 
-bool server::send_data(id_type id, const std::string& data, int priority, session::write_callback &&callback)
+bool server::send_data(user_id_type id, const std::string& data, int priority, session::write_callback &&callback)
 {
 	sessionList::iterator itr(sessions.find(id));
 	if (itr == sessions.end())
@@ -214,7 +219,7 @@ void server::connect(const net::ip::address &addr)
 	}
 }
 
-void server::disconnect(id_type id)
+void server::disconnect(user_id_type id)
 {
 	leave(id);
 }

@@ -71,12 +71,12 @@ public:
 class wx_srv_interface :public server_interface
 {
 public:
-	virtual void on_data(id_type id, const std::string &data);
+	virtual void on_data(user_id_type id, const std::string &data);
 
-	virtual void on_join(id_type id);
-	virtual void on_leave(id_type id);
+	virtual void on_join(user_id_type id);
+	virtual void on_leave(user_id_type id);
 
-	virtual void on_unknown_key(id_type id, const std::string& key);
+	virtual void on_unknown_key(user_id_type id, const std::string& key);
 
 	void set_frame(mainFrame *_frm) { frm = _frm; }
 private:

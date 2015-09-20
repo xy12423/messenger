@@ -1,5 +1,4 @@
 #include "stdafx.h"
-#include "global.h"
 #include "crypto.h"
 #include "session.h"
 

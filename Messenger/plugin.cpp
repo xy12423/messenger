@@ -1,5 +1,4 @@
 #include "stdafx.h"
-#include "global.h"
 #include "plugin.h"
 
 typedef uint8_t(*RegNextTypePtr)();
