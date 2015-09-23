@@ -77,9 +77,13 @@ void server::accept(error_code ec)
 	start();
 }
 
-void server::pre_session_over(std::shared_ptr<pre_session> _pre)
+void server::pre_session_over(std::shared_ptr<pre_session> _pre, bool successful)
 {
-	freePort(ports, _pre->get_port());
+	if (!successful)
+	{
+		freePort(ports, _pre->get_port());
+		connectedKeys.erase(_pre->get_key());
+	}
 	pre_sessions.erase(_pre);
 }
 
@@ -101,13 +105,15 @@ void server::leave(user_id_type _user)
 	sessionList::iterator itr(sessions.find(_user));
 	if (itr == sessions.end())
 		return;
-	itr->second->shutdown();
+	session_ptr this_session = itr->second;
+	this_session->shutdown();
 
 	try { inter->on_leave(_user); }
 	catch (std::exception ex) { std::cerr << ex.what() << std::endl; }
 	catch (...) {}
 
-	freePort(ports, itr->second->get_port());
+	freePort(ports, this_session->get_port());
+	connectedKeys.erase(this_session->get_key());
 	sessions.erase(itr);
 }
 
@@ -171,7 +177,6 @@ void server::connect(unsigned long addr_ulong)
 {
 	connect(net::ip::address_v4(addr_ulong));
 }
-
 
 void server::connect(const net::ip::address &addr)
 {

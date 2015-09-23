@@ -23,8 +23,6 @@ iosrvThread::ExitCode iosrvThread::Entry()
 	return NULL;
 }
 
-const int fileBlockLen = 0x100000;
-
 void fileSendThread::start(int uID, const fs::path &path)
 {
 	iosrv.post([this, uID, path]() {
@@ -78,7 +76,6 @@ void fileSendThread::stop(int uID)
 
 void fileSendThread::write()
 {
-	std::unique_ptr<char[]> block = std::make_unique<char[]>(fileBlockLen);
 	std::string sendBuf;
 
 	fileSendTask &task = tasks.front();

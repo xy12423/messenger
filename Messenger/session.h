@@ -21,10 +21,10 @@ class server;
 class pre_session : public std::enable_shared_from_this<pre_session>
 {
 public:
-	pre_session(server *_srv, port_type _local_port, net::io_service &io_srv, net::io_service &misc_io_srv)
-		:io_service(io_srv),
+	pre_session(server *_srv, port_type _local_port, net::io_service &main_io_srv, net::io_service &misc_io_srv)
+		:main_io_service(main_io_srv),
 		misc_io_service(misc_io_srv),
-		socket(std::make_shared<net::ip::tcp::socket>(io_service))
+		socket(std::make_shared<net::ip::tcp::socket>(main_io_service))
 	{
 		srv = _srv;
 		local_port = _local_port;
@@ -32,7 +32,9 @@ public:
 
 	~pre_session() { if (!passed) { exiting = true; socket->close(); } }
 
-	port_type get_port() { return local_port; }
+	port_type get_port() const { return local_port; }
+	const std::string& get_key() const { return key_string; }
+
 	virtual void start() = 0;
 private:
 	virtual void stage1() = 0;
@@ -42,10 +44,8 @@ protected:
 	void read_key_header();
 	void read_key();
 
-	void read_session_id(bool check_sid);
-	void read_session_id_body(bool check_sid);
-	void check_session_id();
-	void check_session_id_body();
+	void read_session_id(int check_level);
+	void read_session_id_body(int check_level);
 	void write_session_id();
 
 	key_length_type key_length;
@@ -60,7 +60,7 @@ protected:
 	session_id_type session_id;
 	rand_num_type rand_num;
 
-	net::io_service &io_service, &misc_io_service;
+	net::io_service &main_io_service, &misc_io_service;
 	socket_ptr socket;
 
 	server *srv;
@@ -73,7 +73,7 @@ class pre_session_s :public pre_session
 public:
 	pre_session_s(port_type local_port, const net::ip::tcp::endpoint& endpoint, server *_srv, net::io_service &io_srv, net::io_service &misc_io_srv)
 		:pre_session(_srv, local_port, io_srv, misc_io_srv),
-		acceptor(io_service, endpoint)
+		acceptor(main_io_service, endpoint)
 	{}
 
 	virtual void start();
@@ -112,19 +112,21 @@ public:
 
 	typedef std::function<void()> write_callback;
 
-	session(server *_srv, port_type _local_port, net::io_service& _iosrv, socket_ptr &&_socket, CryptoPP::ECIES<CryptoPP::ECP>::Encryptor &_e1, session_id_type _session_id)
-		:io_service(_iosrv), socket(_socket), e1(_e1), session_id_in_byte(reinterpret_cast<char*>(&_session_id), sizeof(session_id_type))
+	session(server *_srv, port_type _local_port, net::io_service& _iosrv, socket_ptr &&_socket, const std::string &_key_string, session_id_type _session_id)
+		:io_service(_iosrv), socket(_socket), key_string(_key_string), session_id_in_byte(reinterpret_cast<char*>(&_session_id), sizeof(session_id_type))
 	{
 		srv = _srv;
 		local_port = _local_port;
 		session_id = _session_id;
-		read_msg_buffer = new char[msg_buffer_size];
+		read_msg_buffer = std::make_unique<char[]>(msg_buffer_size);
+
+		CryptoPP::StringSource keySource(key_string, true);
+		e1.AccessPublicKey().Load(keySource);
 	}
 
 	~session()
 	{
 		exiting = true;
-		delete[] read_msg_buffer;
 		socket->close();
 	}
 
@@ -134,9 +136,10 @@ public:
 
 	void shutdown() { socket->shutdown(socket->shutdown_both); }
 
-	std::string get_address() { return socket->remote_endpoint().address().to_string(); }
-	unsigned long get_address_ulong() { return socket->remote_endpoint().address().to_v4().to_ulong(); }
-	port_type get_port() { return local_port; }
+	std::string get_address() const { return socket->remote_endpoint().address().to_string(); }
+	unsigned long get_address_ulong() const { return socket->remote_endpoint().address().to_v4().to_ulong(); }
+	port_type get_port() const { return local_port; }
+	const std::string& get_key() const { return key_string; }
 	session_id_type get_session_id() const { return session_id; };
 
 	friend class pre_session_s;
@@ -148,13 +151,16 @@ private:
 
 	net::io_service &io_service;
 	socket_ptr socket;
+
+	std::string key_string;
 	CryptoPP::ECIES<CryptoPP::ECP>::Encryptor e1;
+
 	session_id_type session_id;
 	std::string session_id_in_byte;
 
 	user_id_type id;
 
-	char *read_msg_buffer;
+	std::unique_ptr<char[]> read_msg_buffer;
 	const size_t msg_buffer_size = 0x4000;
 	struct write_task {
 		write_task() {};
@@ -222,7 +228,7 @@ public:
 	bool send_data(user_id_type id, const std::string& data, int priority, const std::string& message);
 	bool send_data(user_id_type id, const std::string& data, int priority, session::write_callback &&callback);
 
-	void pre_session_over(std::shared_ptr<pre_session> _pre);
+	void pre_session_over(std::shared_ptr<pre_session> _pre, bool successful = false);
 	user_id_type join(const session_ptr &_user);
 	void leave(user_id_type id);
 
@@ -230,11 +236,12 @@ public:
 	void connect(unsigned long addr);
 	void disconnect(user_id_type id);
 
-	const session_ptr& get_session(user_id_type id) { return sessions.at(id); }
-	const std::string& get_public_key() { return e0str; }
+	const session_ptr& get_session(user_id_type id) const { return sessions.at(id); }
+	const std::string& get_public_key() const { return e0str; }
 
 	void check_key(user_id_type id, const std::string& key) { if (certifiedKeys.find(key) == certifiedKeys.end()) inter->on_unknown_key(id, key); }
 	void certify_key(const std::string& key) { certifiedKeys.emplace(key); }
+	bool check_key_connected(const std::string& key) { if (connectedKeys.find(key) == connectedKeys.end()) { connectedKeys.emplace(key); return false; } else return true; };
 private:
 	void start();
 	void accept(boost::system::error_code ec);
@@ -251,6 +258,7 @@ private:
 	std::list<int> ports;
 	std::string e0str;
 	std::unordered_set<std::string> certifiedKeys;
+	std::unordered_set<std::string> connectedKeys;
 
 	std::unordered_set<std::shared_ptr<pre_session>> pre_sessions;
 	sessionList sessions;

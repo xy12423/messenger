@@ -47,6 +47,9 @@ protected:
 	ExitCode Entry();
 private:
 	std::list<fileSendTask> tasks;
+	
+	const int fileBlockLen = 0x100000;
+	std::unique_ptr<char[]> block = std::make_unique<char[]>(fileBlockLen);
 
 	net::io_service iosrv;
 	std::shared_ptr<net::io_service::work> iosrv_work;
