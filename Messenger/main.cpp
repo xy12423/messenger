@@ -5,6 +5,8 @@
 #include "plugin.h"
 #include "main.h"
 
+const port_type portListener = 4826, portConnect = 4827;
+
 wxBEGIN_EVENT_TABLE(mainFrame, wxFrame)
 
 EVT_LISTBOX(ID_LISTUSER, mainFrame::listUser_SelectedIndexChanged)
@@ -526,7 +528,7 @@ bool MyApp::OnInit()
 			delete threadMisc;
 			throw(std::runtime_error("Can't create iosrvThread"));
 		}
-		srv = new server(main_io_service, misc_io_service, &inter, net::ip::tcp::endpoint(net::ip::tcp::v4(), portListener));
+		srv = new server(main_io_service, misc_io_service, &inter, portListener, portConnect);
 
 		form = new mainFrame(wxT("Messenger"));
 		form->Show();

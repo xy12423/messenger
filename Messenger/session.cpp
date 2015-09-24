@@ -10,7 +10,10 @@ void pre_session::read_key_header()
 		[this](boost::system::error_code ec, std::size_t length)
 	{
 		if (!ec)
+		{
+			key_length = boost::endian::little_to_native<key_length_type>(key_length);
 			read_key();
+		}
 		else
 		{
 			std::cerr << "Socket Error:" << ec.message() << std::endl;

@@ -43,8 +43,8 @@ void fileSendThread::start(int uID, const fs::path &path)
 
 			std::wstring fileName = path.leaf().wstring();
 			data_length_type blockCountAll_LE = wxUINT32_SWAP_ON_BE(blockCountAll);
-			std::string head(reinterpret_cast<const char*>(&blockCountAll_LE), sizeof(data_length_type));
-			head.insert(0, 1, pac_type_file_h);
+			std::string head(1, pac_type_file_h);
+			head.append(reinterpret_cast<const char*>(&blockCountAll_LE), sizeof(data_length_type));
 			wxCharBuffer nameBuf = wxConvUTF8.cWC2MB(fileName.c_str());
 			std::string name(nameBuf, nameBuf.length());
 			insLen(name);

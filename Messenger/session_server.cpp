@@ -186,7 +186,7 @@ void server::connect(const net::ip::address &addr)
 	else
 	{
 		socket_ptr new_socket(std::make_shared<net::ip::tcp::socket>(main_io_service));
-		net::ip::tcp::endpoint local_endpoint(net::ip::tcp::v4(), portConnect), remote_endpoint(addr, portListener);
+		net::ip::tcp::endpoint local_endpoint(net::ip::tcp::v4(), port_connect), remote_endpoint(addr, port_listen);
 
 		new_socket->open(net::ip::tcp::v4());
 		new_socket->bind(local_endpoint);
@@ -202,7 +202,9 @@ void server::connect(const net::ip::address &addr)
 				{
 					if (!ec)
 					{
-						net::ip::tcp::endpoint remote_endpoint_new(addr, *reinterpret_cast<port_type*>(remote_port_buf));
+						port_type remote_port_new = *reinterpret_cast<port_type*>(remote_port_buf);
+						remote_port_new = boost::endian::little_to_native<port_type>(remote_port_new);
+						net::ip::tcp::endpoint remote_endpoint_new(addr, remote_port_new);
 						std::shared_ptr<pre_session_c> pre_session_c_ptr(std::make_shared<pre_session_c>(local_port, remote_endpoint_new, this, main_io_service, misc_io_service));
 						pre_session_c_ptr->start();
 						pre_sessions.emplace(pre_session_c_ptr);
@@ -246,10 +248,9 @@ void server::read_data()
 		for (; pubCount > 0; pubCount--)
 		{
 			publicIn.read(reinterpret_cast<char*>(&keyLen), sizeof(size_t));
-			char *buf = new char[keyLen];
-			publicIn.read(buf, keyLen);
-			certifiedKeys.emplace(std::string(buf, keyLen));
-			delete[] buf;
+			std::unique_ptr<char[]> buf = std::make_unique<char[]>(keyLen);
+			publicIn.read(buf.get(), keyLen);
+			certifiedKeys.emplace(std::string(buf.get(), keyLen));
 		}
 
 		publicIn.close();
