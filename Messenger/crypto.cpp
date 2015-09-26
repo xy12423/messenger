@@ -51,6 +51,22 @@ std::string getPublicKey()
 	return ret;
 }
 
+std::string getUserIDGlobal()
+{
+	std::string ret;
+	StringSinkTemplate<std::string> buf(ret);
+	ECIES<ECP>::Encryptor e0(d0);
+
+	DL_PublicKey_EC<ECP>& key = dynamic_cast<DL_PublicKey_EC<ECP>&>(e0.AccessPublicKey());
+	assert(&key != nullptr);
+
+	key.DEREncodePublicKey(buf);
+	assert(ret.front() == 4);
+	ret.erase(0, 1);
+
+	return ret;
+}
+
 void calcSHA256(const std::string &msg, std::string &ret, size_t input_shift)
 {
 	CryptoPP::SHA256 sha256;

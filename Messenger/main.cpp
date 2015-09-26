@@ -238,6 +238,12 @@ void plugin_ConnectToHandler(uint32_t addr)
 	srv->connect(addr);
 }
 
+std::string uid_global;
+const char* plugin_GetUserID()
+{
+	return uid_global.c_str();
+}
+
 mainFrame::mainFrame(const wxString& title)
 	: wxFrame(NULL, ID_FRAME, title, wxDefaultPosition, wxSize(_GUI_SIZE_X, _GUI_SIZE_Y))
 {
@@ -333,6 +339,9 @@ mainFrame::mainFrame(const wxString& title)
 
 	if (fs::exists(plugin_file_name))
 	{
+		uid_global.assign(getUserIDGlobal());
+		set_method("GetUserID", plugin_GetUserID);
+
 		std::ifstream fin(plugin_file_name);
 		std::string plugin_name_utf8;
 		while (!fin.eof())

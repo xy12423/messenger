@@ -56,6 +56,15 @@ void* plugin_GetMethodHandler(const char* method_name)
 extern void plugin_SendDataHandler(int to, const char* data, size_t size);
 extern void plugin_ConnectToHandler(uint32_t addr);
 
+void set_method(const std::string& method, void* method_ptr)
+{
+	if (method_ptr == nullptr)
+		return;
+	if (plugin_methods.find(method) != plugin_methods.end())
+		return;
+	plugin_methods.emplace(method, method_ptr);
+}
+
 bool load_plugin(const std::wstring &plugin_full_path)
 {
 	lib_ptr plugin = std::make_shared<wxDynamicLibrary>(plugin_full_path);

@@ -48,7 +48,7 @@ protected:
 private:
 	std::list<fileSendTask> tasks;
 	
-	const int fileBlockLen = 0x100000;
+	const int fileBlockLen = 0x80000;
 	std::unique_ptr<char[]> block = std::make_unique<char[]>(fileBlockLen);
 
 	net::io_service iosrv;
