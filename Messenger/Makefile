@@ -17,6 +17,10 @@ endif
 
 ifdef NO_WARNING
   cppflag += -w
+else
+  ifdef CLANG
+    cppflag += -Wno-potentially-evaluated-expression
+  endif
 endif
 
 messenger : $(objects)
