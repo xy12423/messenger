@@ -84,9 +84,9 @@ void pre_session::read_session_id_body(int check_level)
 				std::string raw_data(sid_packet_buffer.get(), sid_packet_length), data;
 				decrypt(raw_data, data);
 
-				std::string sha256_buf(data, 0, sha256_size), sha256_result;
-				calcSHA256(data, sha256_result, sha256_size);
-				if (sha256_buf != sha256_result)
+				std::string sha256_recv(data, 0, sha256_size), sha256_real;
+				calcSHA256(data, sha256_real, sha256_size);
+				if (sha256_recv != sha256_real)
 				{
 					std::cerr << "Error:Hashing failed" << std::endl;
 					main_io_service.post([this]() {
@@ -162,22 +162,22 @@ void pre_session::read_session_id_body(int check_level)
 void pre_session::write_session_id()
 {
 	misc_io_service.post([this]() {
-		std::string send_data, send_raw, sha256_buf;
+		std::string data_encrypted, data_raw, sha256_buf;
 
 		sha256_buf.append(reinterpret_cast<char*>(&session_id), sizeof(session_id_type));
 		sha256_buf.append(reinterpret_cast<char*>(&rand_num), sizeof(rand_num_type));
 
-		calcSHA256(sha256_buf, send_raw);
-		send_raw.append(sha256_buf);
+		calcSHA256(sha256_buf, data_raw);
+		data_raw.append(sha256_buf);
 
-		encrypt(send_raw, send_data, e1);
-		insLen(send_data);
+		encrypt(data_raw, data_encrypted, e1);
+		insLen(data_encrypted);
 
-		char* send_buf = new char[send_data.size()];
-		memcpy(send_buf, send_data.data(), send_data.size());
+		char* send_buf = new char[data_encrypted.size()];
+		memcpy(send_buf, data_encrypted.data(), data_encrypted.size());
 
 		net::async_write(*socket,
-			net::buffer(send_buf, send_data.size()),
+			net::buffer(send_buf, data_encrypted.size()),
 			[this, send_buf](boost::system::error_code ec, std::size_t length)
 		{
 			delete[] send_buf;
@@ -267,11 +267,11 @@ void pre_session_s::sid_packet_done()
 				break;
 			case 3:
 			{
-				session_ptr newUser(std::make_shared<session>(srv, local_port, main_io_service, std::move(socket), key_string, session_id));
+				session_ptr new_user(std::make_shared<session>(srv, local_port, main_io_service, std::move(socket), key_string, session_id));
 
-				newUser->id = srv->join(newUser);
-				srv->check_key(newUser->id, key_string);
-				newUser->start();
+				new_user->id = srv->join(new_user);
+				srv->check_key(new_user->id, key_string);
+				new_user->start();
 
 				passed = true;
 
@@ -371,11 +371,11 @@ void pre_session_c::sid_packet_done()
 				break;
 			case 3:
 			{
-				session_ptr newUser(std::make_shared<session>(srv, local_port, main_io_service, std::move(socket), key_string, session_id));
+				session_ptr new_user(std::make_shared<session>(srv, local_port, main_io_service, std::move(socket), key_string, session_id));
 
-				newUser->id = srv->join(newUser);
-				srv->check_key(newUser->id, key_string);
-				newUser->start();
+				new_user->id = srv->join(new_user);
+				srv->check_key(new_user->id, key_string);
+				new_user->start();
 
 				passed = true;
 
@@ -466,8 +466,8 @@ void session::read_header()
 		{
 			if (!ec)
 			{
-				data_length_type sizeRecv = *(reinterpret_cast<data_length_type*>(read_msg_buffer.get()));
-				read_data(sizeRecv, std::make_shared<std::string>());
+				data_length_type size_recv = *(reinterpret_cast<data_length_type*>(read_msg_buffer.get()));
+				read_data(size_recv, std::make_shared<std::string>());
 			}
 			else
 			{
@@ -485,21 +485,21 @@ void session::read_header()
 	}
 }
 
-void session::read_data(size_t sizeLast, std::shared_ptr<std::string> buf)
+void session::read_data(size_t size_last, std::shared_ptr<std::string> buf)
 {
 	try
 	{
-		if (sizeLast > msg_buffer_size)
+		if (size_last > msg_buffer_size)
 		{
 			net::async_read(*socket,
 				net::buffer(read_msg_buffer.get(), msg_buffer_size),
 				net::transfer_exactly(msg_buffer_size),
-				[this, sizeLast, buf](boost::system::error_code ec, std::size_t length)
+				[this, size_last, buf](boost::system::error_code ec, std::size_t length)
 			{
 				if (!ec)
 				{
 					buf->append(read_msg_buffer.get(), length);
-					read_data(sizeLast - length, buf);
+					read_data(size_last - length, buf);
 				}
 				else
 				{
@@ -512,8 +512,8 @@ void session::read_data(size_t sizeLast, std::shared_ptr<std::string> buf)
 		else
 		{
 			net::async_read(*socket,
-				net::buffer(read_msg_buffer.get(), sizeLast),
-				net::transfer_exactly(sizeLast),
+				net::buffer(read_msg_buffer.get(), size_last),
+				net::transfer_exactly(size_last),
 				[this, buf](boost::system::error_code ec, std::size_t length)
 			{
 				if (!ec)

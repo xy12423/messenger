@@ -13,7 +13,8 @@ void insLen(std::string &data)
 	data.insert(0, std::string(reinterpret_cast<const char*>(&len), sizeof(data_length_type)));
 }
 
-int newPort(std::list<int> &ports)
+//This only find a port in ports list without validating
+int new_port(std::list<int> &ports)
 {
 	if (ports.empty())
 		return -1;
@@ -25,7 +26,8 @@ int newPort(std::list<int> &ports)
 	return port;
 }
 
-void freePort(std::list<int> &ports, port_type port)
+//This only insert port to ports list without really free socket
+void free_port(std::list<int> &ports, port_type port)
 {
 	ports.push_back(port);
 }
@@ -48,7 +50,7 @@ void server::accept(error_code ec)
 		return;
 	if (!ec)
 	{
-		int port = newPort(ports);
+		int port = new_port(ports);
 		if (port == -1)
 			std::cerr << "Socket:No port available" << std::endl;
 		else
@@ -81,7 +83,7 @@ void server::pre_session_over(std::shared_ptr<pre_session> _pre, bool successful
 {
 	if (!successful)
 	{
-		freePort(ports, _pre->get_port());
+		free_port(ports, _pre->get_port());
 		connectedKeys.erase(_pre->get_key());
 	}
 	pre_sessions.erase(_pre);
@@ -112,7 +114,7 @@ void server::leave(user_id_type _user)
 	catch (std::exception ex) { std::cerr << ex.what() << std::endl; }
 	catch (...) {}
 
-	freePort(ports, this_session->get_port());
+	free_port(ports, this_session->get_port());
 	connectedKeys.erase(this_session->get_key());
 	sessions.erase(itr);
 }
@@ -124,9 +126,9 @@ void server::on_data(user_id_type id, std::shared_ptr<std::string> data)
 		std::string decrypted_data;
 		decrypt(*data, decrypted_data);
 		
-		std::string sha256_buf(decrypted_data, 0, sha256_size), sha256_result;
-		calcSHA256(decrypted_data, sha256_result, sha256_size);
-		if (sha256_result != sha256_buf)
+		std::string sha256_recv(decrypted_data, 0, sha256_size), sha256_real;
+		calcSHA256(decrypted_data, sha256_real, sha256_size);
+		if (sha256_real != sha256_recv)
 		{
 			std::cerr << "Error:Hashing failed" << std::endl;
 			leave(id);
@@ -180,7 +182,7 @@ void server::connect(unsigned long addr_ulong)
 
 void server::connect(const net::ip::address &addr)
 {
-	int local_port = newPort(ports);
+	int local_port = new_port(ports);
 	if (local_port == -1)
 		std::cerr << "Socket:No port available" << std::endl;
 	else
@@ -214,7 +216,7 @@ void server::connect(const net::ip::address &addr)
 					else
 					{
 						std::cerr << "Socket Error:" << ec.message() << std::endl;
-						freePort(ports, local_port);
+						free_port(ports, local_port);
 					}
 					delete[] remote_port_buf;
 				});
@@ -222,7 +224,7 @@ void server::connect(const net::ip::address &addr)
 			else
 			{
 				std::cerr << "Socket Error:" << ec.message() << std::endl;
-				freePort(ports, local_port);
+				free_port(ports, local_port);
 			}
 		});
 	}
