@@ -197,18 +197,17 @@ public:
 	server(net::io_service& _main_io_service,
 		net::io_service& _misc_io_service,
 		server_interface *_inter,
-		port_type _port_listen,
-		port_type _port_connect
+		net::ip::tcp::endpoint _local_endpoint,
+		port_type _local_port_connect,
+		std::list<port_type> &&_local_ports
 		)
 		: main_io_service(_main_io_service),
 		misc_io_service(_misc_io_service),
-		acceptor(main_io_service, net::ip::tcp::endpoint(net::ip::tcp::v4(), _port_listen))
+		acceptor(main_io_service, _local_endpoint),
+		local_ports(_local_ports)
 	{
-		port_listen = _port_listen;
-		port_connect = _port_connect;
+		local_port_connect = _local_port_connect;
 		inter = _inter;
-		for (int i = 5001; i <= 10000; i++)
-			ports.push_back(i);
 		std::srand(static_cast<unsigned int>(std::time(NULL)));
 		read_data();
 		start();
@@ -234,8 +233,8 @@ public:
 	user_id_type join(const session_ptr &_user);
 	void leave(user_id_type id);
 
-	void connect(const std::string &addr);
-	void connect(unsigned long addr);
+	void connect(const std::string &addr, port_type remote_port);
+	void connect(unsigned long addr, port_type remote_port);
 	void disconnect(user_id_type id);
 
 	const session_ptr& get_session(user_id_type id) const { return sessions.at(id); }
@@ -248,7 +247,7 @@ private:
 	void start();
 	void accept(boost::system::error_code ec);
 
-	void connect(const net::ip::address& addr);
+	void connect(const net::ip::address& addr, port_type remote_port);
 
 	void read_data();
 	void write_data();
@@ -257,8 +256,8 @@ private:
 	socket_ptr accepting;
 	net::ip::tcp::acceptor acceptor;
 
-	std::list<int> ports;
-	port_type port_connect, port_listen;
+	std::list<port_type> local_ports;
+	port_type local_port_connect;
 
 	std::string e0str;
 	std::unordered_set<std::string> certifiedKeys;

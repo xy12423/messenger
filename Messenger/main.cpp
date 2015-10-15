@@ -235,7 +235,7 @@ void plugin_SendDataHandler(int to, const char* data, size_t size)
 
 void plugin_ConnectToHandler(uint32_t addr)
 {
-	srv->connect(addr);
+	srv->connect(addr, portListener);
 }
 
 std::string uid_global;
@@ -374,7 +374,7 @@ void mainFrame::buttonAdd_Click(wxCommandEvent& event)
 		wxString addrStr = inputDlg.GetValue();
 		if (addrStr != wxEmptyString)
 		{
-			srv->connect(addrStr.ToStdString());
+			srv->connect(addrStr.ToStdString(), portListener);
 		}
 	}
 	catch (std::exception ex)
@@ -537,7 +537,10 @@ bool MyApp::OnInit()
 			delete threadMisc;
 			throw(std::runtime_error("Can't create iosrvThread"));
 		}
-		srv = new server(main_io_service, misc_io_service, &inter, portListener, portConnect);
+		std::list<port_type> ports;
+		for (int i = 5001; i <= 10000; i++)
+			ports.push_back(i);
+		srv = new server(main_io_service, misc_io_service, &inter, net::ip::tcp::endpoint(net::ip::tcp::v4(), portListener), portConnect, std::move(ports));
 
 		form = new mainFrame(wxT("Messenger"));
 		form->Show();
