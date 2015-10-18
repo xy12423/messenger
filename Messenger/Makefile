@@ -5,9 +5,9 @@ endif
 
 objects = crypto.o session.o session_server.o threads.o main.o plugin.o
 wx_cppflag = `wx-config --cppflags`
-cppflag = -c -o2 $(wx_cppflag) -pthread -I~/boost -Wno-deprecated-declarations -std=c++14
+cppflag = -c -o2 $(wx_cppflag) -pthread -I ~/boost -Wno-deprecated-declarations -std=c++14
 wx_lflag = `wx-config --libs`
-lflag = -L~/boost/stage/lib $(wx_lflag) -lboost_filesystem-mt-s -lboost_system-mt-s -lcryptopp
+lflag = -L ~/boost/stage/lib $(wx_lflag) -lboost_filesystem-mt-s -lboost_system-mt-s -lcryptopp
 
 ifdef RELEASE
   cppflag += -O2 -march=native -mtune=native

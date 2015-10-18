@@ -340,7 +340,7 @@ mainFrame::mainFrame(const wxString& title)
 	if (fs::exists(plugin_file_name))
 	{
 		uid_global.assign(getUserIDGlobal());
-		set_method("GetUserID", plugin_GetUserID);
+		set_method("GetUserID", reinterpret_cast<void*>(plugin_GetUserID));
 
 		std::ifstream fin(plugin_file_name);
 		std::string plugin_name_utf8;

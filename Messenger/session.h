@@ -9,7 +9,7 @@ typedef uint32_t data_length_type;
 typedef uint16_t port_type;
 
 typedef int user_id_type;
-typedef uint32_t session_id_type;
+typedef uint64_t session_id_type;
 
 typedef std::shared_ptr<net::ip::tcp::socket> socket_ptr;
 
@@ -58,6 +58,7 @@ protected:
 	CryptoPP::ECIES<CryptoPP::ECP>::Encryptor e1;
 	session_id_type session_id;
 	rand_num_type rand_num;
+	rand_num_type rand_num_send, rand_num_recv;
 
 	net::io_service &main_io_service, &misc_io_service;
 	socket_ptr socket;
@@ -111,12 +112,14 @@ public:
 
 	typedef std::function<void()> write_callback;
 
-	session(server *_srv, port_type _local_port, net::io_service& _iosrv, socket_ptr &&_socket, const std::string &_key_string, session_id_type _session_id)
-		:io_service(_iosrv), socket(_socket), key_string(_key_string), session_id_in_byte(reinterpret_cast<char*>(&_session_id), sizeof(session_id_type))
+	session(server *_srv, port_type _local_port,
+		net::io_service& _main_iosrv, net::io_service& _misc_iosrv,
+		socket_ptr &&_socket,
+		const std::string &_key_string,
+		session_id_type _session_id, rand_num_type _rand_num_send, rand_num_type _rand_num_recv)
+		:srv(_srv), local_port(_local_port), main_iosrv(_main_iosrv), misc_iosrv(_misc_iosrv), socket(_socket), key_string(_key_string),
+		session_id(_session_id), rand_num_send(_rand_num_send), rand_num_recv(_rand_num_recv)
 	{
-		srv = _srv;
-		local_port = _local_port;
-		session_id = _session_id;
 		read_msg_buffer = std::make_unique<char[]>(msg_buffer_size);
 
 		CryptoPP::StringSource keySource(key_string, true);
@@ -140,6 +143,7 @@ public:
 	port_type get_port() const { return local_port; }
 	const std::string& get_key() const { return key_string; }
 	session_id_type get_session_id() const { return session_id; };
+	rand_num_type get_rand_num_recv() { rand_num_recv++; return rand_num_recv; };
 
 	friend class pre_session_s;
 	friend class pre_session_c;
@@ -148,14 +152,14 @@ private:
 	void read_data(size_t sizeLast, std::shared_ptr<std::string> buf);
 	void write();
 
-	net::io_service &io_service;
+	net::io_service &main_iosrv, &misc_iosrv;
 	socket_ptr socket;
 
 	std::string key_string;
 	CryptoPP::ECIES<CryptoPP::ECP>::Encryptor e1;
 
 	session_id_type session_id;
-	std::string session_id_in_byte;
+	rand_num_type rand_num_send, rand_num_recv;
 
 	user_id_type id;
 
@@ -204,10 +208,10 @@ public:
 		: main_io_service(_main_io_service),
 		misc_io_service(_misc_io_service),
 		acceptor(main_io_service, _local_endpoint),
+		local_port_connect(_local_port_connect),
+		inter(_inter),
 		local_ports(_local_ports)
 	{
-		local_port_connect = _local_port_connect;
-		inter = _inter;
 		std::srand(static_cast<unsigned int>(std::time(NULL)));
 		read_data();
 		start();
