@@ -17,7 +17,10 @@
 #include <unordered_set>
 #include <unordered_map>
 #include <algorithm>
+#include <functional>
+#include <memory>
 #include <mutex>
+#include <thread>
 
 #include <boost/filesystem.hpp>
 #include <boost/asio.hpp>
