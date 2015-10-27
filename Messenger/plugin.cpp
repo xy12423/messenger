@@ -4,7 +4,7 @@
 typedef uint8_t(*RegNextTypePtr)();
 typedef const char*(*RegNextMethodPtr)();
 
-typedef void(*ConnectToHandlerPtr)(uint32_t addr);
+typedef void(*ConnectToHandlerPtr)(uint32_t addr, uint16_t port);
 typedef void(*SetConnectToHandlerPtr)(ConnectToHandlerPtr handler);
 
 typedef void(*SendDataHandlerPtr)(int to, const char* data, size_t size);
@@ -54,7 +54,7 @@ void* plugin_GetMethodHandler(const char* method_name)
 	return nullptr;
 }
 extern void plugin_SendDataHandler(int to, const char* data, size_t size);
-extern void plugin_ConnectToHandler(uint32_t addr);
+extern void plugin_ConnectToHandler(uint32_t addr, uint16_t port);
 
 void set_method(const std::string& method, void* method_ptr)
 {

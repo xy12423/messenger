@@ -242,7 +242,10 @@ void pre_session_s::stage2()
 		session_id = boost::endian::native_to_little<rand_num_type>(genRandomNumber());
 		rand_num_send = genRandomNumber();
 		rand_num = boost::endian::native_to_little<rand_num_type>(rand_num_send);
-		rand_num_send++;
+		if (rand_num_send == std::numeric_limits<rand_num_type>::max())
+			rand_num_send = 0;
+		else
+			rand_num_send++;
 		stage = 0;
 		write_session_id();
 	}
@@ -372,7 +375,10 @@ void pre_session_c::sid_packet_done()
 			case 1:
 				rand_num_send = genRandomNumber();
 				rand_num = boost::endian::native_to_little<rand_num_type>(rand_num_send);
-				rand_num_send++;
+				if (rand_num_send == std::numeric_limits<rand_num_type>::max())
+					rand_num_send = 0;
+				else
+					rand_num_send++;
 				write_session_id();
 				break;
 			case 2:
@@ -551,8 +557,7 @@ void session::write()
 		if (write_itr == write_que_end)
 			return;
 	}
-	rand_num_send++;
-	rand_num_type rand_num = boost::endian::native_to_little<rand_num_type>(rand_num_send);
+	rand_num_type rand_num = boost::endian::native_to_little<rand_num_type>(get_rand_num_send());
 
 	misc_iosrv.post([this, write_itr, rand_num]() {
 		//data_buf:data with sid and sn; write_raw:data_buf with Hash; write_data:encrypted data, ready for sending

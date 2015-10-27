@@ -213,6 +213,18 @@ void wx_srv_interface::on_unknown_key(user_id_type id, const std::string& key)
 	wxQueueEvent(frm, newEvent);
 }
 
+bool wx_srv_interface::new_rand_port(port_type &ret)
+{
+	if (ports.empty())
+		return false;
+	std::list<port_type>::iterator portItr = ports.begin();
+	for (int i = std::rand() % ports.size(); i > 0; i--)
+		portItr++;
+	ret = *portItr;
+	ports.erase(portItr);
+	return true;
+}
+
 void plugin_SendDataHandler(int to, const char* data, size_t size)
 {
 	std::string data_str(data, size);
@@ -233,15 +245,20 @@ void plugin_SendDataHandler(int to, const char* data, size_t size)
 	}
 }
 
-void plugin_ConnectToHandler(uint32_t addr)
+void plugin_ConnectToHandler(uint32_t addr, uint16_t port)
 {
-	srv->connect(addr, portListener);
+	srv->connect(addr, port);
 }
 
 std::string uid_global;
-const char* plugin_GetUserID()
+const char* plugin_api_GetUserID()
 {
 	return uid_global.c_str();
+}
+
+void plugin_api_Print(const char* msg)
+{
+	std::cout << "Plugin:" << msg << std::endl;
 }
 
 mainFrame::mainFrame(const wxString& title)
@@ -340,7 +357,8 @@ mainFrame::mainFrame(const wxString& title)
 	if (fs::exists(plugin_file_name))
 	{
 		uid_global.assign(getUserIDGlobal());
-		set_method("GetUserID", reinterpret_cast<void*>(plugin_GetUserID));
+		set_method("GetUserID", reinterpret_cast<void*>(plugin_api_GetUserID));
+		set_method("Print", reinterpret_cast<void*>(plugin_api_Print));
 
 		std::ifstream fin(plugin_file_name);
 		std::string plugin_name_utf8;
@@ -537,10 +555,10 @@ bool MyApp::OnInit()
 			delete threadMisc;
 			throw(std::runtime_error("Can't create iosrvThread"));
 		}
-		std::list<port_type> ports;
+		
 		for (int i = 5001; i <= 10000; i++)
-			ports.push_back(i);
-		srv = new server(main_io_service, misc_io_service, &inter, net::ip::tcp::endpoint(net::ip::tcp::v4(), portListener), portConnect, std::move(ports));
+			inter.free_rand_port(i);
+		srv = new server(main_io_service, misc_io_service, &inter, net::ip::tcp::endpoint(net::ip::tcp::v4(), portListener), portConnect);
 
 		form = new mainFrame(wxT("Messenger"));
 		form->Show();

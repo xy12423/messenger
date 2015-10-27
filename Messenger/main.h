@@ -78,9 +78,14 @@ public:
 
 	virtual void on_unknown_key(user_id_type id, const std::string& key);
 
+	virtual bool new_rand_port(port_type &port);
+	virtual void free_rand_port(port_type port) { ports.push_back(port); };
+
 	void set_frame(mainFrame *_frm) { frm = _frm; }
 private:
 	std::unordered_set<iosrvThread*> threads;
+	std::list<port_type> ports;
+
 	mainFrame *frm;
 };
 

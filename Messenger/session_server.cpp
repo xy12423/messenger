@@ -50,8 +50,8 @@ void server::accept(error_code ec)
 		return;
 	if (!ec)
 	{
-		int port = new_port(local_ports);
-		if (port == -1)
+		port_type port;
+		if (!inter->new_rand_port(port))
 			std::cerr << "Socket:No port available" << std::endl;
 		else
 		{
@@ -61,10 +61,9 @@ void server::accept(error_code ec)
 			pre_sessions.emplace(pre_session_s_ptr);
 
 			socket_ptr accepted(accepting);
-			port_type port_send = static_cast<port_type>(port);
 			const int send_size = sizeof(port_type);
 			char* send_buf = new char[send_size];
-			memcpy(send_buf, reinterpret_cast<char*>(&port_send), send_size);
+			memcpy(send_buf, reinterpret_cast<char*>(&port), send_size);
 			net::async_write(*accepted,
 				net::buffer(send_buf, send_size),
 				[accepted, send_buf](boost::system::error_code ec, std::size_t length)
@@ -83,7 +82,7 @@ void server::pre_session_over(std::shared_ptr<pre_session> _pre, bool successful
 {
 	if (!successful)
 	{
-		free_port(local_ports, _pre->get_port());
+		inter->free_rand_port(_pre->get_port());
 		connectedKeys.erase(_pre->get_key());
 	}
 	pre_sessions.erase(_pre);
@@ -114,7 +113,7 @@ void server::leave(user_id_type _user)
 	catch (std::exception ex) { std::cerr << ex.what() << std::endl; }
 	catch (...) {}
 
-	free_port(local_ports, this_session->get_port());
+	inter->free_rand_port(this_session->get_port());
 	connectedKeys.erase(this_session->get_key());
 	sessions.erase(itr);
 }
@@ -189,8 +188,8 @@ void server::connect(unsigned long addr_ulong, port_type remote_port)
 
 void server::connect(const net::ip::address &addr, port_type remote_port)
 {
-	int local_port = new_port(local_ports);
-	if (local_port == -1)
+	port_type local_port;
+	if (!inter->new_rand_port(local_port))
 		std::cerr << "Socket:No port available" << std::endl;
 	else
 	{
@@ -223,7 +222,7 @@ void server::connect(const net::ip::address &addr, port_type remote_port)
 					else
 					{
 						std::cerr << "Socket Error:" << ec.message() << std::endl;
-						free_port(local_ports, local_port);
+						inter->free_rand_port(local_port);
 					}
 					delete[] remote_port_buf;
 				});
@@ -231,7 +230,7 @@ void server::connect(const net::ip::address &addr, port_type remote_port)
 			else
 			{
 				std::cerr << "Socket Error:" << ec.message() << std::endl;
-				free_port(local_ports, local_port);
+				inter->free_rand_port(local_port);
 			}
 		});
 	}

@@ -143,7 +143,9 @@ public:
 	port_type get_port() const { return local_port; }
 	const std::string& get_key() const { return key_string; }
 	session_id_type get_session_id() const { return session_id; };
-	rand_num_type get_rand_num_recv() { rand_num_recv++; return rand_num_recv; };
+
+	inline rand_num_type get_rand_num_send() { if (rand_num_send == std::numeric_limits<rand_num_type>::max()) rand_num_send = 0; else rand_num_send++; return rand_num_send; };
+	inline rand_num_type get_rand_num_recv() { if (rand_num_recv == std::numeric_limits<rand_num_type>::max()) rand_num_recv = 0; else rand_num_recv++; return rand_num_recv; };
 
 	friend class pre_session_s;
 	friend class pre_session_c;
@@ -193,6 +195,9 @@ public:
 	virtual void on_leave(user_id_type id) = 0;
 
 	virtual void on_unknown_key(user_id_type id, const std::string& key) = 0;
+
+	virtual bool new_rand_port(port_type &port) = 0;
+	virtual void free_rand_port(port_type port) = 0;
 };
 
 class server
@@ -202,15 +207,13 @@ public:
 		net::io_service& _misc_io_service,
 		server_interface *_inter,
 		net::ip::tcp::endpoint _local_endpoint,
-		port_type _local_port_connect,
-		std::list<port_type> &&_local_ports
+		port_type _local_port_connect
 		)
 		: main_io_service(_main_io_service),
 		misc_io_service(_misc_io_service),
 		acceptor(main_io_service, _local_endpoint),
 		local_port_connect(_local_port_connect),
-		inter(_inter),
-		local_ports(_local_ports)
+		inter(_inter)
 	{
 		std::srand(static_cast<unsigned int>(std::time(NULL)));
 		read_data();
@@ -260,7 +263,6 @@ private:
 	socket_ptr accepting;
 	net::ip::tcp::acceptor acceptor;
 
-	std::list<port_type> local_ports;
 	port_type local_port_connect;
 
 	std::string e0str;
