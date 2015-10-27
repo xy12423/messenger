@@ -30,7 +30,7 @@ void write_config()
 		size = usr.name.size();
 		fout.write(reinterpret_cast<char*>(&size), sizeof(size_t));
 		fout.write(usr.name.data(), size);
-		fout.write(usr.passwd.data(), sha256_size);
+		fout.write(usr.passwd.data(), hash_size);
 		size = static_cast<size_t>(usr.group);
 		fout.write(reinterpret_cast<char*>(&size), sizeof(size_t));
 	});
@@ -47,7 +47,7 @@ void read_config()
 
 	size_t userCount, size;
 	fin.read(reinterpret_cast<char*>(&userCount), sizeof(size_t));
-	char passwd_buf[sha256_size];
+	char passwd_buf[hash_size];
 	for (; userCount > 0; userCount--)
 	{
 		user_log usr;
@@ -56,8 +56,8 @@ void read_config()
 		fin.read(buf, size);
 		usr.name = std::string(buf, size);
 		delete[] buf;
-		fin.read(passwd_buf, sha256_size);
-		usr.passwd = std::string(passwd_buf, sha256_size);
+		fin.read(passwd_buf, hash_size);
+		usr.passwd = std::string(passwd_buf, hash_size);
 		fin.read(reinterpret_cast<char*>(&size), sizeof(size_t));
 		usr.group = static_cast<user_log::group_type>(size);
 		user_logs.emplace(usr.name, usr);
@@ -70,7 +70,7 @@ void read_config()
 	memcpy(reinterpret_cast<char*>(&(x)), dataItr, size_length);	\
 	dataItr += size_length
 
-void cli_server_interface::on_data(id_type id, const std::string &data)
+void cli_server_interface::on_data(user_id_type id, const std::string &data)
 {
 	try
 	{
@@ -117,7 +117,7 @@ void cli_server_interface::on_data(id_type id, const std::string &data)
 							{
 								trim(msg);
 								std::string tmp;
-								calcSHA256(msg, tmp);
+								calcHash(msg, tmp);
 								if (itr->second.passwd == tmp)
 								{
 									broadcast_msg(-1, msg_new_user + usr.name + '(' + usr.addr + ')');
@@ -185,7 +185,7 @@ void cli_server_interface::on_data(id_type id, const std::string &data)
 #undef checkErr
 #undef read_uint
 
-void cli_server_interface::on_join(id_type id)
+void cli_server_interface::on_join(user_id_type id)
 {
 	user_ext_data &ext = user_ext.emplace(id, user_ext_data()).first->second;
 	ext.addr = srv->get_session(id)->get_address();
@@ -201,7 +201,7 @@ void cli_server_interface::on_join(id_type id)
 		broadcast_msg(-1, msg_new_user + ext.addr);
 }
 
-void cli_server_interface::on_leave(id_type id)
+void cli_server_interface::on_leave(user_id_type id)
 {
 	user_ext_list::iterator itr = user_ext.find(id);
 	std::string msg_send(msg_del_user);
@@ -213,7 +213,7 @@ void cli_server_interface::on_leave(id_type id)
 	broadcast_msg(-1, msg_send);
 }
 
-void cli_server_interface::broadcast_msg(id_type src, const std::string &msg)
+void cli_server_interface::broadcast_msg(user_id_type src, const std::string &msg)
 {
 	std::string msg_send;
 	user_ext_data &usr = user_ext[src];
@@ -229,10 +229,10 @@ void cli_server_interface::broadcast_msg(id_type src, const std::string &msg)
 	broadcast_data(src, msg_send, session::priority_msg);
 }
 
-void cli_server_interface::broadcast_data(id_type src, const std::string &data, int priority)
+void cli_server_interface::broadcast_data(user_id_type src, const std::string &data, int priority)
 {
 	std::for_each(user_ext.begin(), user_ext.end(), [src, &data, priority](const std::pair<int, user_ext_data> &p) {
-		id_type target = p.first;
+		user_id_type target = p.first;
 		if (target != src && (mode != CENTER || p.second.current_stage == user_ext_data::LOGGED_IN))
 		{
 			misc_io_service.post([target, data, priority]() {
@@ -275,7 +275,7 @@ void cli_server_interface::process_command(std::string cmd, user_log::group_type
 			}
 			cmd.erase(0, 1);
 			std::string hashed_passwd;
-			calcSHA256(cmd, hashed_passwd);
+			calcHash(cmd, hashed_passwd);
 
 			user_log_list::iterator itr = user_logs.find(section);
 			if (itr == user_logs.end())
@@ -305,7 +305,7 @@ void cli_server_interface::process_command(std::string cmd, user_log::group_type
 	{
 		if (group == user_log::ADMIN)
 		{
-			srv->connect(cmd);
+			srv->connect(cmd,portConnect);
 		}
 	}
 	else if (section == "stop")
@@ -315,6 +315,18 @@ void cli_server_interface::process_command(std::string cmd, user_log::group_type
 			server_on = false;
 		}
 	}
+}
+
+bool cli_server_interface::new_rand_port(port_type &ret)
+{
+	if (ports.empty())
+		return false;
+	std::list<port_type>::iterator portItr = ports.begin();
+	for (int i = std::rand() % ports.size(); i > 0; i--)
+		portItr++;
+	ret = *portItr;
+	ports.erase(portItr);
+	return true;
 }
 
 void print_usage()
@@ -386,7 +398,7 @@ int main(int argc, char *argv[])
 		misc_iosrv_thread.detach();
 
 		user_ext[-1].name = user_ext[-1].addr = "Server";
-		srv = new server(main_io_service, misc_io_service, &inter, net::ip::tcp::endpoint(net::ip::tcp::v4(), portListener));
+		srv = new server(main_io_service, misc_io_service, &inter, net::ip::tcp::endpoint(net::ip::tcp::v4(), portListener), portConnect);
 		std::string command;
 		while (server_on)
 		{

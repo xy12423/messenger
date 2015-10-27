@@ -13,25 +13,6 @@ void insLen(std::string &data)
 	data.insert(0, std::string(reinterpret_cast<const char*>(&len), sizeof(data_length_type)));
 }
 
-//This only find a port in ports list without validating
-int new_port(std::list<int> &ports)
-{
-	if (ports.empty())
-		return -1;
-	std::list<int>::iterator portItr = ports.begin();
-	for (int i = std::rand() % ports.size(); i > 0; i--)
-		portItr++;
-	int port = *portItr;
-	ports.erase(portItr);
-	return port;
-}
-
-//This only insert port to ports list without really free socket
-void free_port(std::list<int> &ports, port_type port)
-{
-	ports.push_back(port);
-}
-
 void server::start()
 {
 	if (closing)
@@ -50,8 +31,8 @@ void server::accept(error_code ec)
 		return;
 	if (!ec)
 	{
-		int port = new_port(ports);
-		if (port == -1)
+		port_type port;
+		if (!inter->new_rand_port(port))
 			std::cerr << "Socket:No port available" << std::endl;
 		else
 		{
@@ -61,10 +42,9 @@ void server::accept(error_code ec)
 			pre_sessions.emplace(pre_session_s_ptr);
 
 			socket_ptr accepted(accepting);
-			port_type port_send = static_cast<port_type>(port);
 			const int send_size = sizeof(port_type);
 			char* send_buf = new char[send_size];
-			memcpy(send_buf, reinterpret_cast<char*>(&port_send), send_size);
+			memcpy(send_buf, reinterpret_cast<char*>(&port), send_size);
 			net::async_write(*accepted,
 				net::buffer(send_buf, send_size),
 				[accepted, send_buf](boost::system::error_code ec, std::size_t length)
@@ -83,7 +63,7 @@ void server::pre_session_over(std::shared_ptr<pre_session> _pre, bool successful
 {
 	if (!successful)
 	{
-		free_port(ports, _pre->get_port());
+		inter->free_rand_port(_pre->get_port());
 		connectedKeys.erase(_pre->get_key());
 	}
 	pre_sessions.erase(_pre);
@@ -114,7 +94,7 @@ void server::leave(user_id_type _user)
 	catch (std::exception ex) { std::cerr << ex.what() << std::endl; }
 	catch (...) {}
 
-	free_port(ports, this_session->get_port());
+	inter->free_rand_port(this_session->get_port());
 	connectedKeys.erase(this_session->get_key());
 	sessions.erase(itr);
 }
@@ -126,23 +106,30 @@ void server::on_data(user_id_type id, std::shared_ptr<std::string> data)
 		std::string decrypted_data;
 		decrypt(*data, decrypted_data);
 		
-		std::string sha256_recv(decrypted_data, 0, sha256_size), sha256_real;
-		calcSHA256(decrypted_data, sha256_real, sha256_size);
-		if (sha256_real != sha256_recv)
+		std::string hash_recv(decrypted_data, 0, hash_size), hash_real;
+		calcHash(decrypted_data, hash_real, hash_size);
+		if (hash_real != hash_recv)
 		{
 			std::cerr << "Error:Hashing failed" << std::endl;
 			leave(id);
 			return;
 		}
 
-		session_id_type sid = this_session->get_session_id();
-		if (*reinterpret_cast<const session_id_type*>(decrypted_data.data() + sha256_size) != boost::endian::little_to_native<session_id_type>(sid))
+		if (*reinterpret_cast<const session_id_type*>(decrypted_data.data() + hash_size) != this_session->get_session_id())
 		{
 			std::cerr << "Error:Checking failed" << std::endl;
 			leave(id);
 			return;
 		}
-		decrypted_data.erase(0, sizeof(session_id_type) + sha256_size);
+
+		rand_num_type rand_num = boost::endian::native_to_little<rand_num_type>(this_session->get_rand_num_recv());
+		if (*reinterpret_cast<const rand_num_type*>(decrypted_data.data() + hash_size + sizeof(session_id_type)) != rand_num)
+		{
+			std::cerr << "Error:Checking failed" << std::endl;
+			leave(id);
+			return;
+		}
+		decrypted_data.erase(0, hash_size + sizeof(session_id_type) + sizeof(rand_num_type));
 
 		try { inter->on_data(id, decrypted_data); }
 		catch (std::exception ex) { std::cerr << ex.what() << std::endl; }
@@ -170,25 +157,25 @@ bool server::send_data(user_id_type id, const std::string& data, int priority, s
 	return true;
 }
 
-void server::connect(const std::string &addr_str)
+void server::connect(const std::string &addr_str, port_type remote_port)
 {
-	connect(net::ip::address::from_string(addr_str));
+	connect(net::ip::address::from_string(addr_str), remote_port);
 }
 
-void server::connect(unsigned long addr_ulong)
+void server::connect(unsigned long addr_ulong, port_type remote_port)
 {
-	connect(net::ip::address_v4(addr_ulong));
+	connect(net::ip::address_v4(addr_ulong), remote_port);
 }
 
-void server::connect(const net::ip::address &addr)
+void server::connect(const net::ip::address &addr, port_type remote_port)
 {
-	int local_port = new_port(ports);
-	if (local_port == -1)
+	port_type local_port;
+	if (!inter->new_rand_port(local_port))
 		std::cerr << "Socket:No port available" << std::endl;
 	else
 	{
 		socket_ptr new_socket(std::make_shared<net::ip::tcp::socket>(main_io_service));
-		net::ip::tcp::endpoint local_endpoint(net::ip::tcp::v4(), port_connect), remote_endpoint(addr, port_listen);
+		net::ip::tcp::endpoint local_endpoint(net::ip::tcp::v4(), local_port_connect), remote_endpoint(addr, remote_port);
 
 		new_socket->open(net::ip::tcp::v4());
 		new_socket->bind(local_endpoint);
@@ -216,7 +203,7 @@ void server::connect(const net::ip::address &addr)
 					else
 					{
 						std::cerr << "Socket Error:" << ec.message() << std::endl;
-						free_port(ports, local_port);
+						inter->free_rand_port(local_port);
 					}
 					delete[] remote_port_buf;
 				});
@@ -224,7 +211,7 @@ void server::connect(const net::ip::address &addr)
 			else
 			{
 				std::cerr << "Socket Error:" << ec.message() << std::endl;
-				free_port(ports, local_port);
+				inter->free_rand_port(local_port);
 			}
 		});
 	}

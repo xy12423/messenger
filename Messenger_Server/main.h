@@ -5,6 +5,8 @@
 
 enum modes{ RELAY, CENTER };
 
+const port_type portListener = 4826, portConnect = 4827;
+
 struct user_log
 {
 	enum group_type{ GUEST, USER, ADMIN };
@@ -37,16 +39,21 @@ typedef std::unordered_map<int, user_ext_data> user_ext_list;
 class cli_server_interface :public server_interface
 {
 public:
-	virtual void on_data(id_type id, const std::string &data);
+	virtual void on_data(user_id_type id, const std::string &data);
 
-	virtual void on_join(id_type id);
-	virtual void on_leave(id_type id);
+	virtual void on_join(user_id_type id);
+	virtual void on_leave(user_id_type id);
 
-	virtual void on_unknown_key(id_type id, const std::string& key) {};
+	virtual void on_unknown_key(user_id_type id, const std::string& key) {};
 
-	void broadcast_msg(id_type id, const std::string &msg);
-	void broadcast_data(id_type id, const std::string &data, int priority);
+	virtual bool new_rand_port(port_type &port);
+	virtual void free_rand_port(port_type port) { ports.push_back(port); };
+
+	void broadcast_msg(user_id_type id, const std::string &msg);
+	void broadcast_data(user_id_type id, const std::string &data, int priority);
 	void process_command(std::string cmd, user_log::group_type type);
+private:
+	std::list<port_type> ports;
 };
 
 #endif

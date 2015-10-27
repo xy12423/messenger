@@ -84,9 +84,9 @@ void pre_session::read_session_id_body(int check_level)
 				std::string raw_data(sid_packet_buffer.get(), sid_packet_length), data;
 				decrypt(raw_data, data);
 
-				std::string sha256_recv(data, 0, sha256_size), sha256_real;
-				calcSHA256(data, sha256_real, sha256_size);
-				if (sha256_recv != sha256_real)
+				std::string hash_recv(data, 0, hash_size), hash_real;
+				calcHash(data, hash_real, hash_size);
+				if (hash_recv != hash_real)
 				{
 					std::cerr << "Error:Hashing failed" << std::endl;
 					main_io_service.post([this]() {
@@ -96,7 +96,7 @@ void pre_session::read_session_id_body(int check_level)
 				}
 				else
 				{
-					data.erase(0, sha256_size);
+					data.erase(0, hash_size);
 					try
 					{
 						switch (check_level)
@@ -105,6 +105,7 @@ void pre_session::read_session_id_body(int check_level)
 							{
 								memcpy(reinterpret_cast<char*>(&session_id), data.data(), sizeof(session_id_type));
 								memcpy(reinterpret_cast<char*>(&rand_num), data.data() + sizeof(session_id_type), sizeof(rand_num_type));
+								rand_num = boost::endian::native_to_little<rand_num_type>(boost::endian::little_to_native<rand_num_type>(rand_num) + 1);
 								break;
 							}
 							case 1:	//Check sid
@@ -121,6 +122,7 @@ void pre_session::read_session_id_body(int check_level)
 									throw(0);
 								}
 								memcpy(reinterpret_cast<char*>(&rand_num), data.data() + sizeof(session_id_type), sizeof(rand_num_type));
+								rand_num = boost::endian::native_to_little<rand_num_type>(boost::endian::little_to_native<rand_num_type>(rand_num) + 1);
 								break;
 							}
 							case 2:	//Check all
@@ -130,7 +132,7 @@ void pre_session::read_session_id_body(int check_level)
 								memcpy(reinterpret_cast<char*>(&recv_session_id), data.data(), sizeof(session_id_type));
 								memcpy(reinterpret_cast<char*>(&recv_rand_num), data.data() + sizeof(session_id_type), sizeof(rand_num_type));
 
-								if ((recv_session_id != session_id) || (recv_rand_num != rand_num))
+								if ((recv_session_id != session_id) || (recv_rand_num != rand_num + 1))
 								{
 									std::cerr << "Error:Checking failed" << std::endl;
 									main_io_service.post([this]() {
@@ -162,13 +164,13 @@ void pre_session::read_session_id_body(int check_level)
 void pre_session::write_session_id()
 {
 	misc_io_service.post([this]() {
-		std::string data_encrypted, data_raw, sha256_buf;
+		std::string data_encrypted, data_raw, hash_buf;
 
-		sha256_buf.append(reinterpret_cast<char*>(&session_id), sizeof(session_id_type));
-		sha256_buf.append(reinterpret_cast<char*>(&rand_num), sizeof(rand_num_type));
+		hash_buf.append(reinterpret_cast<char*>(&session_id), sizeof(session_id_type));
+		hash_buf.append(reinterpret_cast<char*>(&rand_num), sizeof(rand_num_type));
 
-		calcSHA256(sha256_buf, data_raw);
-		data_raw.append(sha256_buf);
+		calcHash(hash_buf, data_raw);
+		data_raw.append(hash_buf);
 
 		encrypt(data_raw, data_encrypted, e1);
 		insLen(data_encrypted);
@@ -238,7 +240,12 @@ void pre_session_s::stage2()
 		e1.AccessPublicKey().Load(keySource);
 
 		session_id = boost::endian::native_to_little<rand_num_type>(genRandomNumber());
-		rand_num = boost::endian::native_to_little<rand_num_type>(genRandomNumber());
+		rand_num_send = genRandomNumber();
+		rand_num = boost::endian::native_to_little<rand_num_type>(rand_num_send);
+		if (rand_num_send == std::numeric_limits<rand_num_type>::max())
+			rand_num_send = 0;
+		else
+			rand_num_send++;
 		stage = 0;
 		write_session_id();
 	}
@@ -263,11 +270,13 @@ void pre_session_s::sid_packet_done()
 				read_session_id(1);
 				break;
 			case 2:
+				rand_num_recv = boost::endian::little_to_native<rand_num_type>(rand_num);
 				write_session_id();
 				break;
 			case 3:
 			{
-				session_ptr new_user(std::make_shared<session>(srv, local_port, main_io_service, std::move(socket), key_string, session_id));
+				session_ptr new_user(std::make_shared<session>(srv, local_port, main_io_service, misc_io_service, std::move(socket), key_string,
+					session_id, rand_num_send, rand_num_recv));
 
 				new_user->id = srv->join(new_user);
 				srv->check_key(new_user->id, key_string);
@@ -360,10 +369,16 @@ void pre_session_c::sid_packet_done()
 		switch (stage)
 		{
 			case 0:
+				rand_num_recv = boost::endian::little_to_native<rand_num_type>(rand_num);
 				write_session_id();
 				break;
 			case 1:
-				rand_num = boost::endian::native_to_little<rand_num_type>(genRandomNumber());
+				rand_num_send = genRandomNumber();
+				rand_num = boost::endian::native_to_little<rand_num_type>(rand_num_send);
+				if (rand_num_send == std::numeric_limits<rand_num_type>::max())
+					rand_num_send = 0;
+				else
+					rand_num_send++;
 				write_session_id();
 				break;
 			case 2:
@@ -371,7 +386,8 @@ void pre_session_c::sid_packet_done()
 				break;
 			case 3:
 			{
-				session_ptr new_user(std::make_shared<session>(srv, local_port, main_io_service, std::move(socket), key_string, session_id));
+				session_ptr new_user(std::make_shared<session>(srv, local_port, main_io_service, misc_io_service, std::move(socket), key_string,
+					session_id, rand_num_send, rand_num_recv));
 
 				new_user->id = srv->join(new_user);
 				srv->check_key(new_user->id, key_string);
@@ -409,17 +425,9 @@ void session::send(const std::string& data, int priority, write_callback &&callb
 	if (data.empty())
 		return;
 	
-	//data_buf:data with sid only; write_raw:data with SHA and sid; write_data:encrypted data, ready for sending
-	std::string data_buf(session_id_in_byte), write_raw, write_data;
-	data_buf.append(data);
-	calcSHA256(data_buf, write_raw);
-	write_raw.append(data_buf);
-	encrypt(write_raw, write_data, e1);
-	insLen(write_data);
+	write_task new_task(data, priority, std::move(callback));
 
-	write_task new_task(write_data, priority, std::move(callback));
-
-	io_service.post([new_task, priority, this]() {
+	main_iosrv.post([new_task, priority, this]() {
 		bool write_not_in_progress = write_que.empty();
 
 		write_que_tp::iterator itr = write_que.begin(), itrEnd = write_que.end();
@@ -549,23 +557,39 @@ void session::write()
 		if (write_itr == write_que_end)
 			return;
 	}
+	rand_num_type rand_num = boost::endian::native_to_little<rand_num_type>(get_rand_num_send());
 
-	net::async_write(*socket,
-		net::buffer(write_itr->data),
-		[this, write_itr](boost::system::error_code ec, std::size_t /*length*/)
-	{
-		if (!ec)
+	misc_iosrv.post([this, write_itr, rand_num]() {
+		//data_buf:data with sid and sn; write_raw:data_buf with Hash; write_data:encrypted data, ready for sending
+		std::string data_buf, write_raw, write_data;
+		data_buf.reserve(sizeof(session_id_type) + sizeof(rand_num_type) + write_itr->data.size());
+		data_buf.append(reinterpret_cast<char*>(&session_id), sizeof(session_id_type));
+		data_buf.append(reinterpret_cast<const char*>(&rand_num), sizeof(rand_num_type));
+		data_buf.append(write_itr->data);
+		
+		calcHash(data_buf, write_raw);
+		write_raw.append(data_buf);
+		encrypt(write_raw, write_data, e1);
+		insLen(write_data);
+		write_itr->data = std::move(write_data);
+
+		net::async_write(*socket,
+			net::buffer(write_itr->data),
+			[this, write_itr](boost::system::error_code ec, std::size_t /*length*/)
 		{
-			write_itr->callback();
-			write_que.erase(write_itr);
-			if (!write_que.empty())
-				write();
-		}
-		else
-		{
-			std::cerr << "Socket Error:" << ec.message() << std::endl;
-			if (!exiting)
-				srv->leave(id);
-		}
+			if (!ec)
+			{
+				write_itr->callback();
+				write_que.erase(write_itr);
+				if (!write_que.empty())
+					write();
+			}
+			else
+			{
+				std::cerr << "Socket Error:" << ec.message() << std::endl;
+				if (!exiting)
+					srv->leave(id);
+			}
+		});
 	});
 }

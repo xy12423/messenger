@@ -9,7 +9,7 @@ typedef uint32_t data_length_type;
 typedef uint16_t port_type;
 
 typedef int user_id_type;
-typedef uint32_t session_id_type;
+typedef uint64_t session_id_type;
 
 typedef std::shared_ptr<net::ip::tcp::socket> socket_ptr;
 
@@ -58,6 +58,7 @@ protected:
 	CryptoPP::ECIES<CryptoPP::ECP>::Encryptor e1;
 	session_id_type session_id;
 	rand_num_type rand_num;
+	rand_num_type rand_num_send, rand_num_recv;
 
 	net::io_service &main_io_service, &misc_io_service;
 	socket_ptr socket;
@@ -111,12 +112,14 @@ public:
 
 	typedef std::function<void()> write_callback;
 
-	session(server *_srv, port_type _local_port, net::io_service& _iosrv, socket_ptr &&_socket, const std::string &_key_string, session_id_type _session_id)
-		:io_service(_iosrv), socket(_socket), key_string(_key_string), session_id_in_byte(reinterpret_cast<char*>(&_session_id), sizeof(session_id_type))
+	session(server *_srv, port_type _local_port,
+		net::io_service& _main_iosrv, net::io_service& _misc_iosrv,
+		socket_ptr &&_socket,
+		const std::string &_key_string,
+		session_id_type _session_id, rand_num_type _rand_num_send, rand_num_type _rand_num_recv)
+		:srv(_srv), local_port(_local_port), main_iosrv(_main_iosrv), misc_iosrv(_misc_iosrv), socket(_socket), key_string(_key_string),
+		session_id(_session_id), rand_num_send(_rand_num_send), rand_num_recv(_rand_num_recv)
 	{
-		srv = _srv;
-		local_port = _local_port;
-		session_id = _session_id;
 		read_msg_buffer = std::make_unique<char[]>(msg_buffer_size);
 
 		CryptoPP::StringSource keySource(key_string, true);
@@ -141,6 +144,9 @@ public:
 	const std::string& get_key() const { return key_string; }
 	session_id_type get_session_id() const { return session_id; };
 
+	inline rand_num_type get_rand_num_send() { if (rand_num_send == std::numeric_limits<rand_num_type>::max()) rand_num_send = 0; else rand_num_send++; return rand_num_send; };
+	inline rand_num_type get_rand_num_recv() { if (rand_num_recv == std::numeric_limits<rand_num_type>::max()) rand_num_recv = 0; else rand_num_recv++; return rand_num_recv; };
+
 	friend class pre_session_s;
 	friend class pre_session_c;
 private:
@@ -148,14 +154,14 @@ private:
 	void read_data(size_t sizeLast, std::shared_ptr<std::string> buf);
 	void write();
 
-	net::io_service &io_service;
+	net::io_service &main_iosrv, &misc_iosrv;
 	socket_ptr socket;
 
 	std::string key_string;
 	CryptoPP::ECIES<CryptoPP::ECP>::Encryptor e1;
 
 	session_id_type session_id;
-	std::string session_id_in_byte;
+	rand_num_type rand_num_send, rand_num_recv;
 
 	user_id_type id;
 
@@ -189,6 +195,9 @@ public:
 	virtual void on_leave(user_id_type id) = 0;
 
 	virtual void on_unknown_key(user_id_type id, const std::string& key) = 0;
+
+	virtual bool new_rand_port(port_type &port) = 0;
+	virtual void free_rand_port(port_type port) = 0;
 };
 
 class server
@@ -197,18 +206,15 @@ public:
 	server(net::io_service& _main_io_service,
 		net::io_service& _misc_io_service,
 		server_interface *_inter,
-		port_type _port_listen,
-		port_type _port_connect
+		net::ip::tcp::endpoint _local_endpoint,
+		port_type _local_port_connect
 		)
 		: main_io_service(_main_io_service),
 		misc_io_service(_misc_io_service),
-		acceptor(main_io_service, net::ip::tcp::endpoint(net::ip::tcp::v4(), _port_listen))
+		acceptor(main_io_service, _local_endpoint),
+		local_port_connect(_local_port_connect),
+		inter(_inter)
 	{
-		port_listen = _port_listen;
-		port_connect = _port_connect;
-		inter = _inter;
-		for (int i = 5001; i <= 10000; i++)
-			ports.push_back(i);
 		std::srand(static_cast<unsigned int>(std::time(NULL)));
 		read_data();
 		start();
@@ -234,8 +240,8 @@ public:
 	user_id_type join(const session_ptr &_user);
 	void leave(user_id_type id);
 
-	void connect(const std::string &addr);
-	void connect(unsigned long addr);
+	void connect(const std::string &addr, port_type remote_port);
+	void connect(unsigned long addr, port_type remote_port);
 	void disconnect(user_id_type id);
 
 	const session_ptr& get_session(user_id_type id) const { return sessions.at(id); }
@@ -248,7 +254,7 @@ private:
 	void start();
 	void accept(boost::system::error_code ec);
 
-	void connect(const net::ip::address& addr);
+	void connect(const net::ip::address& addr, port_type remote_port);
 
 	void read_data();
 	void write_data();
@@ -257,8 +263,7 @@ private:
 	socket_ptr accepting;
 	net::ip::tcp::acceptor acceptor;
 
-	std::list<int> ports;
-	port_type port_connect, port_listen;
+	port_type local_port_connect;
 
 	std::string e0str;
 	std::unordered_set<std::string> certifiedKeys;
