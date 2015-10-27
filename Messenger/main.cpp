@@ -4,6 +4,7 @@
 #include "threads.h"
 #include "plugin.h"
 #include "main.h"
+#include "frmAddrInput.h"
 
 const port_type portListener = 4826, portConnect = 4827;
 
@@ -158,7 +159,7 @@ void wx_srv_interface::on_data(user_id_type id, const std::string &data)
 			}
 		}
 	}
-	catch (std::exception ex)
+	catch (std::exception &ex)
 	{
 		std::cerr << ex.what() << std::endl;
 	}
@@ -387,15 +388,12 @@ void mainFrame::buttonAdd_Click(wxCommandEvent& event)
 {
 	try
 	{
-		wxTextEntryDialog inputDlg(this, wxT("Please input address"));
-		inputDlg.ShowModal();
-		wxString addrStr = inputDlg.GetValue();
-		if (addrStr != wxEmptyString)
-		{
-			srv->connect(addrStr.ToStdString(), portListener);
-		}
+		frmAddrInput inputDlg(wxT("Please input address"), portConnect);
+		if (inputDlg.ShowModal() != wxID_OK || inputDlg.CheckInput() == false)
+			return;
+		srv->connect(inputDlg.GetAddress().ToStdString(), inputDlg.GetPort());
 	}
-	catch (std::exception ex)
+	catch (std::exception &ex)
 	{
 		textInfo->AppendText(ex.what() + std::string("\n"));
 	}
@@ -530,7 +528,7 @@ void mainFrame::mainFrame_Close(wxCloseEvent& event)
 
 		inter.set_frame(nullptr);
 	}
-	catch (std::exception ex)
+	catch (std::exception &ex)
 	{
 		wxMessageBox(ex.what(), wxT("Error"), wxOK | wxICON_ERROR);
 	}
@@ -564,7 +562,7 @@ bool MyApp::OnInit()
 		form->Show();
 		inter.set_frame(form);
 	}
-	catch (std::exception ex)
+	catch (std::exception &ex)
 	{
 		wxMessageBox(ex.what(), wxT("Error"), wxOK | wxICON_ERROR);
 		return false;

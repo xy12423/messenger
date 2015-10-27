@@ -17,7 +17,7 @@ iosrvThread::ExitCode iosrvThread::Entry()
 		{
 			iosrv.run();
 		}
-		catch (std::exception ex) { std::cerr << ex.what() << std::endl; }
+		catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
 		catch (...) {}
 	}
 	return NULL;
@@ -110,7 +110,7 @@ fileSendThread::ExitCode fileSendThread::Entry()
 		{
 			iosrv.run();
 		}
-		catch (std::exception ex) { std::cerr << ex.what() << std::endl; }
+		catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
 		catch (...) {}
 	}
 	return NULL;

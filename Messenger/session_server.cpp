@@ -13,25 +13,6 @@ void insLen(std::string &data)
 	data.insert(0, std::string(reinterpret_cast<const char*>(&len), sizeof(data_length_type)));
 }
 
-//This only find a port in ports list without validating
-int new_port(std::list<port_type> &ports)
-{
-	if (ports.empty())
-		return -1;
-	std::list<port_type>::iterator portItr = ports.begin();
-	for (int i = std::rand() % ports.size(); i > 0; i--)
-		portItr++;
-	int port = *portItr;
-	ports.erase(portItr);
-	return port;
-}
-
-//This only insert port to ports list without really free socket
-void free_port(std::list<port_type> &ports, port_type port)
-{
-	ports.push_back(port);
-}
-
 void server::start()
 {
 	if (closing)
@@ -95,7 +76,7 @@ user_id_type server::join(const session_ptr &_user)
 	sessions.emplace(newID, _user);
 
 	try{ inter->on_join(newID); }
-	catch (std::exception ex) { std::cerr << ex.what() << std::endl; }
+	catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
 	catch (...) {}
 
 	return newID;
@@ -110,7 +91,7 @@ void server::leave(user_id_type _user)
 	this_session->shutdown();
 
 	try { inter->on_leave(_user); }
-	catch (std::exception ex) { std::cerr << ex.what() << std::endl; }
+	catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
 	catch (...) {}
 
 	inter->free_rand_port(this_session->get_port());
@@ -151,7 +132,7 @@ void server::on_data(user_id_type id, std::shared_ptr<std::string> data)
 		decrypted_data.erase(0, hash_size + sizeof(session_id_type) + sizeof(rand_num_type));
 
 		try { inter->on_data(id, decrypted_data); }
-		catch (std::exception ex) { std::cerr << ex.what() << std::endl; }
+		catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
 		catch (...) {}
 	});
 }

@@ -249,7 +249,7 @@ void pre_session_s::stage2()
 		stage = 0;
 		write_session_id();
 	}
-	catch (std::exception ex)
+	catch (std::exception &ex)
 	{
 		std::cerr << ex.what() << std::endl;
 		if (!exiting)
@@ -294,7 +294,7 @@ void pre_session_s::sid_packet_done()
 		}
 		stage++;
 	}
-	catch (std::exception ex)
+	catch (std::exception &ex)
 	{
 		std::cerr << ex.what() << std::endl;
 		main_io_service.post([this]() {
@@ -323,7 +323,7 @@ void pre_session_c::start()
 			}
 		});
 	}
-	catch (std::exception ex)
+	catch (std::exception &ex)
 	{
 		std::cerr << ex.what() << std::endl;
 		if (!exiting)
@@ -354,7 +354,7 @@ void pre_session_c::stage2()
 			}
 		});
 	}
-	catch (std::exception ex)
+	catch (std::exception &ex)
 	{
 		std::cerr << ex.what() << std::endl;
 		if (!exiting)
@@ -405,7 +405,7 @@ void pre_session_c::sid_packet_done()
 		}
 		stage++;
 	}
-	catch (std::exception ex)
+	catch (std::exception &ex)
 	{
 		std::cerr << ex.what() << std::endl;
 		main_io_service.post([this]() {
@@ -485,7 +485,7 @@ void session::read_header()
 			}
 		});
 	}
-	catch (std::exception ex)
+	catch (std::exception &ex)
 	{
 		std::cerr << ex.what() << std::endl;
 		if (!exiting)
@@ -539,7 +539,7 @@ void session::read_data(size_t size_last, std::shared_ptr<std::string> buf)
 			});
 		}
 	}
-	catch (std::exception ex)
+	catch (std::exception &ex)
 	{
 		std::cerr << ex.what() << std::endl;
 		if (!exiting)
