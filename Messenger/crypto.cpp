@@ -27,10 +27,8 @@ void initKey()
 		d0.AccessKey() = privateKey;
 }
 
-std::mutex enc_mutex;
-void encrypt(const std::string &str, std::string &ret, ECIES<ECP>::Encryptor &e1)
+void encrypt(const std::string &str, std::string &ret, const ECIES<ECP>::Encryptor &e1)
 {
-	std::unique_lock<std::mutex> lck(enc_mutex);
 	ret.clear();
 	StringSource ss1(str, true, new PK_EncryptorFilter(prng, e1, new StringSink(ret)));
 }
@@ -51,16 +49,34 @@ std::string getPublicKey()
 	return ret;
 }
 
-void calcSHA256(const std::string &msg, std::string &ret, size_t input_shift)
+std::string getUserIDGlobal()
 {
-	CryptoPP::SHA256 sha256;
-	char result[sha256_size];
+	std::string ret;
+	StringSinkTemplate<std::string> buf(ret);
+	ECIES<ECP>::Encryptor e0(d0);
+
+	DL_PublicKey_EC<ECP>& key = dynamic_cast<DL_PublicKey_EC<ECP>&>(e0.AccessPublicKey());
+	assert(&key != nullptr);
+
+	key.DEREncodePublicKey(buf);
+	assert(ret.front() == 4);
+	ret.erase(0, 1);
+
+	return ret;
+}
+
+void calcHash(const std::string &msg, std::string &ret, size_t input_shift)
+{
+	CryptoPP::SHA512 hasher;
+	char result[hash_size];
 	memset(result, 0, sizeof(result));
-	sha256.CalculateDigest(reinterpret_cast<byte*>(result), reinterpret_cast<const byte*>(msg.data() + input_shift), msg.size() - input_shift);
-	ret.append(result, sha256_size);
+	hasher.CalculateDigest(reinterpret_cast<byte*>(result), reinterpret_cast<const byte*>(msg.data() + input_shift), msg.size() - input_shift);
+	ret.append(result, hash_size);
 }
 
 rand_num_type genRandomNumber()
 {
-	return prng.GenerateWord32();
+	byte t[sizeof(rand_num_type)];
+	prng.GenerateBlock(t, sizeof(rand_num_type));
+	return *reinterpret_cast<rand_num_type*>(t);
 }

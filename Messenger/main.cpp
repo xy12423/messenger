@@ -1,9 +1,12 @@
 #include "stdafx.h"
-#include "global.h"
 #include "crypto.h"
 #include "session.h"
 #include "threads.h"
+#include "plugin.h"
 #include "main.h"
+#include "frmAddrInput.h"
+
+const port_type portListener = 4826, portConnect = 4827;
 
 wxBEGIN_EVENT_TABLE(mainFrame, wxFrame)
 
@@ -35,7 +38,7 @@ wxEND_EVENT_TABLE()
 fileSendThread *threadFileSend;
 
 server* srv;
-std::unordered_map<int, user_ext_data> user_ext;
+std::unordered_map<user_id_type, user_ext_data> user_ext;
 wx_srv_interface inter;
 net::io_service main_io_service, misc_io_service;
 iosrvThread *threadNetwork, *threadMisc;
@@ -46,7 +49,7 @@ iosrvThread *threadNetwork, *threadMisc;
 	memcpy(reinterpret_cast<char*>(&(x)), dataItr, sizeof_data_length);	\
 	dataItr += sizeof_data_length
 
-void wx_srv_interface::on_data(id_type id, const std::string &data)
+void wx_srv_interface::on_data(user_id_type id, const std::string &data)
 {
 	try
 	{
@@ -148,9 +151,15 @@ void wx_srv_interface::on_data(id_type id, const std::string &data)
 
 				break;
 			}
+			default:
+			{
+				if ((type & 0x80) != 0)
+					plugin_on_data(id, type, dataItr, dataEnd);
+				break;
+			}
 		}
 	}
-	catch (std::exception ex)
+	catch (std::exception &ex)
 	{
 		std::cerr << ex.what() << std::endl;
 	}
@@ -166,7 +175,7 @@ void wx_srv_interface::on_data(id_type id, const std::string &data)
 #undef checkErr
 #undef read_uint
 
-void wx_srv_interface::on_join(id_type id)
+void wx_srv_interface::on_join(user_id_type id)
 {
 	if (frm == nullptr)
 		return;
@@ -180,7 +189,7 @@ void wx_srv_interface::on_join(id_type id)
 	frm->userIDs.push_back(id);
 }
 
-void wx_srv_interface::on_leave(id_type id)
+void wx_srv_interface::on_leave(user_id_type id)
 {
 	if (frm == nullptr)
 		return;
@@ -194,7 +203,7 @@ void wx_srv_interface::on_leave(id_type id)
 	user_ext.erase(id);
 }
 
-void wx_srv_interface::on_unknown_key(id_type id, const std::string& key)
+void wx_srv_interface::on_unknown_key(user_id_type id, const std::string& key)
 {
 	if (frm == nullptr)
 		return;
@@ -203,6 +212,54 @@ void wx_srv_interface::on_unknown_key(id_type id, const std::string& key)
 	newEvent->SetInt(id);
 	newEvent->SetPayload<std::string>(key);
 	wxQueueEvent(frm, newEvent);
+}
+
+bool wx_srv_interface::new_rand_port(port_type &ret)
+{
+	if (ports.empty())
+		return false;
+	std::list<port_type>::iterator portItr = ports.begin();
+	for (int i = std::rand() % ports.size(); i > 0; i--)
+		portItr++;
+	ret = *portItr;
+	ports.erase(portItr);
+	return true;
+}
+
+void plugin_SendDataHandler(int to, const char* data, size_t size)
+{
+	std::string data_str(data, size);
+	if (to == -1)
+	{
+		std::for_each(user_ext.begin(), user_ext.end(), [&data_str](const std::pair<user_id_type, user_ext_data> &p) {
+			user_id_type id = p.first;
+			misc_io_service.post([id, data_str]() {
+				srv->send_data(id, data_str, session::priority_plugin);
+			});
+		});
+	}
+	else
+	{
+		misc_io_service.post([to, data_str]() {
+			srv->send_data(to, data_str, session::priority_plugin);
+		});
+	}
+}
+
+void plugin_ConnectToHandler(uint32_t addr, uint16_t port)
+{
+	srv->connect(addr, port);
+}
+
+std::string uid_global;
+const char* plugin_api_GetUserID()
+{
+	return uid_global.c_str();
+}
+
+void plugin_api_Print(const char* msg)
+{
+	std::cout << "Plugin:" << msg << std::endl;
 }
 
 mainFrame::mainFrame(const wxString& title)
@@ -297,6 +354,25 @@ mainFrame::mainFrame(const wxString& title)
 	std::cout.rdbuf(textStrm);
 	cerr_orig = std::cerr.rdbuf();
 	std::cerr.rdbuf(textStrm);
+
+	if (fs::exists(plugin_file_name))
+	{
+		uid_global.assign(getUserIDGlobal());
+		set_method("GetUserID", reinterpret_cast<void*>(plugin_api_GetUserID));
+		set_method("Print", reinterpret_cast<void*>(plugin_api_Print));
+
+		std::ifstream fin(plugin_file_name);
+		std::string plugin_name_utf8;
+		while (!fin.eof())
+		{
+			std::getline(fin, plugin_name_utf8);
+			if (!plugin_name_utf8.empty())
+			{
+				std::wstring plugin_name(wxConvUTF8.cMB2WC(plugin_name_utf8.c_str()));
+				load_plugin(plugin_name);
+			}
+		}
+	}
 }
 
 void mainFrame::listUser_SelectedIndexChanged(wxCommandEvent& event)
@@ -312,15 +388,12 @@ void mainFrame::buttonAdd_Click(wxCommandEvent& event)
 {
 	try
 	{
-		wxTextEntryDialog inputDlg(this, wxT("Please input address"));
-		inputDlg.ShowModal();
-		wxString addrStr = inputDlg.GetValue();
-		if (addrStr != wxEmptyString)
-		{
-			srv->connect(addrStr.ToStdString());
-		}
+		frmAddrInput inputDlg(wxT("Please input address"), portConnect);
+		if (inputDlg.ShowModal() != wxID_OK || inputDlg.CheckInput() == false)
+			return;
+		srv->connect(inputDlg.GetAddress().ToStdString(), inputDlg.GetPort());
 	}
-	catch (std::exception ex)
+	catch (std::exception &ex)
 	{
 		textInfo->AppendText(ex.what() + std::string("\n"));
 	}
@@ -395,7 +468,7 @@ void mainFrame::buttonImportKey_Click(wxCommandEvent& event)
 {
 	wxFileDialog fileDlg(this);
 	fileDlg.ShowModal();
-	std::wstring path = fileDlg.GetPath().ToStdWstring();
+	std::string path = fileDlg.GetPath().ToStdString();
 	if ((!path.empty()) && fs::exists(path))
 	{
 		size_t pubCount = 0, keyLen = 0;
@@ -416,7 +489,7 @@ void mainFrame::buttonExportKey_Click(wxCommandEvent& event)
 {
 	wxFileDialog fileDlg(this);
 	fileDlg.ShowModal();
-	std::wstring path = fileDlg.GetPath().ToStdWstring();
+	std::string path = fileDlg.GetPath().ToStdString();
 	if (!path.empty())
 	{
 		std::ofstream publicOut(path, std::ios_base::out | std::ios_base::binary);
@@ -434,7 +507,7 @@ void mainFrame::buttonExportKey_Click(wxCommandEvent& event)
 
 void mainFrame::thread_Message(wxThreadEvent& event)
 {
-	id_type id = event.GetInt();
+	user_id_type id = event.GetInt();
 	int answer = wxMessageBox(wxT("The public key from " + user_ext.at(id).addr + " hasn't shown before.Trust it?"), wxT("Confirm"), wxYES_NO);
 	if (answer != wxYES)
 		srv->disconnect(id);
@@ -455,7 +528,7 @@ void mainFrame::mainFrame_Close(wxCloseEvent& event)
 
 		inter.set_frame(nullptr);
 	}
-	catch (std::exception ex)
+	catch (std::exception &ex)
 	{
 		wxMessageBox(ex.what(), wxT("Error"), wxOK | wxICON_ERROR);
 	}
@@ -480,13 +553,16 @@ bool MyApp::OnInit()
 			delete threadMisc;
 			throw(std::runtime_error("Can't create iosrvThread"));
 		}
-		srv = new server(main_io_service, misc_io_service, &inter, net::ip::tcp::endpoint(net::ip::tcp::v4(), portListener));
+		
+		for (int i = 5001; i <= 10000; i++)
+			inter.free_rand_port(i);
+		srv = new server(main_io_service, misc_io_service, &inter, net::ip::tcp::endpoint(net::ip::tcp::v4(), portListener), portConnect);
 
 		form = new mainFrame(wxT("Messenger"));
 		form->Show();
 		inter.set_frame(form);
 	}
-	catch (std::exception ex)
+	catch (std::exception &ex)
 	{
 		wxMessageBox(ex.what(), wxT("Error"), wxOK | wxICON_ERROR);
 		return false;

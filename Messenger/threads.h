@@ -19,8 +19,8 @@ protected:
 struct fileSendTask
 {
 	fileSendTask() { uID = -1; }
-	fileSendTask(int _uID, const fs::path &path):
-		fileName(path.wstring()),
+	fileSendTask(int _uID, const fs::path &path)
+		:fileName(path.wstring()),
 		fin(path.string(), std::ios_base::in | std::ios_base::binary)
 	{
 		uID = _uID;
@@ -47,9 +47,25 @@ protected:
 	ExitCode Entry();
 private:
 	std::list<fileSendTask> tasks;
+	
+	const int fileBlockLen = 0x80000;
+	std::unique_ptr<char[]> block = std::make_unique<char[]>(fileBlockLen);
 
 	net::io_service iosrv;
 	std::shared_ptr<net::io_service::work> iosrv_work;
 };
+
+struct user_ext_data
+{
+	std::wstring addr;
+	wxString log;
+
+	std::string recvFile;
+	int blockLast;
+};
+
+static const uint8_t pac_type_msg = 0x00;
+static const uint8_t pac_type_file_h = 0x01;
+static const uint8_t pac_type_file_b = 0x02;
 
 #endif

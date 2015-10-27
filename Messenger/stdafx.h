@@ -1,14 +1,17 @@
 #pragma once
 
-#include <iostream>
-#include <fstream>
-#include <sstream>
+#include <cassert>
 #include <cstdint>
 #include <cstring>
 #include <cctype>
 #include <climits>
 #include <cstdlib>
 #include <ctime>
+
+#include <iostream>
+#include <fstream>
+#include <sstream>
+
 #include <string>
 #include <list>
 #include <vector>
@@ -16,9 +19,13 @@
 #include <map>
 #include <unordered_set>
 #include <unordered_map>
+
 #include <algorithm>
 #include <functional>
+#include <limits>
+#include <memory>
 #include <mutex>
+#include <utility>
 
 #include <boost/filesystem.hpp>
 #include <boost/asio.hpp>
@@ -27,11 +34,10 @@ namespace fs = boost::filesystem;
 namespace net = boost::asio;
 
 #include <cryptopp/cryptlib.h>
-#include <cryptopp/osrng.h>
-#include <cryptopp/oids.h>
-#include <cryptopp/asn.h>
 #include <cryptopp/eccrypto.h>
 #include <cryptopp/files.h>
+#include <cryptopp/osrng.h>
+#include <cryptopp/oids.h>
 
 #include <wx/platform.h>
 #include <wx/wxprec.h>
@@ -39,7 +45,7 @@ namespace net = boost::asio;
 #	include <wx/wx.h>
 #endif
 #include <wx/msgqueue.h>
-#include <wx/file.h>
+#include <wx/dynlib.h>
 #ifdef _MSC_VER
 #	ifdef _DEBUG
 #		pragma comment (lib, "wxbase30ud.lib")

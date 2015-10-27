@@ -24,13 +24,16 @@
     <ClInclude Include="crypto.h">
       <Filter>头文件</Filter>
     </ClInclude>
-    <ClInclude Include="global.h">
-      <Filter>头文件</Filter>
-    </ClInclude>
     <ClInclude Include="session.h">
       <Filter>头文件</Filter>
     </ClInclude>
     <ClInclude Include="threads.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="plugin.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="frmAddrInput.h">
       <Filter>头文件</Filter>
     </ClInclude>
   </ItemGroup>
@@ -44,9 +47,6 @@
     <ClCompile Include="crypto.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
-    <ClCompile Include="global.cpp">
-      <Filter>源文件</Filter>
-    </ClCompile>
     <ClCompile Include="session.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
@@ -54,6 +54,12 @@
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="threads.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="plugin.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="frmAddrInput.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>

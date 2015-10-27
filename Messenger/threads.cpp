@@ -1,5 +1,4 @@
 #include "stdafx.h"
-#include "global.h"
 #include "crypto.h"
 #include "session.h"
 #include "threads.h"
@@ -18,13 +17,11 @@ iosrvThread::ExitCode iosrvThread::Entry()
 		{
 			iosrv.run();
 		}
-		catch (std::exception ex) { std::cerr << ex.what() << std::endl; }
+		catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
 		catch (...) {}
 	}
 	return NULL;
 }
-
-const int fileBlockLen = 0x100000;
 
 void fileSendThread::start(int uID, const fs::path &path)
 {
@@ -46,8 +43,8 @@ void fileSendThread::start(int uID, const fs::path &path)
 
 			std::wstring fileName = path.leaf().wstring();
 			data_length_type blockCountAll_LE = wxUINT32_SWAP_ON_BE(blockCountAll);
-			std::string head(reinterpret_cast<const char*>(&blockCountAll_LE), sizeof(data_length_type));
-			head.insert(0, 1, pac_type_file_h);
+			std::string head(1, pac_type_file_h);
+			head.append(reinterpret_cast<const char*>(&blockCountAll_LE), sizeof(data_length_type));
 			wxCharBuffer nameBuf = wxConvUTF8.cWC2MB(fileName.c_str());
 			std::string name(nameBuf, nameBuf.length());
 			insLen(name);
@@ -79,7 +76,6 @@ void fileSendThread::stop(int uID)
 
 void fileSendThread::write()
 {
-	std::unique_ptr<char[]> block = std::make_unique<char[]>(fileBlockLen);
 	std::string sendBuf;
 
 	fileSendTask &task = tasks.front();
@@ -114,7 +110,7 @@ fileSendThread::ExitCode fileSendThread::Entry()
 		{
 			iosrv.run();
 		}
-		catch (std::exception ex) { std::cerr << ex.what() << std::endl; }
+		catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
 		catch (...) {}
 	}
 	return NULL;
