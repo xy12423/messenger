@@ -1,8 +1,12 @@
 #include "stdafx.h"
-#include "global.h"
+#include "crypto.h"
 #include "session.h"
 #include "threads.h"
+#include "plugin.h"
 #include "main.h"
+#include "frmAddrInput.h"
+
+const port_type portListener = 4826, portConnect = 4827;
 
 wxBEGIN_EVENT_TABLE(mainFrame, wxFrame)
 
@@ -13,6 +17,9 @@ EVT_BUTTON(ID_BUTTONDEL, mainFrame::buttonDel_Click)
 
 EVT_BUTTON(ID_BUTTONSEND, mainFrame::buttonSend_Click)
 EVT_BUTTON(ID_BUTTONSENDFILE, mainFrame::buttonSendFile_Click)
+EVT_BUTTON(ID_BUTTONCANCELSEND, mainFrame::buttonCancelSend_Click)
+EVT_BUTTON(ID_BUTTONIMPORTKEY, mainFrame::buttonImportKey_Click)
+EVT_BUTTON(ID_BUTTONEXPORTKEY, mainFrame::buttonExportKey_Click)
 
 EVT_THREAD(wxID_ANY, mainFrame::thread_Message)
 
@@ -31,22 +38,22 @@ wxEND_EVENT_TABLE()
 fileSendThread *threadFileSend;
 
 server* srv;
-std::unordered_map<int, user_ext_data> user_ext;
+std::unordered_map<user_id_type, user_ext_data> user_ext;
 wx_srv_interface inter;
 net::io_service main_io_service, misc_io_service;
 iosrvThread *threadNetwork, *threadMisc;
 
 #define checkErr(x) if (dataItr + (x) > dataEnd) throw(0)
 #define read_uint(x)												\
-	checkErr(size_length);											\
-	memcpy(reinterpret_cast<char*>(&(x)), dataItr, size_length);	\
-	dataItr += size_length
+	checkErr(sizeof_data_length);											\
+	memcpy(reinterpret_cast<char*>(&(x)), dataItr, sizeof_data_length);	\
+	dataItr += sizeof_data_length
 
-void wx_srv_interface::on_data(id_type id, const std::string &data)
+void wx_srv_interface::on_data(user_id_type id, const std::string &data)
 {
 	try
 	{
-		const size_t size_length = sizeof(data_length_type);
+		const size_t sizeof_data_length = sizeof(data_length_type);
 		const char *dataItr = data.data(), *dataEnd = data.data() + data.size();
 		user_ext_data &usr = user_ext.at(id);
 
@@ -56,21 +63,20 @@ void wx_srv_interface::on_data(id_type id, const std::string &data)
 		dataItr += 1;
 		switch (type)
 		{
-			case 1:
+			case pac_type_msg:
 			{
 				if (frm == nullptr)
 					throw(0);
 
-				data_length_type sizeRecv;
-				read_uint(sizeRecv);
+				data_length_type sizeMsg;
+				read_uint(sizeMsg);
 
-				checkErr(sizeRecv);
-				std::string msg_utf8(dataItr, sizeRecv);
-				dataItr += sizeRecv;
+				checkErr(sizeMsg);
+				std::string msg_utf8(dataItr, sizeMsg);
+				dataItr += sizeMsg;
 
-				user_ext_data &ext = user_ext[id];
-				wxString msg(ext.addr + ':' + wxConvUTF8.cMB2WC(msg_utf8.c_str()) + '\n');
-				ext.log.append(msg);
+				wxString msg(usr.addr + ':' + wxConvUTF8.cMB2WC(msg_utf8.c_str()) + '\n');
+				usr.log.append(msg);
 				if (frm->listUser->GetSelection() != -1)
 				{
 					std::list<int>::iterator itr = frm->userIDs.begin();
@@ -78,18 +84,18 @@ void wx_srv_interface::on_data(id_type id, const std::string &data)
 					if (id == *itr)
 						frm->textMsg->AppendText(msg);
 					else
-						frm->textInfo->AppendText("Received message from " + ext.addr + "\n");
+						frm->textInfo->AppendText("Received message from " + usr.addr + "\n");
 				}
 				else
-					frm->textInfo->AppendText("Received message from " + ext.addr + "\n"); 
+					frm->textInfo->AppendText("Received message from " + usr.addr + "\n");
 
 				break;
 			}
-			case 2:
+			case pac_type_file_h:
 			{
 				data_length_type recvLE;
 				read_uint(recvLE);
-				data_length_type blockCount = wxUINT32_SWAP_ON_BE(static_cast<data_length_type>(recvLE));
+				data_length_type blockCountAll = wxUINT32_SWAP_ON_BE(static_cast<data_length_type>(recvLE));
 
 				read_uint(recvLE);
 				data_length_type fNameLen = wxUINT32_SWAP_ON_BE(static_cast<data_length_type>(recvLE));
@@ -116,24 +122,24 @@ void wx_srv_interface::on_data(id_type id, const std::string &data)
 					fName = fName + "_" + std::to_string(i);
 				}
 				usr.recvFile = wxConvLocal.cWC2MB(fName.c_str());
-				usr.blockLast = blockCount;
+				usr.blockLast = blockCountAll;
 				std::cout << "Receiving file " << fName << " from " << usr.addr << std::endl;
 
 				break;
 			}
-			case 3:
+			case pac_type_file_b:
 			{
 				data_length_type recvLE;
 				read_uint(recvLE);
-				data_length_type recvLen = wxUINT32_SWAP_ON_BE(static_cast<data_length_type>(recvLE));
+				data_length_type dataSize = wxUINT32_SWAP_ON_BE(static_cast<data_length_type>(recvLE));
 
-				checkErr(recvLen);
+				checkErr(dataSize);
 
 				if (usr.blockLast > 0)
 				{
 					std::ofstream fout(usr.recvFile, std::ios::out | std::ios::binary | std::ios::app);
-					fout.write(dataItr, recvLen);
-					dataItr += recvLen;
+					fout.write(dataItr, dataSize);
+					dataItr += dataSize;
 					fout.close();
 					usr.blockLast--;
 					
@@ -145,9 +151,15 @@ void wx_srv_interface::on_data(id_type id, const std::string &data)
 
 				break;
 			}
+			default:
+			{
+				if ((type & 0x80) != 0)
+					plugin_on_data(id, type, dataItr, dataEnd);
+				break;
+			}
 		}
 	}
-	catch (std::exception ex)
+	catch (std::exception &ex)
 	{
 		std::cerr << ex.what() << std::endl;
 	}
@@ -163,7 +175,7 @@ void wx_srv_interface::on_data(id_type id, const std::string &data)
 #undef checkErr
 #undef read_uint
 
-void wx_srv_interface::on_join(id_type id)
+void wx_srv_interface::on_join(user_id_type id)
 {
 	if (frm == nullptr)
 		return;
@@ -177,7 +189,7 @@ void wx_srv_interface::on_join(id_type id)
 	frm->userIDs.push_back(id);
 }
 
-void wx_srv_interface::on_leave(id_type id)
+void wx_srv_interface::on_leave(user_id_type id)
 {
 	if (frm == nullptr)
 		return;
@@ -191,7 +203,7 @@ void wx_srv_interface::on_leave(id_type id)
 	user_ext.erase(id);
 }
 
-void wx_srv_interface::on_unknown_key(id_type id, const std::string& key)
+void wx_srv_interface::on_unknown_key(user_id_type id, const std::string& key)
 {
 	if (frm == nullptr)
 		return;
@@ -200,6 +212,54 @@ void wx_srv_interface::on_unknown_key(id_type id, const std::string& key)
 	newEvent->SetInt(id);
 	newEvent->SetPayload<std::string>(key);
 	wxQueueEvent(frm, newEvent);
+}
+
+bool wx_srv_interface::new_rand_port(port_type &ret)
+{
+	if (ports.empty())
+		return false;
+	std::list<port_type>::iterator portItr = ports.begin();
+	for (int i = std::rand() % ports.size(); i > 0; i--)
+		portItr++;
+	ret = *portItr;
+	ports.erase(portItr);
+	return true;
+}
+
+void plugin_SendDataHandler(int to, const char* data, size_t size)
+{
+	std::string data_str(data, size);
+	if (to == -1)
+	{
+		std::for_each(user_ext.begin(), user_ext.end(), [&data_str](const std::pair<user_id_type, user_ext_data> &p) {
+			user_id_type id = p.first;
+			misc_io_service.post([id, data_str]() {
+				srv->send_data(id, data_str, session::priority_plugin);
+			});
+		});
+	}
+	else
+	{
+		misc_io_service.post([to, data_str]() {
+			srv->send_data(to, data_str, session::priority_plugin);
+		});
+	}
+}
+
+void plugin_ConnectToHandler(uint32_t addr, uint16_t port)
+{
+	srv->connect(addr, port);
+}
+
+std::string uid_global;
+const char* plugin_api_GetUserID()
+{
+	return uid_global.c_str();
+}
+
+void plugin_api_Print(const char* msg)
+{
+	std::cout << "Plugin:" << msg << std::endl;
 }
 
 mainFrame::mainFrame(const wxString& title)
@@ -240,18 +300,33 @@ mainFrame::mainFrame(const wxString& title)
 	textInput = new wxTextCtrl(panel, ID_TEXTINPUT,
 		wxEmptyString,
 		wxPoint(180, 321),
-		wxSize(340, 90),
+		wxSize(412, 42),
 		wxTE_MULTILINE
 		);
 	buttonSend = new wxButton(panel, ID_BUTTONSEND,
 		wxT("Send"),
-		wxPoint(526, 321),
-		wxSize(66, 42)
+		wxPoint(180, 369),
+		wxSize(77, 42)
 		);
 	buttonSendFile = new wxButton(panel, ID_BUTTONSENDFILE,
 		wxT("Send File"),
-		wxPoint(526, 369),
-		wxSize(66, 42)
+		wxPoint(263, 369),
+		wxSize(78, 42)
+		);
+	buttonCancelSend = new wxButton(panel, ID_BUTTONCANCELSEND,
+		wxT("Cancel"),
+		wxPoint(347, 369),
+		wxSize(78, 42)
+		);
+	buttonImportKey = new wxButton(panel, ID_BUTTONIMPORTKEY,
+		wxT("Import key"),
+		wxPoint(431, 369),
+		wxSize(78, 42)
+		);
+	buttonExportKey = new wxButton(panel, ID_BUTTONEXPORTKEY,
+		wxT("Export key"),
+		wxPoint(515, 369),
+		wxSize(77, 42)
 		);
 
 	textInfo = new wxTextCtrl(panel, ID_TEXTINFO,
@@ -261,17 +336,17 @@ mainFrame::mainFrame(const wxString& title)
 		wxTE_MULTILINE | wxTE_READONLY
 		);
 
+	const int entry_count = 1;
+	wxAcceleratorEntry entries[entry_count];
+	entries[0].Set(wxACCEL_CTRL, WXK_RETURN, ID_BUTTONSEND);
+	wxAcceleratorTable accel(entry_count, entries);
+	SetAcceleratorTable(accel);
+
 	threadFileSend = new fileSendThread();
 	if (threadFileSend->Run() != wxTHREAD_NO_ERROR)
 	{
 		delete threadFileSend;
 		throw(std::runtime_error("Can't create fileSendThread"));
-	}
-	threadMisc = new iosrvThread(misc_io_service);
-	if (threadMisc->Run() != wxTHREAD_NO_ERROR)
-	{
-		delete threadMisc;
-		throw(std::runtime_error("Can't create iosrvThread"));
 	}
 
 	textStrm = new textStream(textInfo);
@@ -279,6 +354,25 @@ mainFrame::mainFrame(const wxString& title)
 	std::cout.rdbuf(textStrm);
 	cerr_orig = std::cerr.rdbuf();
 	std::cerr.rdbuf(textStrm);
+
+	if (fs::exists(plugin_file_name))
+	{
+		uid_global.assign(getUserIDGlobal());
+		set_method("GetUserID", reinterpret_cast<void*>(plugin_api_GetUserID));
+		set_method("Print", reinterpret_cast<void*>(plugin_api_Print));
+
+		std::ifstream fin(plugin_file_name);
+		std::string plugin_name_utf8;
+		while (!fin.eof())
+		{
+			std::getline(fin, plugin_name_utf8);
+			if (!plugin_name_utf8.empty())
+			{
+				std::wstring plugin_name(wxConvUTF8.cMB2WC(plugin_name_utf8.c_str()));
+				load_plugin(plugin_name);
+			}
+		}
+	}
 }
 
 void mainFrame::listUser_SelectedIndexChanged(wxCommandEvent& event)
@@ -294,15 +388,12 @@ void mainFrame::buttonAdd_Click(wxCommandEvent& event)
 {
 	try
 	{
-		wxTextEntryDialog inputDlg(this, wxT("Please input address"));
-		inputDlg.ShowModal();
-		wxString addrStr = inputDlg.GetValue();
-		if (addrStr != wxEmptyString)
-		{
-			srv->connect(addrStr.ToStdString());
-		}
+		frmAddrInput inputDlg(wxT("Please input address"), portConnect);
+		if (inputDlg.ShowModal() != wxID_OK || inputDlg.CheckInput() == false)
+			return;
+		srv->connect(inputDlg.GetAddress().ToStdString(), inputDlg.GetPort());
 	}
-	catch (std::exception ex)
+	catch (std::exception &ex)
 	{
 		textInfo->AppendText(ex.what() + std::string("\n"));
 	}
@@ -334,9 +425,9 @@ void mainFrame::buttonSend_Click(wxCommandEvent& event)
 			for (int i = listUser->GetSelection(); i > 0; itr++)i--;
 			int uID = *itr;
 			insLen(msgutf8);
-			msgutf8.insert(0, "\x01");
+			msgutf8.insert(0, 1, pac_type_msg);
 			misc_io_service.post([uID, msgutf8]() {
-				srv->send_data(uID, msgutf8, session::priority_msg, wxT(""));
+				srv->send_data(uID, msgutf8, session::priority_msg);
 			});
 			textMsg->AppendText("Me:" + msg + '\n');
 			user_ext[uID].log.append("Me:" + msg + '\n');
@@ -356,14 +447,67 @@ void mainFrame::buttonSendFile_Click(wxCommandEvent& event)
 			std::list<int>::iterator itr = userIDs.begin();
 			for (int i = listUser->GetSelection(); i > 0; itr++)i--;
 			int uID = *itr;
-			threadFileSend->taskQue.Post(fileSendTask(uID, fs::path(path)));
+			threadFileSend->start(uID, fs::path(path));
 		}
+	}
+}
+
+void mainFrame::buttonCancelSend_Click(wxCommandEvent& event)
+{
+	if (listUser->GetSelection() != -1)
+	{
+		std::list<int>::iterator itr = userIDs.begin();
+		for (int i = listUser->GetSelection(); i > 0; itr++)i--;
+		int uID = *itr;
+		threadFileSend->stop(uID);
+		srv->get_session(uID)->stop_file_transfer();
+	}
+}
+
+void mainFrame::buttonImportKey_Click(wxCommandEvent& event)
+{
+	wxFileDialog fileDlg(this);
+	fileDlg.ShowModal();
+	std::string path = fileDlg.GetPath().ToStdString();
+	if ((!path.empty()) && fs::exists(path))
+	{
+		size_t pubCount = 0, keyLen = 0;
+		std::ifstream publicIn(path, std::ios_base::in | std::ios_base::binary);
+		publicIn.read(reinterpret_cast<char*>(&pubCount), sizeof(size_t));
+		for (; pubCount > 0; pubCount--)
+		{
+			publicIn.read(reinterpret_cast<char*>(&keyLen), sizeof(size_t));
+			char *buf = new char[keyLen];
+			publicIn.read(buf, keyLen);
+			srv->certify_key(std::string(buf, keyLen));
+			delete[] buf;
+		}
+	}
+}
+
+void mainFrame::buttonExportKey_Click(wxCommandEvent& event)
+{
+	wxFileDialog fileDlg(this);
+	fileDlg.ShowModal();
+	std::string path = fileDlg.GetPath().ToStdString();
+	if (!path.empty())
+	{
+		std::ofstream publicOut(path, std::ios_base::out | std::ios_base::binary);
+		size_t pubCount = 1;
+		publicOut.write(reinterpret_cast<char*>(&pubCount), sizeof(size_t));
+
+		std::string key = getPublicKey();
+		size_t keySize = key.size();
+		publicOut.write(reinterpret_cast<char*>(&keySize), sizeof(size_t));
+		publicOut.write(key.data(), keySize);
+
+		publicOut.close();
 	}
 }
 
 void mainFrame::thread_Message(wxThreadEvent& event)
 {
-	id_type id = event.GetInt();
+	user_id_type id = event.GetInt();
 	int answer = wxMessageBox(wxT("The public key from " + user_ext.at(id).addr + " hasn't shown before.Trust it?"), wxT("Confirm"), wxYES_NO);
 	if (answer != wxYES)
 		srv->disconnect(id);
@@ -379,15 +523,12 @@ void mainFrame::mainFrame_Close(wxCloseEvent& event)
 		std::cerr.rdbuf(cerr_orig);
 		delete textStrm;
 
+		threadFileSend->stop_thread();
 		threadFileSend->Delete();
-
-		threadMisc->iosrv_work.reset();
-		threadMisc->iosrv.stop();
-		threadMisc->Delete();
 
 		inter.set_frame(nullptr);
 	}
-	catch (std::exception ex)
+	catch (std::exception &ex)
 	{
 		wxMessageBox(ex.what(), wxT("Error"), wxOK | wxICON_ERROR);
 	}
@@ -406,13 +547,22 @@ bool MyApp::OnInit()
 			delete threadNetwork;
 			throw(std::runtime_error("Can't create iosrvThread"));
 		}
-		srv = new server(main_io_service, &inter, net::ip::tcp::endpoint(net::ip::tcp::v4(), portListener));
+		threadMisc = new iosrvThread(misc_io_service);
+		if (threadMisc->Run() != wxTHREAD_NO_ERROR)
+		{
+			delete threadMisc;
+			throw(std::runtime_error("Can't create iosrvThread"));
+		}
+		
+		for (int i = 5001; i <= 10000; i++)
+			inter.free_rand_port(i);
+		srv = new server(main_io_service, misc_io_service, &inter, net::ip::tcp::endpoint(net::ip::tcp::v4(), portListener), portConnect);
 
 		form = new mainFrame(wxT("Messenger"));
 		form->Show();
 		inter.set_frame(form);
 	}
-	catch (std::exception ex)
+	catch (std::exception &ex)
 	{
 		wxMessageBox(ex.what(), wxT("Error"), wxOK | wxICON_ERROR);
 		return false;
@@ -425,8 +575,10 @@ int MyApp::OnExit()
 {
 	try
 	{
-		threadNetwork->iosrv_work.reset();
-		threadNetwork->iosrv.stop();
+		threadMisc->stop();
+		threadMisc->Delete();
+
+		threadNetwork->stop();
 		threadNetwork->Delete();
 
 		delete srv;

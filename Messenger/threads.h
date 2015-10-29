@@ -8,31 +8,64 @@ class iosrvThread :public wxThread
 public:
 	iosrvThread(net::io_service& _iosrv) : wxThread(wxTHREAD_DETACHED), iosrv(_iosrv) {};
 
+	void stop() { iosrv_work.reset(); iosrv.stop(); }
+protected:
 	net::io_service& iosrv;
 	std::shared_ptr<net::io_service::work> iosrv_work;
-protected:
+
 	ExitCode Entry();
 };
 
 struct fileSendTask
 {
 	fileSendTask() { uID = -1; }
-	fileSendTask(int _uID, const fs::path &_path) :
-		path(_path)
+	fileSendTask(int _uID, const fs::path &path)
+		:fileName(path.wstring()),
+		fin(path.string(), std::ios_base::in | std::ios_base::binary)
 	{
 		uID = _uID;
 	}
 	int uID;
-	fs::path path;
+	std::wstring fileName;
+	std::ifstream fin;
+	data_length_type blockCount = 1, blockCountAll;
 };
 
 class fileSendThread :public wxThread
 {
 public:
 	fileSendThread() : wxThread(wxTHREAD_DETACHED) {};
-	wxMessageQueue<fileSendTask> taskQue;
+	
+	void start(int uID, const fs::path &path);
+	void stop(int uID);
+
+	void stop_thread() { iosrv_work.reset(); iosrv.stop(); }
+
+	void write();
+
 protected:
 	ExitCode Entry();
+private:
+	std::list<fileSendTask> tasks;
+	
+	const int fileBlockLen = 0x80000;
+	std::unique_ptr<char[]> block = std::make_unique<char[]>(fileBlockLen);
+
+	net::io_service iosrv;
+	std::shared_ptr<net::io_service::work> iosrv_work;
 };
+
+struct user_ext_data
+{
+	std::wstring addr;
+	wxString log;
+
+	std::string recvFile;
+	int blockLast;
+};
+
+static const uint8_t pac_type_msg = 0x00;
+static const uint8_t pac_type_file_h = 0x01;
+static const uint8_t pac_type_file_b = 0x02;
 
 #endif
