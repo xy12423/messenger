@@ -388,7 +388,7 @@ void mainFrame::buttonAdd_Click(wxCommandEvent& event)
 {
 	try
 	{
-		frmAddrInput inputDlg(wxT("Please input address"), portConnect);
+		frmAddrInput inputDlg(wxT("Please input address"), portListener);
 		if (inputDlg.ShowModal() != wxID_OK || inputDlg.CheckInput() == false)
 			return;
 		srv->connect(inputDlg.GetAddress().ToStdString(), inputDlg.GetPort());
