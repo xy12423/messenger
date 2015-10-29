@@ -5,7 +5,7 @@
 
 enum modes{ RELAY, CENTER };
 
-const port_type portListener = 4826, portConnect = 4827;
+const port_type portConnect = 4827;
 
 struct user_log
 {
@@ -52,7 +52,10 @@ public:
 	void broadcast_msg(user_id_type id, const std::string &msg);
 	void broadcast_data(user_id_type id, const std::string &data, int priority);
 	void process_command(std::string cmd, user_log::group_type type);
+
+	void set_static_port(port_type port) { static_port = port; };
 private:
+	int static_port = -1;
 	std::list<port_type> ports;
 };
 

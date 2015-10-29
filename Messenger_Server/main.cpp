@@ -319,20 +319,25 @@ void cli_server_interface::process_command(std::string cmd, user_log::group_type
 
 bool cli_server_interface::new_rand_port(port_type &ret)
 {
-	if (ports.empty())
-		return false;
-	std::list<port_type>::iterator portItr = ports.begin();
-	for (int i = std::rand() % ports.size(); i > 0; i--)
-		portItr++;
-	ret = *portItr;
-	ports.erase(portItr);
+	if (static_port != -1)
+		ret = static_port;
+	else
+	{
+		if (ports.empty())
+			return false;
+		std::list<port_type>::iterator portItr = ports.begin();
+		for (int i = std::rand() % ports.size(); i > 0; i--)
+			portItr++;
+		ret = *portItr;
+		ports.erase(portItr);
+	}
 	return true;
 }
 
 void print_usage()
 {
 	std::cout << "Usage:" << std::endl;
-	std::cout << "\tmessenger_server [mode=relay|center]" << std::endl;
+	std::cout << "\tmessenger_server [mode=relay|center] [port=****] [ports=****[-****]]" << std::endl;
 }
 
 int main(int argc, char *argv[])
@@ -341,6 +346,9 @@ int main(int argc, char *argv[])
 	try
 	{
 #endif
+		port_type portListener = 4826;
+		port_type portsBegin = 5000, portsEnd = 9999;
+
 		for (int i = 1; i < argc; i++)
 		{
 			std::string arg(argv[i]);
@@ -355,6 +363,51 @@ int main(int argc, char *argv[])
 				{
 					print_usage();
 					return 0;
+				}
+			}
+			else if (arg.substr(0, 5) == "port=")
+			{
+				try
+				{
+					portListener = std::stoi(arg.substr(5));
+				}
+				catch (std::invalid_argument &)
+				{
+					print_usage();
+					return 0;
+				}
+			}
+			else if (arg.substr(0, 6) == "ports=")
+			{
+				int pos = arg.find('-', 6);
+				if (pos == std::string::npos)
+				{
+					try
+					{
+						inter.set_static_port(std::stoi(arg.substr(6)));
+					}
+					catch (std::invalid_argument &)
+					{
+						print_usage();
+						return 0;
+					}
+					portsBegin = 1;
+					portsEnd = 0;
+				}
+				else
+				{
+					std::string ports_begin = arg.substr(6, pos - 6), ports_end = arg.substr(pos + 1);
+					try
+					{
+						portsBegin = std::stoi(ports_begin);
+						portsEnd = std::stoi(ports_end);
+					}
+					catch (std::invalid_argument &)
+					{
+						print_usage();
+						return 0;
+					}
+					inter.set_static_port(-1);
 				}
 			}
 			else
@@ -396,6 +449,9 @@ int main(int argc, char *argv[])
 			} while (abnormally_exit);
 		});
 		misc_iosrv_thread.detach();
+
+		for (; portsBegin <= portsEnd; portsBegin++)
+			inter.free_rand_port(portsBegin);
 
 		user_ext[-1].name = user_ext[-1].addr = "Server";
 		srv = new server(main_io_service, misc_io_service, &inter, net::ip::tcp::endpoint(net::ip::tcp::v4(), portListener), portConnect);
