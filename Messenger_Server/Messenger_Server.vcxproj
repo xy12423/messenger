@@ -89,13 +89,15 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="crypto.h" />
-    <ClInclude Include="utils.h" />
+    <ClInclude Include="global.h" />
+    <ClInclude Include="session.h" />
     <ClInclude Include="main.h" />
     <ClInclude Include="stdafx.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="crypto.cpp" />
-    <ClCompile Include="utils.cpp" />
+    <ClCompile Include="global.cpp" />
+    <ClCompile Include="session_server.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="stdafx.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>

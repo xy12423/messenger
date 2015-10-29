@@ -3,19 +3,16 @@
 #ifndef _H_MAIN
 #define _H_MAIN
 
-class server;
-typedef std::deque<std::string> chat_message_queue;
-typedef std::shared_ptr<net::ip::tcp::socket> socket_ptr;
-
 enum modes{ RELAY, CENTER };
-extern modes mode;
 
-struct user
+const port_type portListener = 4826, portConnect = 4827;
+
+struct user_log
 {
 	enum group_type{ GUEST, USER, ADMIN };
 
-	user(){ group = GUEST; }
-	user(const std::string &_name, const std::string &_passwd, group_type _group) :
+	user_log(){ group = GUEST; }
+	user_log(const std::string &_name, const std::string &_passwd, group_type _group) :
 		name(_name), passwd(_passwd)
 	{
 		group = _group;
@@ -24,127 +21,39 @@ struct user
 	std::string name, passwd;
 	group_type group;
 };
-typedef std::unordered_map<std::string, user> userList;
+typedef std::unordered_map<std::string, user_log> user_log_list;
 
-class pre_session : public std::enable_shared_from_this<pre_session>
+struct user_ext_data
 {
-public:
-	pre_session(boost::asio::io_service& io_service,
-		const net::ip::tcp::endpoint& endpoint, server *_srv)
-		: io_service(io_service),
-		acceptor(io_service, endpoint)
-	{
-		srv = _srv;
-		key_buffer = NULL;
-		start();
-	}
+	enum stage { LOGIN_NAME, LOGIN_PASS, LOGGED_IN };
+	stage current_stage = LOGIN_NAME;
 
-	void start();
-private:
-	void stage1(socket_ptr socket, boost::system::error_code ec);
-	void read_key_header();
-	void read_key();
+	std::string name;
+	std::string addr;
 
-	unsigned short key_length;
-	char *key_buffer;
-
-	boost::asio::io_service &io_service;
-	socket_ptr socket;
-	net::ip::tcp::acceptor acceptor;
-
-	server *srv;
+	std::string recvFile;
+	int blockLast;
 };
+typedef std::unordered_map<int, user_ext_data> user_ext_list;
 
-class session : public std::enable_shared_from_this<session>
+class cli_server_interface :public server_interface
 {
 public:
-	enum session_state{ INPUT_USER, INPUT_PASSWD, LOGGED_IN };
+	virtual void on_data(user_id_type id, const std::string &data);
 
-	session(server *_srv, const socket_ptr &_socket)
-		: socket(_socket)
-	{
-		state = INPUT_USER; srv = _srv;
-		read_msg_buffer = new char[msg_buffer_size];
-	}
+	virtual void on_join(user_id_type id);
+	virtual void on_leave(user_id_type id);
 
-	~session()
-	{
-		socket->close();
-	}
+	virtual void on_unknown_key(user_id_type id, const std::string& key) {};
 
-	void start();
-	void send_message(const std::string& msg);
-	void send(const std::string& data);
-	std::string get_address(){ return socket->remote_endpoint().address().to_string(); }
-	session_state get_state(){ return state; }
+	virtual bool new_rand_port(port_type &port);
+	virtual void free_rand_port(port_type port) { ports.push_back(port); };
 
-	friend class pre_session;
+	void broadcast_msg(user_id_type id, const std::string &msg);
+	void broadcast_data(user_id_type id, const std::string &data, int priority);
+	void process_command(std::string cmd, user_log::group_type type);
 private:
-	void read_header();
-	void read_data(size_t sizeLast, std::shared_ptr<std::string> buf);
-	void write();
-
-	void process_data(const std::string &data);
-	void process_message(const std::string &originMsg);
-
-	socket_ptr socket;
-	CryptoPP::ECIES<CryptoPP::ECP>::Encryptor e1;
-
-	std::string user_name;
-	session_state state;
-
-	char *read_msg_buffer;
-	const size_t msg_buffer_size = 0x4000;
-	chat_message_queue write_msgs;
-
-	server *srv;
-};
-typedef std::unordered_set<std::shared_ptr<session>> sessionList;
-
-class server
-{
-public:
-	server(boost::asio::io_service& io_service,
-		const net::ip::tcp::endpoint& endpoint)
-		: io_service(io_service),
-		acceptor(io_service, endpoint),
-		timer(io_service)
-	{
-		read_config();
-		start();
-		ping();
-	}
-
-	void send_message(std::shared_ptr<session> from, const std::string& msg);
-	void send(std::shared_ptr<session> from, const std::string& data);
-	void pre_session_over(std::shared_ptr<pre_session> _pre){ pre_sessions.erase(_pre); }
-	void join(std::shared_ptr<session> _user);
-	void leave(std::shared_ptr<session> _user);
-
-	bool login(const std::string &name, const std::string &passwd);
-
-	user::group_type get_group(const std::string &name){ userList::iterator itr = users.find(name); if (itr != users.end()) return itr->second.group; return user::GUEST; }
-	bool is_op(const std::string &name){ userList::iterator itr = users.find(name); if (itr != users.end()) return itr->second.group == user::ADMIN; return false; }
-
-	bool process_command(std::string command, user::group_type group);
-private:
-	void start();
-	void accept(boost::system::error_code ec);
-	void ping();
-
-	const char* config_file = ".config";
-	void read_config();
-	void write_config();
-
-	net::io_service &io_service;
-	net::deadline_timer timer;
-	socket_ptr accepting;
-	net::ip::tcp::acceptor acceptor;
-
-	std::unordered_set<std::shared_ptr<pre_session>> pre_sessions;
-	sessionList sessions;
-	userList users;
-	int nextID = 0;
+	std::list<port_type> ports;
 };
 
 #endif
