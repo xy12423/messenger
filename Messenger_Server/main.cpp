@@ -454,7 +454,7 @@ int main(int argc, char *argv[])
 			inter.free_rand_port(portsBegin);
 
 		user_ext[-1].name = user_ext[-1].addr = "Server";
-		srv = new server(main_io_service, misc_io_service, &inter, net::ip::tcp::endpoint(net::ip::tcp::v4(), portListener), portConnect);
+		srv = new server(main_io_service, misc_io_service, &inter, net::ip::tcp::endpoint(net::ip::tcp::v4(), portListener));
 		std::string command;
 		while (server_on)
 		{
