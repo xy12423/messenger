@@ -3,12 +3,16 @@
 
 void ltrim(std::string &str)
 {
+	if (str.empty())
+		return;
 	while (isspace(str.front()))
 		str.erase(0, 1);
 }
 
 void rtrim(std::string &str)
 {
+	if (str.empty())
+		return;
 	while (isspace(str.back()))
 		str.pop_back();
 }
