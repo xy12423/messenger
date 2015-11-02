@@ -37,11 +37,11 @@ namespace net = boost::asio;
 
 #ifdef _MSC_VER
 #ifdef _DEBUG
-#pragma comment (lib, "zlibd-mt.lib")
-#pragma comment (lib, "cryptlibd-mt.lib")
+#pragma comment (lib, "zlibd.lib")
+#pragma comment (lib, "cryptlibd.lib")
 #else
-#pragma comment (lib, "zlib-mt.lib")
-#pragma comment (lib, "cryptlib-mt.lib")
+#pragma comment (lib, "zlib.lib")
+#pragma comment (lib, "cryptlib.lib")
 #endif
 #pragma comment (lib, "ws2_32.lib")
 #pragma comment (lib, "winmm.lib")
