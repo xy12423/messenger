@@ -199,17 +199,7 @@ void pre_session::write_session_id()
 
 void pre_session_s::start()
 {
-	acceptor.async_accept(*socket, [this](boost::system::error_code ec)
-	{
-		if (!ec)
-			stage1();
-		else
-		{
-			std::cerr << "Socket Error:" << ec.message() << std::endl;
-			if (!exiting)
-				srv->pre_session_over(shared_from_this());
-		}
-	});
+	stage1();
 }
 
 void pre_session_s::stage1()
@@ -229,7 +219,6 @@ void pre_session_s::stage1()
 				srv->pre_session_over(shared_from_this());
 		}
 	});
-	acceptor.close();
 }
 
 void pre_session_s::stage2()
@@ -306,29 +295,7 @@ void pre_session_s::sid_packet_done()
 
 void pre_session_c::start()
 {
-	try
-	{
-		socket->open(net::ip::tcp::v4());
-		socket->bind(net::ip::tcp::endpoint(net::ip::tcp::v4(), local_port));
-		socket->async_connect(ep,
-			[this](boost::system::error_code ec)
-		{
-			if (!ec)
-				stage1();
-			else
-			{
-				std::cerr << "Socket Error:" << ec.message() << std::endl;
-				if (!exiting)
-					srv->pre_session_over(shared_from_this());
-			}
-		});
-	}
-	catch (std::exception &ex)
-	{
-		std::cerr << ex.what() << std::endl;
-		if (!exiting)
-			srv->pre_session_over(shared_from_this());
-	}
+	stage1();
 }
 
 void pre_session_c::stage2()

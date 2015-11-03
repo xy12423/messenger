@@ -31,29 +31,8 @@ void server::accept(error_code ec)
 		return;
 	if (!ec)
 	{
-		port_type port;
-		if (!inter->new_rand_port(port))
-			std::cerr << "Socket:No port available" << std::endl;
-		else
-		{
-			net::ip::tcp::endpoint localAddr(net::ip::tcp::v4(), port);
-			std::shared_ptr<pre_session_s> pre_session_s_ptr(std::make_shared<pre_session_s>(port, localAddr, this, main_io_service, misc_io_service));
-			pre_session_s_ptr->start();
-			pre_sessions.emplace(pre_session_s_ptr);
-
-			socket_ptr accepted(accepting);
-			const int send_size = sizeof(port_type);
-			char* send_buf = new char[send_size];
-			memcpy(send_buf, reinterpret_cast<char*>(&port), send_size);
-			net::async_write(*accepted,
-				net::buffer(send_buf, send_size),
-				[accepted, send_buf](boost::system::error_code ec, std::size_t length)
-			{
-				delete[] send_buf;
-				accepted->close();
-			}
-			);
-		}
+		std::shared_ptr<pre_session_s> pre_session_s_ptr(std::make_shared<pre_session_s>(-1, std::move(accepting), this, main_io_service, misc_io_service));
+		pre_sessions.emplace(pre_session_s_ptr);
 	}
 
 	start();
@@ -63,7 +42,8 @@ void server::pre_session_over(std::shared_ptr<pre_session> _pre, bool successful
 {
 	if (!successful)
 	{
-		inter->free_rand_port(_pre->get_port());
+		if (_pre->get_port() != -1)
+			inter->free_rand_port(_pre->get_port());
 		connectedKeys.erase(_pre->get_key());
 	}
 	pre_sessions.erase(_pre);
@@ -94,7 +74,8 @@ void server::leave(user_id_type _user)
 	catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
 	catch (...) {}
 
-	inter->free_rand_port(this_session->get_port());
+	if (this_session->get_port() != -1)
+		inter->free_rand_port(this_session->get_port());
 	connectedKeys.erase(this_session->get_key());
 	sessions.erase(itr);
 }
@@ -174,44 +155,23 @@ void server::connect(const net::ip::address &addr, port_type remote_port)
 		std::cerr << "Socket:No port available" << std::endl;
 	else
 	{
-		socket_ptr new_socket(std::make_shared<net::ip::tcp::socket>(main_io_service));
-		net::ip::tcp::endpoint local_endpoint(net::ip::tcp::v4(), local_port_connect), remote_endpoint(addr, remote_port);
+		net::ip::tcp::endpoint remote_endpoint(addr, remote_port);
+		socket_ptr socket = std::make_shared<net::ip::tcp::socket>(main_io_service);
 
-		new_socket->open(net::ip::tcp::v4());
-		new_socket->bind(local_endpoint);
-		new_socket->async_connect(remote_endpoint, [this, new_socket, addr, local_port](const boost::system::error_code& ec) {
+		socket->open(net::ip::tcp::v4());
+		socket->bind(net::ip::tcp::endpoint(net::ip::tcp::v4(), local_port));
+		socket->async_connect(remote_endpoint,
+			[this, local_port, socket](boost::system::error_code ec)
+		{
 			if (!ec)
 			{
-				const int port_size = sizeof(port_type);
-				char* remote_port_buf = new char[port_size];
-				net::async_read(*new_socket,
-					net::buffer(remote_port_buf, port_size),
-					net::transfer_exactly(port_size),
-					[this, new_socket, addr, remote_port_buf, local_port](boost::system::error_code ec, std::size_t length)
-				{
-					if (!ec)
-					{
-						port_type remote_port_new = *reinterpret_cast<port_type*>(remote_port_buf);
-						remote_port_new = boost::endian::little_to_native<port_type>(remote_port_new);
-						net::ip::tcp::endpoint remote_endpoint_new(addr, remote_port_new);
-						std::shared_ptr<pre_session_c> pre_session_c_ptr(std::make_shared<pre_session_c>(local_port, remote_endpoint_new, this, main_io_service, misc_io_service));
-						pre_session_c_ptr->start();
-						pre_sessions.emplace(pre_session_c_ptr);
-
-						new_socket->close();
-					}
-					else
-					{
-						std::cerr << "Socket Error:" << ec.message() << std::endl;
-						inter->free_rand_port(local_port);
-					}
-					delete[] remote_port_buf;
-				});
+				socket_ptr _socket(socket);
+				std::shared_ptr<pre_session_c> pre_session_c_ptr(std::make_shared<pre_session_c>(local_port, std::move(_socket), this, main_io_service, misc_io_service));
+				pre_sessions.emplace(pre_session_c_ptr);
 			}
 			else
 			{
 				std::cerr << "Socket Error:" << ec.message() << std::endl;
-				inter->free_rand_port(local_port);
 			}
 		});
 	}

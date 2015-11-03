@@ -6,7 +6,7 @@
 #include "main.h"
 #include "frmAddrInput.h"
 
-const port_type portListener = 4826, portConnect = 4827;
+const port_type portListener = 4826;
 
 wxBEGIN_EVENT_TABLE(mainFrame, wxFrame)
 
@@ -388,7 +388,7 @@ void mainFrame::buttonAdd_Click(wxCommandEvent& event)
 {
 	try
 	{
-		frmAddrInput inputDlg(wxT("Please input address"), portConnect);
+		frmAddrInput inputDlg(wxT("Please input address"), portListener);
 		if (inputDlg.ShowModal() != wxID_OK || inputDlg.CheckInput() == false)
 			return;
 		srv->connect(inputDlg.GetAddress().ToStdString(), inputDlg.GetPort());
@@ -556,7 +556,7 @@ bool MyApp::OnInit()
 		
 		for (int i = 5001; i <= 10000; i++)
 			inter.free_rand_port(i);
-		srv = new server(main_io_service, misc_io_service, &inter, net::ip::tcp::endpoint(net::ip::tcp::v4(), portListener), portConnect);
+		srv = new server(main_io_service, misc_io_service, &inter, net::ip::tcp::endpoint(net::ip::tcp::v4(), portListener));
 
 		form = new mainFrame(wxT("Messenger"));
 		form->Show();
