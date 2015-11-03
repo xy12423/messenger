@@ -48,7 +48,7 @@ bool frmAddrInput::CheckInput()
 	try
 	{
 		int port = std::stoi(textPort->GetValue().ToStdWstring());
-		if (port > 0 && port < UINT16_MAX)
+		if (port < 0 || port > UINT16_MAX)
 			return false;
 	}
 	catch (std::out_of_range &)

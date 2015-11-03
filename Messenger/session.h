@@ -7,6 +7,7 @@ typedef uint16_t key_length_type;
 typedef uint32_t data_length_type;
 
 typedef uint16_t port_type;
+typedef int32_t port_type_l;
 
 typedef int user_id_type;
 typedef uint64_t session_id_type;
@@ -20,10 +21,11 @@ class server;
 class pre_session : public std::enable_shared_from_this<pre_session>
 {
 public:
-	pre_session(server *_srv, port_type _local_port, net::io_service &main_io_srv, net::io_service &misc_io_srv)
-		:main_io_service(main_io_srv),
+	pre_session(server *_srv, port_type_l _local_port, net::io_service &main_io_srv, net::io_service &misc_io_srv, socket_ptr &&_socket)
+		:srv(_srv),
+		main_io_service(main_io_srv),
 		misc_io_service(misc_io_srv),
-		socket(std::make_shared<net::ip::tcp::socket>(main_io_service))
+		socket(_socket)
 	{
 		srv = _srv;
 		local_port = _local_port;
@@ -31,7 +33,7 @@ public:
 
 	~pre_session() { if (!passed) { exiting = true; socket->close(); } }
 
-	port_type get_port() const { return local_port; }
+	port_type_l get_port() const { return local_port; }
 	const std::string& get_key() const { return key_string; }
 
 	virtual void start() = 0;
@@ -64,42 +66,40 @@ protected:
 	socket_ptr socket;
 
 	server *srv;
-	port_type local_port;
+	port_type_l local_port;
 	volatile bool exiting = false, passed = false;
 };
 
 class pre_session_s :public pre_session
 {
 public:
-	pre_session_s(port_type local_port, const net::ip::tcp::endpoint& endpoint, server *_srv, net::io_service &io_srv, net::io_service &misc_io_srv)
-		:pre_session(_srv, local_port, io_srv, misc_io_srv),
-		acceptor(main_io_service, endpoint)
-	{}
+	pre_session_s(port_type_l local_port, socket_ptr &&_socket, server *_srv, net::io_service &main_io_srv, net::io_service &misc_io_srv)
+		:pre_session(_srv, local_port, main_io_srv, misc_io_srv, std::move(_socket))
+	{
+		start();
+	}
 
 	virtual void start();
 private:
 	virtual void stage1();
 	virtual void stage2();
 	virtual void sid_packet_done();
-
-	net::ip::tcp::acceptor acceptor;
 };
 
 class pre_session_c :public pre_session
 {
 public:
-	pre_session_c(port_type local_port, const net::ip::tcp::endpoint& endpoint, server *_srv, net::io_service &io_srv, net::io_service &misc_io_srv)
-		:pre_session(_srv, local_port, io_srv, misc_io_srv),
-		ep(endpoint)
-	{}
+	pre_session_c(port_type_l local_port, socket_ptr &&_socket, server *_srv, net::io_service &main_io_srv, net::io_service &misc_io_srv)
+		:pre_session(_srv, local_port, main_io_srv, misc_io_srv, std::move(_socket))
+	{
+		start();
+	}
 
 	virtual void start();
 private:
 	virtual void stage1() { read_key_header(); };
 	virtual void stage2();
 	virtual void sid_packet_done();
-
-	net::ip::tcp::endpoint ep;
 };
 
 class session
@@ -112,7 +112,7 @@ public:
 
 	typedef std::function<void()> write_callback;
 
-	session(server *_srv, port_type _local_port,
+	session(server *_srv, port_type_l _local_port,
 		net::io_service& _main_iosrv, net::io_service& _misc_iosrv,
 		socket_ptr &&_socket,
 		const std::string &_key_string,
@@ -140,7 +140,7 @@ public:
 
 	std::string get_address() const { return socket->remote_endpoint().address().to_string(); }
 	unsigned long get_address_ulong() const { return socket->remote_endpoint().address().to_v4().to_ulong(); }
-	port_type get_port() const { return local_port; }
+	port_type_l get_port() const { return local_port; }
 	const std::string& get_key() const { return key_string; }
 	session_id_type get_session_id() const { return session_id; };
 
@@ -180,7 +180,7 @@ private:
 	bool writing;
 
 	server *srv;
-	port_type local_port;
+	port_type_l local_port;
 	volatile bool exiting = false;
 };
 typedef std::shared_ptr<session> session_ptr;
@@ -206,13 +206,11 @@ public:
 	server(net::io_service& _main_io_service,
 		net::io_service& _misc_io_service,
 		server_interface *_inter,
-		net::ip::tcp::endpoint _local_endpoint,
-		port_type _local_port_connect
+		net::ip::tcp::endpoint _local_endpoint
 		)
 		: main_io_service(_main_io_service),
 		misc_io_service(_misc_io_service),
 		acceptor(main_io_service, _local_endpoint),
-		local_port_connect(_local_port_connect),
 		inter(_inter)
 	{
 		std::srand(static_cast<unsigned int>(std::time(NULL)));
@@ -262,8 +260,6 @@ private:
 	net::io_service &main_io_service, &misc_io_service;
 	socket_ptr accepting;
 	net::ip::tcp::acceptor acceptor;
-
-	port_type local_port_connect;
 
 	std::string e0str;
 	std::unordered_set<std::string> certifiedKeys;
