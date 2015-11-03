@@ -5,14 +5,14 @@
 
 enum modes{ RELAY, CENTER };
 
-const port_type portListener = 4826, portConnect = 4827;
+const port_type portConnect = 4826;
 
-struct user_log
+struct user_record
 {
 	enum group_type{ GUEST, USER, ADMIN };
 
-	user_log(){ group = GUEST; }
-	user_log(const std::string &_name, const std::string &_passwd, group_type _group) :
+	user_record(){ group = GUEST; }
+	user_record(const std::string &_name, const std::string &_passwd, group_type _group) :
 		name(_name), passwd(_passwd)
 	{
 		group = _group;
@@ -21,9 +21,9 @@ struct user_log
 	std::string name, passwd;
 	group_type group;
 };
-typedef std::unordered_map<std::string, user_log> user_log_list;
+typedef std::unordered_map<std::string, user_record> user_record_list;
 
-struct user_ext_data
+struct user_ext
 {
 	enum stage { LOGIN_NAME, LOGIN_PASS, LOGGED_IN };
 	stage current_stage = LOGIN_NAME;
@@ -34,7 +34,7 @@ struct user_ext_data
 	std::string recvFile;
 	int blockLast;
 };
-typedef std::unordered_map<int, user_ext_data> user_ext_list;
+typedef std::unordered_map<int, user_ext> user_ext_list;
 
 class cli_server_interface :public server_interface
 {
@@ -51,8 +51,11 @@ public:
 
 	void broadcast_msg(user_id_type id, const std::string &msg);
 	void broadcast_data(user_id_type id, const std::string &data, int priority);
-	void process_command(std::string cmd, user_log::group_type type);
+	void process_command(std::string cmd, user_record &user);
+
+	void set_static_port(port_type port) { static_port = port; };
 private:
+	int static_port = -1;
 	std::list<port_type> ports;
 };
 
