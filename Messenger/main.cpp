@@ -325,12 +325,20 @@ void mainFrame::buttonExportKey_Click(wxCommandEvent& event)
 
 void mainFrame::thread_Message(wxThreadEvent& event)
 {
-	user_id_type id = event.GetInt();
-	int answer = wxMessageBox(wxT("The public key from " + user_ext.at(id).addr + " hasn't shown before.Trust it?"), wxT("Confirm"), wxYES_NO);
-	if (answer != wxYES)
-		srv->disconnect(id);
+	int id = event.GetInt();
+	if (id == -1)
+	{
+		if (!IsActive())
+			RequestUserAttention();
+	}
 	else
-		srv->certify_key(event.GetPayload<std::string>());
+	{
+		int answer = wxMessageBox(wxT("The public key from " + user_ext.at(id).addr + " hasn't shown before.Trust it?"), wxT("Confirm"), wxYES_NO);
+		if (answer != wxYES)
+			srv->disconnect(id);
+		else
+			srv->certify_key(event.GetPayload<std::string>());
+	}
 }
 
 void mainFrame::mainFrame_Close(wxCloseEvent& event)

@@ -211,6 +211,7 @@ public:
 		: main_io_service(_main_io_service),
 		misc_io_service(_misc_io_service),
 		acceptor(main_io_service, _local_endpoint),
+		resolver(main_io_service),
 		inter(_inter)
 	{
 		std::srand(static_cast<unsigned int>(std::time(NULL)));
@@ -250,13 +251,15 @@ public:
 private:
 	void start();
 
-	void connect(const net::ip::address& addr, port_type remote_port);
+	void connect(const net::ip::tcp::endpoint &remote_endpoint);
+	void connect(const net::ip::tcp::resolver::query &query);
 
 	void read_data();
 	void write_data();
 
 	net::io_service &main_io_service, &misc_io_service;
 	net::ip::tcp::acceptor acceptor;
+	net::ip::tcp::resolver resolver;
 
 	std::string e0str;
 	std::unordered_set<std::string> certifiedKeys;

@@ -53,8 +53,9 @@ void wx_srv_interface::on_data(user_id_type id, const std::string &data)
 				else
 					frm->textInfo->AppendText("Received message from " + usr.addr + "\n");
 
-				if (!frm->HasFocus())
-					frm->RequestUserAttention();
+				wxThreadEvent *newEvent = new wxThreadEvent;
+				newEvent->SetInt(-1);
+				wxQueueEvent(frm, newEvent);
 
 				break;
 			}

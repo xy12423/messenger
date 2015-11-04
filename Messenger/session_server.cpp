@@ -135,22 +135,21 @@ bool server::send_data(user_id_type id, const std::string& data, int priority, s
 
 void server::connect(const std::string &addr_str, port_type remote_port)
 {
-	connect(net::ip::address::from_string(addr_str), remote_port);
+	connect({ addr_str, std::to_string(remote_port) });
 }
 
 void server::connect(unsigned long addr_ulong, port_type remote_port)
 {
-	connect(net::ip::address_v4(addr_ulong), remote_port);
+	connect(net::ip::tcp::endpoint(net::ip::address_v4(addr_ulong), remote_port));
 }
 
-void server::connect(const net::ip::address &addr, port_type remote_port)
+void server::connect(const net::ip::tcp::endpoint &remote_endpoint)
 {
 	port_type local_port;
 	if (!inter->new_rand_port(local_port))
 		std::cerr << "Socket:No port available" << std::endl;
 	else
 	{
-		net::ip::tcp::endpoint remote_endpoint(addr, remote_port);
 		socket_ptr socket = std::make_shared<net::ip::tcp::socket>(main_io_service);
 
 		socket->open(net::ip::tcp::v4());
@@ -166,7 +165,45 @@ void server::connect(const net::ip::address &addr, port_type remote_port)
 			else
 			{
 				std::cerr << "Socket Error:" << ec.message() << std::endl;
+				inter->free_rand_port(local_port);
 			}
+		});
+	}
+}
+
+void server::connect(const net::ip::tcp::resolver::query &query)
+{
+	port_type local_port;
+	if (!inter->new_rand_port(local_port))
+		std::cerr << "Socket:No port available" << std::endl;
+	else
+	{
+		resolver.async_resolve(query,
+			[this, local_port](const boost::system::error_code& ec, net::ip::tcp::resolver::iterator itr)
+		{
+			socket_ptr socket = std::make_shared<net::ip::tcp::socket>(main_io_service);
+
+			socket->open(net::ip::tcp::v4());
+			socket->bind(net::ip::tcp::endpoint(net::ip::tcp::v4(), local_port));
+			net::async_connect(*socket, itr, net::ip::tcp::resolver::iterator(),
+				[this, local_port, socket](boost::system::error_code ec, net::ip::tcp::resolver::iterator itr)
+			{
+				if (itr == net::ip::tcp::resolver::iterator())
+				{
+					std::cerr << "Can't connect to host" << std::endl;
+					inter->free_rand_port(local_port);
+				}
+				else if (ec)
+				{
+					std::cerr << "Socket Error:" << ec.message() << std::endl;
+					inter->free_rand_port(local_port);
+				}
+				else
+				{
+					std::shared_ptr<pre_session_c> pre_session_c_ptr(std::make_shared<pre_session_c>(local_port, socket, this, main_io_service, misc_io_service));
+					pre_sessions.emplace(pre_session_c_ptr);
+				}
+			});
 		});
 	}
 }
