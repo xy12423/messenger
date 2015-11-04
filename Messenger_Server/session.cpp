@@ -85,7 +85,7 @@ void pre_session::read_session_id_body(int check_level)
 				decrypt(raw_data, data);
 
 				std::string hash_recv(data, 0, hash_size), hash_real;
-				calcHash(data, hash_real, hash_size);
+				hash(data, hash_real, hash_size);
 				if (hash_recv != hash_real)
 				{
 					std::cerr << "Error:Hashing failed" << std::endl;
@@ -169,7 +169,7 @@ void pre_session::write_session_id()
 		hash_buf.append(reinterpret_cast<char*>(&session_id), sizeof(session_id_type));
 		hash_buf.append(reinterpret_cast<char*>(&rand_num), sizeof(rand_num_type));
 
-		calcHash(hash_buf, data_raw);
+		hash(hash_buf, data_raw);
 		data_raw.append(hash_buf);
 
 		encrypt(data_raw, data_encrypted, e1);
@@ -534,7 +534,7 @@ void session::write()
 		data_buf.append(reinterpret_cast<const char*>(&rand_num), sizeof(rand_num_type));
 		data_buf.append(write_itr->data);
 		
-		calcHash(data_buf, write_raw);
+		hash(data_buf, write_raw);
 		write_raw.append(data_buf);
 		encrypt(write_raw, write_data, e1);
 		insLen(write_data);

@@ -119,7 +119,7 @@ void cli_server_interface::on_data(user_id_type id, const std::string &data)
 							{
 								trim(msg);
 								std::string tmp;
-								calcHash(msg, tmp);
+								hash(msg, tmp);
 								if (itr->second.passwd == tmp)
 								{
 									broadcast_msg(-1, msg_new_user + usr.name + '(' + usr.addr + ')');
@@ -292,7 +292,7 @@ void cli_server_interface::process_command(std::string cmd, user_record &user)
 				trim(cmd);
 				trim(args);
 				std::string hashed_passwd;
-				calcHash(args, hashed_passwd);
+				hash(args, hashed_passwd);
 
 				user_record_list::iterator itr = user_records.find(cmd);
 				if (itr == user_records.end())
@@ -322,7 +322,7 @@ void cli_server_interface::process_command(std::string cmd, user_record &user)
 	else if (cmd == "changepass")
 	{
 		user.passwd.clear();
-		calcHash(args, user.passwd);
+		hash(args, user.passwd);
 		main_io_service.post([this]() {
 			write_config();
 		});

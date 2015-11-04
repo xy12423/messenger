@@ -21,7 +21,7 @@ class server;
 class pre_session : public std::enable_shared_from_this<pre_session>
 {
 public:
-	pre_session(server *_srv, port_type_l _local_port, net::io_service &main_io_srv, net::io_service &misc_io_srv, socket_ptr &&_socket)
+	pre_session(server *_srv, port_type_l _local_port, net::io_service &main_io_srv, net::io_service &misc_io_srv, const socket_ptr &_socket)
 		:srv(_srv),
 		main_io_service(main_io_srv),
 		misc_io_service(misc_io_srv),
@@ -73,8 +73,8 @@ protected:
 class pre_session_s :public pre_session
 {
 public:
-	pre_session_s(port_type_l local_port, socket_ptr &&_socket, server *_srv, net::io_service &main_io_srv, net::io_service &misc_io_srv)
-		:pre_session(_srv, local_port, main_io_srv, misc_io_srv, std::move(_socket))
+	pre_session_s(port_type_l local_port, const socket_ptr &_socket, server *_srv, net::io_service &main_io_srv, net::io_service &misc_io_srv)
+		:pre_session(_srv, local_port, main_io_srv, misc_io_srv, _socket)
 	{
 		start();
 	}
@@ -89,8 +89,8 @@ private:
 class pre_session_c :public pre_session
 {
 public:
-	pre_session_c(port_type_l local_port, socket_ptr &&_socket, server *_srv, net::io_service &main_io_srv, net::io_service &misc_io_srv)
-		:pre_session(_srv, local_port, main_io_srv, misc_io_srv, std::move(_socket))
+	pre_session_c(port_type_l local_port, const socket_ptr &_socket, server *_srv, net::io_service &main_io_srv, net::io_service &misc_io_srv)
+		:pre_session(_srv, local_port, main_io_srv, misc_io_srv, _socket)
 	{
 		start();
 	}
@@ -211,6 +211,7 @@ public:
 		: main_io_service(_main_io_service),
 		misc_io_service(_misc_io_service),
 		acceptor(main_io_service, _local_endpoint),
+		resolver(main_io_service),
 		inter(_inter)
 	{
 		std::srand(static_cast<unsigned int>(std::time(NULL)));
@@ -222,7 +223,6 @@ public:
 	{
 		closing = true;
 		acceptor.close();
-		accepting->close();
 		pre_sessions.clear();
 		sessions.clear();
 		write_data();
@@ -250,16 +250,16 @@ public:
 	bool check_key_connected(const std::string& key) { if (connectedKeys.find(key) == connectedKeys.end()) { connectedKeys.emplace(key); return false; } else return true; };
 private:
 	void start();
-	void accept(boost::system::error_code ec);
 
-	void connect(const net::ip::address& addr, port_type remote_port);
+	void connect(const net::ip::tcp::endpoint &remote_endpoint);
+	void connect(const net::ip::tcp::resolver::query &query);
 
 	void read_data();
 	void write_data();
 
 	net::io_service &main_io_service, &misc_io_service;
-	socket_ptr accepting;
 	net::ip::tcp::acceptor acceptor;
+	net::ip::tcp::resolver resolver;
 
 	std::string e0str;
 	std::unordered_set<std::string> certifiedKeys;
