@@ -261,7 +261,7 @@ void cli_server_interface::process_command(std::string cmd, user_record &user)
 	std::string args;
 	if (pos != std::string::npos)
 	{
-		args.assign(cmd, pos + 1);
+		args.assign(cmd, pos + 1, std::string::npos);
 		cmd.erase(pos);
 	}
 	trim(args);
