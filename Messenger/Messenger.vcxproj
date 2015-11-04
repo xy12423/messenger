@@ -107,6 +107,7 @@
     </ClCompile>
     <ClCompile Include="session.cpp" />
     <ClCompile Include="threads.cpp" />
+    <ClCompile Include="wx_srv_interface.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

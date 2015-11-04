@@ -17,25 +17,20 @@ void server::start()
 {
 	if (closing)
 		return;
-	accepting = std::make_shared<net::ip::tcp::socket>(main_io_service);
-	acceptor.async_accept(*accepting,
-		[this](boost::system::error_code ec) {
-		accept(ec);
+	socket_ptr socket = std::make_shared<net::ip::tcp::socket>(main_io_service);
+	acceptor.async_accept(*socket,
+		[this, socket](boost::system::error_code ec) {
+		if (closing)
+			return;
+		if (!ec)
+		{
+			std::shared_ptr<pre_session_s> pre_session_s_ptr(std::make_shared<pre_session_s>(-1, socket, this, main_io_service, misc_io_service));
+			pre_sessions.emplace(pre_session_s_ptr);
+		}
+
+		start();
 	}
 	);
-}
-
-void server::accept(error_code ec)
-{
-	if (closing)
-		return;
-	if (!ec)
-	{
-		std::shared_ptr<pre_session_s> pre_session_s_ptr(std::make_shared<pre_session_s>(-1, std::move(accepting), this, main_io_service, misc_io_service));
-		pre_sessions.emplace(pre_session_s_ptr);
-	}
-
-	start();
 }
 
 void server::pre_session_over(std::shared_ptr<pre_session> _pre, bool successful)
@@ -88,7 +83,7 @@ void server::on_data(user_id_type id, std::shared_ptr<std::string> data)
 		decrypt(*data, decrypted_data);
 		
 		std::string hash_recv(decrypted_data, 0, hash_size), hash_real;
-		calcHash(decrypted_data, hash_real, hash_size);
+		hash(decrypted_data, hash_real, hash_size);
 		if (hash_real != hash_recv)
 		{
 			std::cerr << "Error:Hashing failed" << std::endl;
@@ -165,8 +160,7 @@ void server::connect(const net::ip::address &addr, port_type remote_port)
 		{
 			if (!ec)
 			{
-				socket_ptr _socket(socket);
-				std::shared_ptr<pre_session_c> pre_session_c_ptr(std::make_shared<pre_session_c>(local_port, std::move(_socket), this, main_io_service, misc_io_service));
+				std::shared_ptr<pre_session_c> pre_session_c_ptr(std::make_shared<pre_session_c>(local_port, socket, this, main_io_service, misc_io_service));
 				pre_sessions.emplace(pre_session_c_ptr);
 			}
 			else
