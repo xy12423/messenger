@@ -29,11 +29,11 @@ EVT_CLOSE(mainFrame::mainFrame_Close)
 wxEND_EVENT_TABLE()
 
 #ifdef __WXMSW__
-#define _GUI_SIZE_X 620
-#define _GUI_SIZE_Y 560
+const int _GUI_SIZE_X = 620;
+const int _GUI_SIZE_Y = 560;
 #else
-#define _GUI_SIZE_X 600
-#define _GUI_SIZE_Y 540
+const int _GUI_SIZE_X = 600;
+const int _GUI_SIZE_Y = 540;
 #endif
 
 fileSendThread *threadFileSend;
@@ -41,7 +41,7 @@ fileSendThread *threadFileSend;
 server* srv;
 std::unordered_map<user_id_type, user_ext_data> user_ext;
 wx_srv_interface inter;
-net::io_service main_io_service, misc_io_service;
+asio::io_service main_io_service, misc_io_service;
 iosrvThread *threadNetwork, *threadMisc;
 
 void plugin_SendDataHandler(int to, const char* data, size_t size)
@@ -382,7 +382,7 @@ bool MyApp::OnInit()
 		
 		for (int i = 5001; i <= 10000; i++)
 			inter.free_rand_port(i);
-		srv = new server(main_io_service, misc_io_service, &inter, net::ip::tcp::endpoint(net::ip::tcp::v4(), portListener));
+		srv = new server(main_io_service, misc_io_service, inter, asio::ip::tcp::endpoint(asio::ip::tcp::v4(), portListener));
 
 		form = new mainFrame(wxT("Messenger"));
 		form->Show();

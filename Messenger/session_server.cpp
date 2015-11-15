@@ -17,7 +17,7 @@ void server::start()
 {
 	if (closing)
 		return;
-	socket_ptr socket = std::make_shared<net::ip::tcp::socket>(main_io_service);
+	socket_ptr socket = std::make_shared<asio::ip::tcp::socket>(main_io_service);
 	acceptor.async_accept(*socket,
 		[this, socket](boost::system::error_code ec) {
 		if (closing)
@@ -38,7 +38,7 @@ void server::pre_session_over(std::shared_ptr<pre_session> _pre, bool successful
 	if (!successful)
 	{
 		if (_pre->get_port() != -1)
-			inter->free_rand_port(_pre->get_port());
+			inter.free_rand_port(_pre->get_port());
 		connectedKeys.erase(_pre->get_key());
 	}
 	pre_sessions.erase(_pre);
@@ -50,7 +50,7 @@ user_id_type server::join(const session_ptr &_user)
 	nextID++;
 	sessions.emplace(newID, _user);
 
-	try{ inter->on_join(newID); }
+	try{ inter.on_join(newID); }
 	catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
 	catch (...) {}
 
@@ -65,12 +65,12 @@ void server::leave(user_id_type _user)
 	session_ptr this_session = itr->second;
 	this_session->shutdown();
 
-	try { inter->on_leave(_user); }
+	try { inter.on_leave(_user); }
 	catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
 	catch (...) {}
 
 	if (this_session->get_port() != -1)
-		inter->free_rand_port(this_session->get_port());
+		inter.free_rand_port(this_session->get_port());
 	connectedKeys.erase(this_session->get_key());
 	sessions.erase(itr);
 }
@@ -107,7 +107,7 @@ void server::on_data(user_id_type id, std::shared_ptr<std::string> data)
 		}
 		decrypted_data.erase(0, hash_size + sizeof(session_id_type) + sizeof(rand_num_type));
 
-		try { inter->on_data(id, decrypted_data); }
+		try { inter.on_data(id, decrypted_data); }
 		catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
 		catch (...) {}
 	});
@@ -140,20 +140,20 @@ void server::connect(const std::string &addr_str, port_type remote_port)
 
 void server::connect(unsigned long addr_ulong, port_type remote_port)
 {
-	connect(net::ip::tcp::endpoint(net::ip::address_v4(addr_ulong), remote_port));
+	connect(asio::ip::tcp::endpoint(asio::ip::address_v4(addr_ulong), remote_port));
 }
 
-void server::connect(const net::ip::tcp::endpoint &remote_endpoint)
+void server::connect(const asio::ip::tcp::endpoint &remote_endpoint)
 {
 	port_type local_port;
-	if (!inter->new_rand_port(local_port))
+	if (!inter.new_rand_port(local_port))
 		std::cerr << "Socket:No port available" << std::endl;
 	else
 	{
-		socket_ptr socket = std::make_shared<net::ip::tcp::socket>(main_io_service);
+		socket_ptr socket = std::make_shared<asio::ip::tcp::socket>(main_io_service);
 
-		socket->open(net::ip::tcp::v4());
-		socket->bind(net::ip::tcp::endpoint(net::ip::tcp::v4(), local_port));
+		socket->open(asio::ip::tcp::v4());
+		socket->bind(asio::ip::tcp::endpoint(asio::ip::tcp::v4(), local_port));
 		socket->async_connect(remote_endpoint,
 			[this, local_port, socket](boost::system::error_code ec)
 		{
@@ -165,38 +165,38 @@ void server::connect(const net::ip::tcp::endpoint &remote_endpoint)
 			else
 			{
 				std::cerr << "Socket Error:" << ec.message() << std::endl;
-				inter->free_rand_port(local_port);
+				inter.free_rand_port(local_port);
 			}
 		});
 	}
 }
 
-void server::connect(const net::ip::tcp::resolver::query &query)
+void server::connect(const asio::ip::tcp::resolver::query &query)
 {
 	port_type local_port;
-	if (!inter->new_rand_port(local_port))
+	if (!inter.new_rand_port(local_port))
 		std::cerr << "Socket:No port available" << std::endl;
 	else
 	{
 		resolver.async_resolve(query,
-			[this, local_port](const boost::system::error_code& ec, net::ip::tcp::resolver::iterator itr)
+			[this, local_port](const boost::system::error_code& ec, asio::ip::tcp::resolver::iterator itr)
 		{
-			socket_ptr socket = std::make_shared<net::ip::tcp::socket>(main_io_service);
+			socket_ptr socket = std::make_shared<asio::ip::tcp::socket>(main_io_service);
 
-			socket->open(net::ip::tcp::v4());
-			socket->bind(net::ip::tcp::endpoint(net::ip::tcp::v4(), local_port));
-			net::async_connect(*socket, itr, net::ip::tcp::resolver::iterator(),
-				[this, local_port, socket](boost::system::error_code ec, net::ip::tcp::resolver::iterator itr)
+			socket->open(asio::ip::tcp::v4());
+			socket->bind(asio::ip::tcp::endpoint(asio::ip::tcp::v4(), local_port));
+			asio::async_connect(*socket, itr, asio::ip::tcp::resolver::iterator(),
+				[this, local_port, socket](boost::system::error_code ec, asio::ip::tcp::resolver::iterator itr)
 			{
-				if (itr == net::ip::tcp::resolver::iterator())
+				if (itr == asio::ip::tcp::resolver::iterator())
 				{
 					std::cerr << "Can't connect to host" << std::endl;
-					inter->free_rand_port(local_port);
+					inter.free_rand_port(local_port);
 				}
 				else if (ec)
 				{
 					std::cerr << "Socket Error:" << ec.message() << std::endl;
-					inter->free_rand_port(local_port);
+					inter.free_rand_port(local_port);
 				}
 				else
 				{

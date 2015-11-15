@@ -10,7 +10,7 @@ const int checkInterval = 10;
 
 iosrvThread::ExitCode iosrvThread::Entry()
 {
-	iosrv_work = std::make_shared<net::io_service::work>(iosrv);
+	iosrv_work = std::make_shared<asio::io_service::work>(iosrv);
 	while (!TestDestroy())
 	{
 		try
@@ -103,7 +103,7 @@ void fileSendThread::write()
 
 fileSendThread::ExitCode fileSendThread::Entry()
 {
-	iosrv_work = std::make_shared<net::io_service::work>(iosrv);
+	iosrv_work = std::make_shared<asio::io_service::work>(iosrv);
 	while (!TestDestroy())
 	{
 		try

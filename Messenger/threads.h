@@ -6,12 +6,12 @@
 class iosrvThread :public wxThread
 {
 public:
-	iosrvThread(net::io_service& _iosrv) : wxThread(wxTHREAD_DETACHED), iosrv(_iosrv) {};
+	iosrvThread(asio::io_service& _iosrv) : wxThread(wxTHREAD_DETACHED), iosrv(_iosrv) {};
 
 	void stop() { iosrv_work.reset(); iosrv.stop(); }
 protected:
-	net::io_service& iosrv;
-	std::shared_ptr<net::io_service::work> iosrv_work;
+	asio::io_service& iosrv;
+	std::shared_ptr<asio::io_service::work> iosrv_work;
 
 	ExitCode Entry();
 };
@@ -51,8 +51,8 @@ private:
 	const int fileBlockLen = 0x80000;
 	std::unique_ptr<char[]> block = std::make_unique<char[]>(fileBlockLen);
 
-	net::io_service iosrv;
-	std::shared_ptr<net::io_service::work> iosrv_work;
+	asio::io_service iosrv;
+	std::shared_ptr<asio::io_service::work> iosrv_work;
 };
 
 struct user_ext_data

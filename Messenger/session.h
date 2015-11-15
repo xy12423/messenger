@@ -12,7 +12,7 @@ typedef int32_t port_type_l;
 typedef int user_id_type;
 typedef uint64_t session_id_type;
 
-typedef std::shared_ptr<net::ip::tcp::socket> socket_ptr;
+typedef std::shared_ptr<asio::ip::tcp::socket> socket_ptr;
 
 void insLen(std::string &data);
 
@@ -21,7 +21,7 @@ class server;
 class pre_session : public std::enable_shared_from_this<pre_session>
 {
 public:
-	pre_session(server *_srv, port_type_l _local_port, net::io_service &main_io_srv, net::io_service &misc_io_srv, const socket_ptr &_socket)
+	pre_session(server *_srv, port_type_l _local_port, asio::io_service &main_io_srv, asio::io_service &misc_io_srv, const socket_ptr &_socket)
 		:srv(_srv),
 		main_io_service(main_io_srv),
 		misc_io_service(misc_io_srv),
@@ -62,7 +62,7 @@ protected:
 	rand_num_type rand_num;
 	rand_num_type rand_num_send, rand_num_recv;
 
-	net::io_service &main_io_service, &misc_io_service;
+	asio::io_service &main_io_service, &misc_io_service;
 	socket_ptr socket;
 
 	server *srv;
@@ -73,7 +73,7 @@ protected:
 class pre_session_s :public pre_session
 {
 public:
-	pre_session_s(port_type_l local_port, const socket_ptr &_socket, server *_srv, net::io_service &main_io_srv, net::io_service &misc_io_srv)
+	pre_session_s(port_type_l local_port, const socket_ptr &_socket, server *_srv, asio::io_service &main_io_srv, asio::io_service &misc_io_srv)
 		:pre_session(_srv, local_port, main_io_srv, misc_io_srv, _socket)
 	{
 		start();
@@ -89,7 +89,7 @@ private:
 class pre_session_c :public pre_session
 {
 public:
-	pre_session_c(port_type_l local_port, const socket_ptr &_socket, server *_srv, net::io_service &main_io_srv, net::io_service &misc_io_srv)
+	pre_session_c(port_type_l local_port, const socket_ptr &_socket, server *_srv, asio::io_service &main_io_srv, asio::io_service &misc_io_srv)
 		:pre_session(_srv, local_port, main_io_srv, misc_io_srv, _socket)
 	{
 		start();
@@ -113,7 +113,7 @@ public:
 	typedef std::function<void()> write_callback;
 
 	session(server *_srv, port_type_l _local_port,
-		net::io_service& _main_iosrv, net::io_service& _misc_iosrv,
+		asio::io_service& _main_iosrv, asio::io_service& _misc_iosrv,
 		socket_ptr &&_socket,
 		const std::string &_key_string,
 		session_id_type _session_id, rand_num_type _rand_num_send, rand_num_type _rand_num_recv)
@@ -154,7 +154,7 @@ private:
 	void read_data(size_t sizeLast, std::shared_ptr<std::string> buf);
 	void write();
 
-	net::io_service &main_iosrv, &misc_iosrv;
+	asio::io_service &main_iosrv, &misc_iosrv;
 	socket_ptr socket;
 
 	std::string key_string;
@@ -203,10 +203,10 @@ public:
 class server
 {
 public:
-	server(net::io_service& _main_io_service,
-		net::io_service& _misc_io_service,
-		server_interface *_inter,
-		net::ip::tcp::endpoint _local_endpoint
+	server(asio::io_service& _main_io_service,
+		asio::io_service& _misc_io_service,
+		server_interface& _inter,
+		asio::ip::tcp::endpoint _local_endpoint
 		)
 		: main_io_service(_main_io_service),
 		misc_io_service(_misc_io_service),
@@ -217,6 +217,20 @@ public:
 		std::srand(static_cast<unsigned int>(std::time(NULL)));
 		read_data();
 		start();
+	}
+
+	server(asio::io_service& _main_io_service,
+		asio::io_service& _misc_io_service,
+		server_interface& _inter
+		)
+		: main_io_service(_main_io_service),
+		misc_io_service(_misc_io_service),
+		acceptor(main_io_service),
+		resolver(main_io_service),
+		inter(_inter)
+	{
+		std::srand(static_cast<unsigned int>(std::time(NULL)));
+		read_data();
 	}
 
 	~server()
@@ -245,21 +259,21 @@ public:
 	const session_ptr& get_session(user_id_type id) const { return sessions.at(id); }
 	const std::string& get_public_key() const { return e0str; }
 
-	void check_key(user_id_type id, const std::string& key) { if (certifiedKeys.find(key) == certifiedKeys.end()) inter->on_unknown_key(id, key); }
+	void check_key(user_id_type id, const std::string& key) { if (certifiedKeys.find(key) == certifiedKeys.end()) inter.on_unknown_key(id, key); }
 	void certify_key(const std::string& key) { certifiedKeys.emplace(key); }
 	bool check_key_connected(const std::string& key) { if (connectedKeys.find(key) == connectedKeys.end()) { connectedKeys.emplace(key); return false; } else return true; };
 private:
 	void start();
 
-	void connect(const net::ip::tcp::endpoint &remote_endpoint);
-	void connect(const net::ip::tcp::resolver::query &query);
+	void connect(const asio::ip::tcp::endpoint &remote_endpoint);
+	void connect(const asio::ip::tcp::resolver::query &query);
 
 	void read_data();
 	void write_data();
 
-	net::io_service &main_io_service, &misc_io_service;
-	net::ip::tcp::acceptor acceptor;
-	net::ip::tcp::resolver resolver;
+	asio::io_service &main_io_service, &misc_io_service;
+	asio::ip::tcp::acceptor acceptor;
+	asio::ip::tcp::resolver resolver;
 
 	std::string e0str;
 	std::unordered_set<std::string> certifiedKeys;
@@ -269,7 +283,7 @@ private:
 	sessionList sessions;
 	user_id_type nextID = 0;
 
-	server_interface *inter;
+	server_interface &inter;
 	volatile bool closing = false;
 };
 
