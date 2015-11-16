@@ -44,7 +44,7 @@ wx_srv_interface inter;
 asio::io_service main_io_service, misc_io_service;
 iosrvThread *threadNetwork, *threadMisc;
 
-void plugin_SendDataHandler(int to, const char* data, size_t size)
+void plugin_handler_SendData(int to, const char* data, size_t size)
 {
 	std::string data_str(data, size);
 	if (to == -1)
@@ -64,18 +64,28 @@ void plugin_SendDataHandler(int to, const char* data, size_t size)
 	}
 }
 
-void plugin_ConnectToHandler(uint32_t addr, uint16_t port)
+int plugin_handler_NewVirtualUser(plugin_id_type plugin_id, const char* name)
 {
-	srv->connect(addr, port);
+	return -1;
+}
+
+bool plugin_handler_DelVirtualUser(int plugin_id, uint16_t virtual_user_id)
+{
+	return false;
+}
+
+bool plugin_handler_VirtualUserMsg(uint16_t virtual_user_id, const char* message, uint32_t length)
+{
+	return false;
 }
 
 std::string uid_global;
-const char* plugin_api_GetUserID()
+const char* plugin_method_GetUserID()
 {
 	return uid_global.c_str();
 }
 
-void plugin_api_Print(const char* msg)
+void plugin_method_Print(const char* msg)
 {
 	std::cout << "Plugin:" << msg << std::endl;
 }
@@ -175,9 +185,15 @@ mainFrame::mainFrame(const wxString &title)
 
 	if (fs::exists(plugin_file_name))
 	{
+		plugin_init();
 		uid_global.assign(getUserIDGlobal());
-		set_method("GetUserID", reinterpret_cast<void*>(plugin_api_GetUserID));
-		set_method("Print", reinterpret_cast<void*>(plugin_api_Print));
+		set_method("GetUserID", reinterpret_cast<void*>(plugin_method_GetUserID));
+		set_method("Print", reinterpret_cast<void*>(plugin_method_Print));
+
+		set_handler(ExportHandlerID::SendDataHandler, reinterpret_cast<void*>(plugin_handler_SendData));
+		set_handler(ExportHandlerID::NewUserHandler, reinterpret_cast<void*>(plugin_handler_NewVirtualUser));
+		set_handler(ExportHandlerID::DelUserHandler, reinterpret_cast<void*>(plugin_handler_DelVirtualUser));
+		set_handler(ExportHandlerID::UserMsgHandler, reinterpret_cast<void*>(plugin_handler_VirtualUserMsg));
 
 		std::ifstream fin(plugin_file_name);
 		std::string plugin_name_utf8;

@@ -122,7 +122,7 @@ void wx_srv_interface::on_data(user_id_type id, const std::string &data)
 			default:
 			{
 				if ((type & 0x80) != 0)
-					plugin_on_data(id, type, dataItr, dataEnd);
+					plugin_on_data(id, type, dataItr, dataEnd - dataItr);
 				break;
 			}
 		}
