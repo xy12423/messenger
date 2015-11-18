@@ -64,7 +64,7 @@ private:
 	textStream *textStrm;
 	std::streambuf *cout_orig, *cerr_orig;
 
-	std::list<int> userIDs;
+	std::vector<int> userIDs;
 
 	wxDECLARE_EVENT_TABLE();
 };
@@ -97,6 +97,13 @@ public:
 	virtual int OnExit();
 private:
 	mainFrame *form;
+};
+
+struct plugin_info_type
+{
+	std::string name;
+	plugin_id_type plugin_id;
+	std::unordered_map<uint16_t, int> virtual_user_list;
 };
 
 extern const char* plugin_file_name;

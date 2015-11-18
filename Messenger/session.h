@@ -9,7 +9,7 @@ typedef uint32_t data_length_type;
 typedef uint16_t port_type;
 typedef int32_t port_type_l;
 
-typedef int user_id_type;
+typedef uint16_t user_id_type;
 typedef uint64_t session_id_type;
 
 typedef std::shared_ptr<asio::ip::tcp::socket> socket_ptr;
@@ -102,7 +102,7 @@ private:
 	virtual void sid_packet_done();
 };
 
-class session
+class session : public std::enable_shared_from_this<session>
 {
 public:
 	static const int priority_sys = 30;
@@ -128,31 +128,30 @@ public:
 
 	~session()
 	{
-		exiting = true;
-		socket->close();
+		if (!exiting)
+			shutdown();
 	}
 
 	void start();
 	void send(const std::string& data, int priority, write_callback &&callback);
 	void stop_file_transfer();
 
-	void shutdown() { socket->shutdown(socket->shutdown_both); }
+	void shutdown() { exiting = true; socket->shutdown(socket->shutdown_both); socket->close(); }
 
 	std::string get_address() const { return socket->remote_endpoint().address().to_string(); }
-	unsigned long get_address_ulong() const { return socket->remote_endpoint().address().to_v4().to_ulong(); }
 	port_type_l get_port() const { return local_port; }
 	const std::string& get_key() const { return key_string; }
-	session_id_type get_session_id() const { return session_id; };
-
-	inline rand_num_type get_rand_num_send() { if (rand_num_send == std::numeric_limits<rand_num_type>::max()) rand_num_send = 0; else rand_num_send++; return rand_num_send; };
-	inline rand_num_type get_rand_num_recv() { if (rand_num_recv == std::numeric_limits<rand_num_type>::max()) rand_num_recv = 0; else rand_num_recv++; return rand_num_recv; };
 
 	friend class pre_session_s;
 	friend class pre_session_c;
 private:
 	void read_header();
 	void read_data(size_t sizeLast, std::shared_ptr<std::string> buf);
+	void process_data(std::shared_ptr<std::string> buf);
 	void write();
+
+	inline rand_num_type get_rand_num_send() { if (rand_num_send == std::numeric_limits<rand_num_type>::max()) rand_num_send = 0; else rand_num_send++; return rand_num_send; };
+	inline rand_num_type get_rand_num_recv() { if (rand_num_recv == std::numeric_limits<rand_num_type>::max()) rand_num_recv = 0; else rand_num_recv++; return rand_num_recv; };
 
 	asio::io_service &main_iosrv, &misc_iosrv;
 	socket_ptr socket;

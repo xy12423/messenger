@@ -407,12 +407,13 @@ void session::start()
 
 void session::send(const std::string& data, int priority, write_callback &&callback)
 {
+	session_ptr self = shared_from_this();
 	if (data.empty())
 		return;
 	
 	write_task new_task(data, priority, std::move(callback));
 
-	main_iosrv.post([new_task, priority, this]() {
+	main_iosrv.post([this, self, new_task, priority]() {
 		bool write_not_in_progress = write_que.empty();
 
 		write_que_tp::iterator itr = write_que.begin(), itrEnd = write_que.end();
@@ -452,10 +453,11 @@ void session::read_header()
 {
 	try
 	{
+		session_ptr self = shared_from_this();
 		asio::async_read(*socket,
 			asio::buffer(read_msg_buffer.get(), sizeof(data_length_type)),
 			asio::transfer_exactly(sizeof(data_length_type)),
-			[this](boost::system::error_code ec, std::size_t length)
+			[this, self](boost::system::error_code ec, std::size_t length)
 		{
 			if (!ec)
 			{
@@ -466,7 +468,8 @@ void session::read_header()
 			{
 				if (!exiting)
 				{
-					std::cerr << "Socket Error:" << ec.message() << std::endl;
+					if (length != 0)
+						std::cerr << "Socket Error:" << ec.message() << std::endl;
 					srv->leave(id);
 				}
 			}
@@ -486,12 +489,13 @@ void session::read_data(size_t size_last, std::shared_ptr<std::string> buf)
 {
 	try
 	{
+		session_ptr self = shared_from_this();
 		if (size_last > msg_buffer_size)
 		{
 			asio::async_read(*socket,
 				asio::buffer(read_msg_buffer.get(), msg_buffer_size),
 				asio::transfer_exactly(msg_buffer_size),
-				[this, size_last, buf](boost::system::error_code ec, std::size_t length)
+				[this, self, size_last, buf](boost::system::error_code ec, std::size_t length)
 			{
 				if (!ec)
 				{
@@ -513,12 +517,12 @@ void session::read_data(size_t size_last, std::shared_ptr<std::string> buf)
 			asio::async_read(*socket,
 				asio::buffer(read_msg_buffer.get(), size_last),
 				asio::transfer_exactly(size_last),
-				[this, buf](boost::system::error_code ec, std::size_t length)
+				[this, self, buf](boost::system::error_code ec, std::size_t length)
 			{
 				if (!ec)
 				{
 					buf->append(read_msg_buffer.get(), length);
-					srv->on_data(id, buf);
+					process_data(buf);
 					start();
 				}
 				else
@@ -542,8 +546,51 @@ void session::read_data(size_t size_last, std::shared_ptr<std::string> buf)
 	}
 }
 
+void session::process_data(std::shared_ptr<std::string> buf)
+{
+	session_ptr self = shared_from_this();
+
+	misc_iosrv.post([this, self, buf]() {
+		std::string decrypted_data;
+		decrypt(*buf, decrypted_data);
+		std::string hash_real;
+		hash(decrypted_data, hash_real, hash_size);
+		buf->assign(std::move(decrypted_data));
+
+		main_iosrv.post([this, self, buf, hash_real]() {
+			std::string hash_recv(*buf, 0, hash_size);
+			if (hash_real != hash_recv)
+			{
+				std::cerr << "Error:Hashing failed" << std::endl;
+				srv->leave(id);
+				return;
+			}
+
+			if (*reinterpret_cast<const session_id_type*>(buf->data() + hash_size) != session_id)
+			{
+				std::cerr << "Error:Checking failed" << std::endl;
+				srv->leave(id);
+				return;
+			}
+
+			rand_num_type rand_num = boost::endian::native_to_little<rand_num_type>(get_rand_num_recv());
+			if (*reinterpret_cast<const rand_num_type*>(buf->data() + hash_size + sizeof(session_id_type)) != rand_num)
+			{
+				std::cerr << "Error:Checking failed" << std::endl;
+				srv->leave(id);
+				return;
+			}
+			buf->erase(0, hash_size + sizeof(session_id_type) + sizeof(rand_num_type));
+			
+			srv->on_data(id, buf);
+		});
+	});
+}
+
 void session::write()
 {
+	session_ptr self = shared_from_this();
+
 	write_que_tp::iterator write_itr = write_que.begin(), write_que_end = write_que.end();
 	while (write_itr->data.empty())
 	{
@@ -554,7 +601,7 @@ void session::write()
 	}
 	rand_num_type rand_num = boost::endian::native_to_little<rand_num_type>(get_rand_num_send());
 
-	misc_iosrv.post([this, write_itr, rand_num]() {
+	misc_iosrv.post([this, self, write_itr, rand_num]() {
 		//data_buf:data with sid and sn; write_raw:data_buf with Hash; write_data:encrypted data, ready for sending
 		std::string data_buf, write_raw, write_data;
 		data_buf.reserve(sizeof(session_id_type) + sizeof(rand_num_type) + write_itr->data.size());
@@ -570,7 +617,7 @@ void session::write()
 
 		asio::async_write(*socket,
 			asio::buffer(write_itr->data),
-			[this, write_itr](boost::system::error_code ec, std::size_t /*length*/)
+			[this, self, write_itr](boost::system::error_code ec, std::size_t /*length*/)
 		{
 			if (!ec)
 			{

@@ -5,7 +5,7 @@
 #include "main.h"
 
 extern server* srv;
-extern std::unordered_map<user_id_type, user_ext_data> user_ext;
+extern std::unordered_map<user_id_type, user_ext_type> user_ext;
 
 #define checkErr(x) if (dataItr + (x) > dataEnd) throw(0)
 #define read_uint(x)													\
@@ -19,7 +19,7 @@ void wx_srv_interface::on_data(user_id_type id, const std::string &data)
 	{
 		const size_t sizeof_data_length = sizeof(data_length_type);
 		const char *dataItr = data.data(), *dataEnd = data.data() + data.size();
-		user_ext_data &usr = user_ext.at(id);
+		user_ext_type &usr = user_ext.at(id);
 
 		byte type;
 		checkErr(1);
@@ -43,9 +43,7 @@ void wx_srv_interface::on_data(user_id_type id, const std::string &data)
 				usr.log.append(msg);
 				if (frm->listUser->GetSelection() != -1)
 				{
-					std::list<int>::iterator itr = frm->userIDs.begin();
-					for (int i = frm->listUser->GetSelection(); i > 0; itr++)i--;
-					if (id == *itr)
+					if (id == frm->userIDs[frm->listUser->GetSelection()])
 						frm->textMsg->AppendText(msg);
 					else
 						frm->textInfo->AppendText("Received message from " + usr.addr + "\n");
@@ -147,7 +145,7 @@ void wx_srv_interface::on_join(user_id_type id)
 {
 	if (frm == nullptr)
 		return;
-	user_ext_data &ext = user_ext.emplace(id, user_ext_data()).first->second;
+	user_ext_type &ext = user_ext.emplace(id, user_ext_type()).first->second;
 	std::string addr = srv->get_session(id)->get_address();
 	ext.addr = wxConvLocal.cMB2WC(addr.c_str());
 
@@ -162,7 +160,7 @@ void wx_srv_interface::on_leave(user_id_type id)
 	if (frm == nullptr)
 		return;
 	int i = 0;
-	std::list<int>::iterator itr = frm->userIDs.begin(), itrEnd = frm->userIDs.end();
+	std::vector<int>::iterator itr = frm->userIDs.begin(), itrEnd = frm->userIDs.end();
 	for (; itr != itrEnd && *itr != id; itr++)i++;
 	if (frm->listUser->GetSelection() == i)
 		frm->textMsg->SetValue(wxEmptyString);

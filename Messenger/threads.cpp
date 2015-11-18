@@ -4,7 +4,7 @@
 #include "threads.h"
 
 extern server *srv;
-extern std::unordered_map<int, user_ext_data> user_ext;
+extern std::unordered_map<user_id_type, user_ext_type> user_ext;
 
 const int checkInterval = 10;
 

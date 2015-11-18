@@ -16,6 +16,7 @@ struct TypeReg
 	bool used = false;
 	OnDataPtr callback = nullptr;
 	uint8_t redirect;
+	plugin_id_type plugin_id;
 } TypeRegs[0x80];
 std::list<plugin_id_type> free_plugin_id;
 
@@ -41,13 +42,14 @@ std::wstring ExportFuncName[ExportFuncCount] = {
 const int ExportHandlerCount = ExportHandlerID::ExportHandlerCount;
 std::wstring ExportHandlerName[ExportHandlerCount] = {
 	wxT("SendDataHandler"),
+	wxT("ConnectToHandler"),
 	wxT("NewUserHandler"),
 	wxT("DelUserHandler"),
 	wxT("UserMsgHandler"),
 };
 void *ExportHandlers[ExportHandlerCount];
 
-std::unordered_map<plugin_id_type, lib_ptr> plugins;
+std::unordered_set<lib_ptr> plugins;
 std::unordered_map<std::string, void*> plugin_methods;
 
 void* plugin_GetMethodHandler(const char* method_name)
@@ -70,7 +72,7 @@ bool new_plugin_id(std::list<plugin_id_type>::iterator &ret)
 
 void plugin_init()
 {
-	for (int i = 0; i <= 0xFFF; i++)
+	for (int i = 0; i <= (RAND_MAX < 0xFFF ? RAND_MAX : 0xFFF); i++)
 		free_plugin_id.push_back(i);
 }
 
@@ -92,11 +94,12 @@ void set_handler(unsigned int id, void* handler)
 int load_plugin(const std::wstring &plugin_full_path)
 {
 	std::list<plugin_id_type>::iterator plugin_id_itr;
+	plugin_id_type plugin_id;
 	try
 	{
 		lib_ptr plugin = std::make_unique<wxDynamicLibrary>(plugin_full_path);
 		if (!plugin->IsLoaded())
-			return -1;	//Plugin not loaded
+			throw(-1);	//Plugin not loaded
 
 		//Load basic symbols
 		void *ExportFuncPtr[ExportFuncCount];
@@ -104,7 +107,7 @@ int load_plugin(const std::wstring &plugin_full_path)
 		{
 			ExportFuncPtr[i] = plugin->GetSymbol(ExportFuncName[i]);
 			if (ExportFuncPtr[i] == nullptr)
-				return -1;	//Symbol not found
+				throw(-1);	//Symbol not found
 		}
 		RegNextTypePtr regType = reinterpret_cast<RegNextTypePtr>(ExportFuncPtr[RegNextType]);
 		RegNextMethodPtr regMethod = reinterpret_cast<RegNextMethodPtr>(ExportFuncPtr[RegNextMethod]);
@@ -112,8 +115,9 @@ int load_plugin(const std::wstring &plugin_full_path)
 
 		//Alloc new plugin id
 		if (!new_plugin_id(plugin_id_itr))
-			return -1;	//No more plugin id
-		reinterpret_cast<RegPluginPtr>(ExportFuncPtr[RegPlugin])(*plugin_id_itr);
+			throw(-1);	//No more plugin id
+		plugin_id = *plugin_id_itr;
+		reinterpret_cast<RegPluginPtr>(ExportFuncPtr[RegPlugin])(plugin_id);
 		reinterpret_cast<SetGetMethodHandlerPtr>(ExportFuncPtr[SetGetMethodHandler])(plugin_GetMethodHandler);
 
 		//Get methods
@@ -124,11 +128,11 @@ int load_plugin(const std::wstring &plugin_full_path)
 		while (nextMethodCStr != nullptr && !(nextMethod.assign(nextMethodCStr)).empty())
 		{
 			if (plugin_methods.find(nextMethod) != itrEnd)
-				return -1;	//Confliction
+				throw(-1);	//Confliction
 
 			void* nextMethodPtr = plugin->GetSymbol(nextMethod);
 			if (nextMethodPtr == nullptr)
-				return -1;	//Method not found
+				throw(-1);	//Method not found
 
 			methods.emplace(nextMethod, nextMethodPtr);
 			nextMethodCStr = regMethod();
@@ -141,7 +145,7 @@ int load_plugin(const std::wstring &plugin_full_path)
 		{
 			nextType &= 0x7F;
 			if (TypeRegs[nextType].used)
-				return -1;	//Confliction
+				throw(-1);	//Confliction
 			types.emplace(nextType);
 			nextType = regType();
 		}
@@ -151,7 +155,7 @@ int load_plugin(const std::wstring &plugin_full_path)
 		{
 			SetHandlerPtr SetHandler = reinterpret_cast<SetHandlerPtr>(plugin->GetSymbol(wxT("Set") + ExportHandlerName[i]));
 			if (SetHandler == nullptr)
-				return -1;	//Symbol not found
+				throw(-1);	//Symbol not found
 			SetHandler(ExportHandlers[i]);
 		}
 
@@ -159,13 +163,14 @@ int load_plugin(const std::wstring &plugin_full_path)
 		std::for_each(methods.begin(), methods.end(), [](const std::pair<std::string, void*> &method) {
 			plugin_methods.emplace(method);
 		});
-		std::for_each(types.begin(), types.end(), [callback](uint8_t type) {
+		std::for_each(types.begin(), types.end(), [callback, plugin_id](uint8_t type) {
 			TypeRegs[type].used = true;
 			TypeRegs[type].callback = callback;
 			TypeRegs[type].redirect = type | 0x80;
+			TypeRegs[type].plugin_id = plugin_id;
 		});
 
-		plugins.emplace(*plugin_id_itr, std::move(plugin));
+		plugins.emplace(std::move(plugin));
 
 		std::cout << "Plugin loaded:" << wxConvLocal.cWC2MB(plugin_full_path.c_str()) << std::endl;
 	}
@@ -174,10 +179,15 @@ int load_plugin(const std::wstring &plugin_full_path)
 		std::cerr << ex.what() << std::endl;
 		return -1;
 	}
+	catch (int) { return -1; }
 	
-	plugin_id_type plugin_id = *plugin_id_itr;
 	free_plugin_id.erase(plugin_id_itr);
 	return plugin_id;
+}
+
+bool plugin_check_id_type(uint16_t plugin_id, uint8_t type)
+{
+	return (type & 0x80) && (TypeRegs[type & 0x7F].plugin_id == plugin_id);
 }
 
 void plugin_on_data(int from, uint8_t type, const char* data, uint32_t len)

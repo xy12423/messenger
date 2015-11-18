@@ -55,13 +55,15 @@ private:
 	std::shared_ptr<asio::io_service::work> iosrv_work;
 };
 
-struct user_ext_data
+struct user_ext_type
 {
 	std::wstring addr;
 	wxString log;
 
 	std::string recvFile;
 	int blockLast;
+
+	bool isVirtual = false;
 };
 
 static const uint8_t pac_type_msg = 0x00;

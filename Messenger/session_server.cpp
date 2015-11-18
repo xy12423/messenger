@@ -79,35 +79,7 @@ void server::on_data(user_id_type id, std::shared_ptr<std::string> data)
 {
 	session_ptr this_session = sessions[id];
 	misc_io_service.post([this, id, data, this_session]() {
-		std::string decrypted_data;
-		decrypt(*data, decrypted_data);
-		
-		std::string hash_recv(decrypted_data, 0, hash_size), hash_real;
-		hash(decrypted_data, hash_real, hash_size);
-		if (hash_real != hash_recv)
-		{
-			std::cerr << "Error:Hashing failed" << std::endl;
-			leave(id);
-			return;
-		}
-
-		if (*reinterpret_cast<const session_id_type*>(decrypted_data.data() + hash_size) != this_session->get_session_id())
-		{
-			std::cerr << "Error:Checking failed" << std::endl;
-			leave(id);
-			return;
-		}
-
-		rand_num_type rand_num = boost::endian::native_to_little<rand_num_type>(this_session->get_rand_num_recv());
-		if (*reinterpret_cast<const rand_num_type*>(decrypted_data.data() + hash_size + sizeof(session_id_type)) != rand_num)
-		{
-			std::cerr << "Error:Checking failed" << std::endl;
-			leave(id);
-			return;
-		}
-		decrypted_data.erase(0, hash_size + sizeof(session_id_type) + sizeof(rand_num_type));
-
-		try { inter.on_data(id, decrypted_data); }
+		try { inter.on_data(id, *data); }
 		catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
 		catch (...) {}
 	});

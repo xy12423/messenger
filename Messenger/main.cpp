@@ -39,17 +39,20 @@ const int _GUI_SIZE_Y = 540;
 fileSendThread *threadFileSend;
 
 server* srv;
-std::unordered_map<user_id_type, user_ext_data> user_ext;
+std::unordered_map<user_id_type, user_ext_type> user_ext;
 wx_srv_interface inter;
 asio::io_service main_io_service, misc_io_service;
 iosrvThread *threadNetwork, *threadMisc;
+std::unordered_map<plugin_id_type, plugin_info_type> plugin_info;
 
-void plugin_handler_SendData(int to, const char* data, size_t size)
+void plugin_handler_SendData(plugin_id_type plugin_id, int to, const char* data, size_t size)
 {
+	if (!plugin_check_id_type(plugin_id, *data))
+		return;
 	std::string data_str(data, size);
 	if (to == -1)
 	{
-		std::for_each(user_ext.begin(), user_ext.end(), [&data_str](const std::pair<user_id_type, user_ext_data> &p) {
+		std::for_each(user_ext.begin(), user_ext.end(), [&data_str](const std::pair<user_id_type, user_ext_type> &p) {
 			user_id_type id = p.first;
 			misc_io_service.post([id, data_str]() {
 				srv->send_data(id, data_str, session::priority_plugin);
@@ -64,12 +67,17 @@ void plugin_handler_SendData(int to, const char* data, size_t size)
 	}
 }
 
+void plugin_handler_ConnectTo(uint32_t addr, uint16_t port)
+{
+	srv->connect(addr, port);
+}
+
 int plugin_handler_NewVirtualUser(plugin_id_type plugin_id, const char* name)
 {
 	return -1;
 }
 
-bool plugin_handler_DelVirtualUser(int plugin_id, uint16_t virtual_user_id)
+bool plugin_handler_DelVirtualUser(plugin_id_type plugin_id, uint16_t virtual_user_id)
 {
 	return false;
 }
@@ -85,7 +93,7 @@ const char* plugin_method_GetUserID()
 	return uid_global.c_str();
 }
 
-void plugin_method_Print(const char* msg)
+void plugin_method_Print(plugin_id_type plugin_id, const char* msg)
 {
 	std::cout << "Plugin:" << msg << std::endl;
 }
@@ -191,19 +199,23 @@ mainFrame::mainFrame(const wxString &title)
 		set_method("Print", reinterpret_cast<void*>(plugin_method_Print));
 
 		set_handler(ExportHandlerID::SendDataHandler, reinterpret_cast<void*>(plugin_handler_SendData));
+		set_handler(ExportHandlerID::ConnectToHandler, reinterpret_cast<void*>(plugin_handler_ConnectTo));
 		set_handler(ExportHandlerID::NewUserHandler, reinterpret_cast<void*>(plugin_handler_NewVirtualUser));
 		set_handler(ExportHandlerID::DelUserHandler, reinterpret_cast<void*>(plugin_handler_DelVirtualUser));
 		set_handler(ExportHandlerID::UserMsgHandler, reinterpret_cast<void*>(plugin_handler_VirtualUserMsg));
 
 		std::ifstream fin(plugin_file_name);
-		std::string plugin_name_utf8;
+		std::string plugin_path_utf8;
 		while (!fin.eof())
 		{
-			std::getline(fin, plugin_name_utf8);
-			if (!plugin_name_utf8.empty())
+			std::getline(fin, plugin_path_utf8);
+			if (!plugin_path_utf8.empty())
 			{
-				std::wstring plugin_name(wxConvUTF8.cMB2WC(plugin_name_utf8.c_str()));
-				load_plugin(plugin_name);
+				std::wstring plugin_path(wxConvUTF8.cMB2WC(plugin_path_utf8.c_str()));
+				plugin_id_type plugin_id = load_plugin(plugin_path);
+				plugin_info_type &info = plugin_info.emplace(plugin_id, plugin_info_type()).first->second;
+				info.name = fs::path(plugin_path).filename().string();
+				info.plugin_id = plugin_id;
 			}
 		}
 	}
@@ -211,9 +223,7 @@ mainFrame::mainFrame(const wxString &title)
 
 void mainFrame::listUser_SelectedIndexChanged(wxCommandEvent& event)
 {
-	std::list<int>::iterator itr = userIDs.begin();
-	for (int i = listUser->GetSelection(); i > 0; i--)itr++;
-	int uID = *itr;
+	int uID = userIDs[listUser->GetSelection()];
 	textMsg->SetValue(user_ext[uID].log);
 	textMsg->ShowPosition(user_ext[uID].log.size());
 }
@@ -237,12 +247,7 @@ void mainFrame::buttonDel_Click(wxCommandEvent& event)
 {
 	int selection = listUser->GetSelection();
 	if (selection != -1)
-	{
-		std::list<int>::iterator itr = userIDs.begin();
-		for (int i = selection; i > 0; itr++)i--;
-
-		srv->disconnect(*itr);
-	}
+		srv->disconnect(userIDs[selection]);
 }
 
 void mainFrame::buttonSend_Click(wxCommandEvent& event)
@@ -255,9 +260,7 @@ void mainFrame::buttonSend_Click(wxCommandEvent& event)
 		{
 			wxCharBuffer buf = wxConvUTF8.cWC2MB(msg.c_str());
 			std::string msgutf8(buf, buf.length());
-			std::list<int>::iterator itr = userIDs.begin();
-			for (int i = listUser->GetSelection(); i > 0; itr++)i--;
-			int uID = *itr;
+			int uID = userIDs[listUser->GetSelection()];
 			insLen(msgutf8);
 			msgutf8.insert(0, 1, pac_type_msg);
 			misc_io_service.post([uID, msgutf8]() {
@@ -278,9 +281,7 @@ void mainFrame::buttonSendFile_Click(wxCommandEvent& event)
 	{
 		if (listUser->GetSelection() != -1)
 		{
-			std::list<int>::iterator itr = userIDs.begin();
-			for (int i = listUser->GetSelection(); i > 0; itr++)i--;
-			int uID = *itr;
+			int uID = userIDs[listUser->GetSelection()];
 			threadFileSend->start(uID, fs::path(path));
 		}
 	}
@@ -290,9 +291,7 @@ void mainFrame::buttonCancelSend_Click(wxCommandEvent& event)
 {
 	if (listUser->GetSelection() != -1)
 	{
-		std::list<int>::iterator itr = userIDs.begin();
-		for (int i = listUser->GetSelection(); i > 0; itr++)i--;
-		int uID = *itr;
+		int uID = userIDs[listUser->GetSelection()];
 		threadFileSend->stop(uID);
 		srv->get_session(uID)->stop_file_transfer();
 	}
