@@ -138,6 +138,28 @@ protected:
 typedef std::shared_ptr<session_base> session_ptr;
 typedef std::unordered_map<user_id_type, session_ptr> session_list_type;
 
+class virtual_session :public session_base
+{
+public:
+	typedef std::function<void(const std::string &)> on_data_callback;
+
+	virtual_session(server *_srv, const std::string &_name, on_data_callback &&_callback)
+		:session_base(_srv, port_null, ""), name(_name), on_data(_callback)
+	{}
+
+	void start() {};
+	void shutdown() {};
+
+	void send(const std::string& data, int priority, write_callback &&callback);
+
+	void push(const std::string& data);
+
+	std::string get_address() const { return name; }
+private:
+	std::string name;
+	on_data_callback on_data;
+};
+
 class session : public session_base
 {
 public:

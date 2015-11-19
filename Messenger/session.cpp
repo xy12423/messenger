@@ -400,6 +400,17 @@ void pre_session_c::sid_packet_done()
 	}
 }
 
+void virtual_session::send(const std::string& data, int priority, write_callback &&callback)
+{
+	on_data(data);
+	callback();
+}
+
+void virtual_session::push(const std::string& data)
+{
+	srv->on_data(uid, std::make_shared<std::string>(data));
+}
+
 void session::start()
 {
 	read_header();
