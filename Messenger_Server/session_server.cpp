@@ -17,65 +17,60 @@ void server::start()
 {
 	if (closing)
 		return;
-	accepting = std::make_shared<net::ip::tcp::socket>(main_io_service);
-	acceptor.async_accept(*accepting,
-		[this](boost::system::error_code ec) {
-		accept(ec);
+	socket_ptr socket = std::make_shared<asio::ip::tcp::socket>(main_io_service);
+	acceptor.async_accept(*socket,
+		[this, socket](boost::system::error_code ec) {
+		if (closing)
+			return;
+		if (!ec)
+		{
+			std::shared_ptr<pre_session_s> pre_session_s_ptr(std::make_shared<pre_session_s>(port_null, socket, this, main_io_service, misc_io_service));
+			pre_sessions.emplace(pre_session_s_ptr);
+		}
+
+		start();
 	}
 	);
-}
-
-void server::accept(error_code ec)
-{
-	if (closing)
-		return;
-	if (!ec)
-	{
-		std::shared_ptr<pre_session_s> pre_session_s_ptr(std::make_shared<pre_session_s>(-1, std::move(accepting), this, main_io_service, misc_io_service));
-		pre_sessions.emplace(pre_session_s_ptr);
-	}
-
-	start();
 }
 
 void server::pre_session_over(std::shared_ptr<pre_session> _pre, bool successful)
 {
 	if (!successful)
 	{
-		if (_pre->get_port() != -1)
-			inter->free_rand_port(_pre->get_port());
+		if (_pre->get_port() != port_null)
+			inter.free_rand_port(_pre->get_port());
 		connectedKeys.erase(_pre->get_key());
 	}
 	pre_sessions.erase(_pre);
 }
 
-user_id_type server::join(const session_ptr &_user)
+void server::join(const session_ptr &_user)
 {
 	user_id_type newID = nextID;
 	nextID++;
 	sessions.emplace(newID, _user);
 
-	try{ inter->on_join(newID); }
+	try{ inter.on_join(newID); }
 	catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
 	catch (...) {}
 
-	return newID;
+	_user->uid = newID;
 }
 
 void server::leave(user_id_type _user)
 {
-	sessionList::iterator itr(sessions.find(_user));
+	session_list_type::iterator itr(sessions.find(_user));
 	if (itr == sessions.end())
 		return;
 	session_ptr this_session = itr->second;
 	this_session->shutdown();
 
-	try { inter->on_leave(_user); }
+	try { inter.on_leave(_user); }
 	catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
 	catch (...) {}
 
-	if (this_session->get_port() != -1)
-		inter->free_rand_port(this_session->get_port());
+	if (this_session->get_port() != port_null)
+		inter.free_rand_port(this_session->get_port());
 	connectedKeys.erase(this_session->get_key());
 	sessions.erase(itr);
 }
@@ -84,35 +79,7 @@ void server::on_data(user_id_type id, std::shared_ptr<std::string> data)
 {
 	session_ptr this_session = sessions[id];
 	misc_io_service.post([this, id, data, this_session]() {
-		std::string decrypted_data;
-		decrypt(*data, decrypted_data);
-		
-		std::string hash_recv(decrypted_data, 0, hash_size), hash_real;
-		calcHash(decrypted_data, hash_real, hash_size);
-		if (hash_real != hash_recv)
-		{
-			std::cerr << "Error:Hashing failed" << std::endl;
-			leave(id);
-			return;
-		}
-
-		if (*reinterpret_cast<const session_id_type*>(decrypted_data.data() + hash_size) != this_session->get_session_id())
-		{
-			std::cerr << "Error:Checking failed" << std::endl;
-			leave(id);
-			return;
-		}
-
-		rand_num_type rand_num = boost::endian::native_to_little<rand_num_type>(this_session->get_rand_num_recv());
-		if (*reinterpret_cast<const rand_num_type*>(decrypted_data.data() + hash_size + sizeof(session_id_type)) != rand_num)
-		{
-			std::cerr << "Error:Checking failed" << std::endl;
-			leave(id);
-			return;
-		}
-		decrypted_data.erase(0, hash_size + sizeof(session_id_type) + sizeof(rand_num_type));
-
-		try { inter->on_data(id, decrypted_data); }
+		try { inter.on_data(id, *data); }
 		catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
 		catch (...) {}
 	});
@@ -130,7 +97,7 @@ bool server::send_data(user_id_type id, const std::string& data, int priority, c
 
 bool server::send_data(user_id_type id, const std::string& data, int priority, session::write_callback &&callback)
 {
-	sessionList::iterator itr(sessions.find(id));
+	session_list_type::iterator itr(sessions.find(id));
 	if (itr == sessions.end())
 		return false;
 	session_ptr sptr = itr->second;
@@ -140,39 +107,75 @@ bool server::send_data(user_id_type id, const std::string& data, int priority, s
 
 void server::connect(const std::string &addr_str, port_type remote_port)
 {
-	connect(net::ip::address::from_string(addr_str), remote_port);
+	connect({ addr_str, std::to_string(remote_port) });
 }
 
 void server::connect(unsigned long addr_ulong, port_type remote_port)
 {
-	connect(net::ip::address_v4(addr_ulong), remote_port);
+	connect(asio::ip::tcp::endpoint(asio::ip::address_v4(addr_ulong), remote_port));
 }
 
-void server::connect(const net::ip::address &addr, port_type remote_port)
+void server::connect(const asio::ip::tcp::endpoint &remote_endpoint)
 {
 	port_type local_port;
-	if (!inter->new_rand_port(local_port))
+	if (!inter.new_rand_port(local_port))
 		std::cerr << "Socket:No port available" << std::endl;
 	else
 	{
-		net::ip::tcp::endpoint remote_endpoint(addr, remote_port);
-		socket_ptr socket = std::make_shared<net::ip::tcp::socket>(main_io_service);
+		socket_ptr socket = std::make_shared<asio::ip::tcp::socket>(main_io_service);
 
-		socket->open(net::ip::tcp::v4());
-		socket->bind(net::ip::tcp::endpoint(net::ip::tcp::v4(), local_port));
+		socket->open(asio::ip::tcp::v4());
+		socket->bind(asio::ip::tcp::endpoint(asio::ip::tcp::v4(), local_port));
 		socket->async_connect(remote_endpoint,
 			[this, local_port, socket](boost::system::error_code ec)
 		{
 			if (!ec)
 			{
-				socket_ptr _socket(socket);
-				std::shared_ptr<pre_session_c> pre_session_c_ptr(std::make_shared<pre_session_c>(local_port, std::move(_socket), this, main_io_service, misc_io_service));
+				std::shared_ptr<pre_session_c> pre_session_c_ptr(std::make_shared<pre_session_c>(local_port, socket, this, main_io_service, misc_io_service));
 				pre_sessions.emplace(pre_session_c_ptr);
 			}
 			else
 			{
 				std::cerr << "Socket Error:" << ec.message() << std::endl;
+				inter.free_rand_port(local_port);
 			}
+		});
+	}
+}
+
+void server::connect(const asio::ip::tcp::resolver::query &query)
+{
+	port_type local_port;
+	if (!inter.new_rand_port(local_port))
+		std::cerr << "Socket:No port available" << std::endl;
+	else
+	{
+		resolver.async_resolve(query,
+			[this, local_port](const boost::system::error_code& ec, asio::ip::tcp::resolver::iterator itr)
+		{
+			socket_ptr socket = std::make_shared<asio::ip::tcp::socket>(main_io_service);
+
+			socket->open(asio::ip::tcp::v4());
+			socket->bind(asio::ip::tcp::endpoint(asio::ip::tcp::v4(), local_port));
+			asio::async_connect(*socket, itr, asio::ip::tcp::resolver::iterator(),
+				[this, local_port, socket](boost::system::error_code ec, asio::ip::tcp::resolver::iterator itr)
+			{
+				if (itr == asio::ip::tcp::resolver::iterator())
+				{
+					std::cerr << "Can't connect to host" << std::endl;
+					inter.free_rand_port(local_port);
+				}
+				else if (ec)
+				{
+					std::cerr << "Socket Error:" << ec.message() << std::endl;
+					inter.free_rand_port(local_port);
+				}
+				else
+				{
+					std::shared_ptr<pre_session_c> pre_session_c_ptr(std::make_shared<pre_session_c>(local_port, socket, this, main_io_service, misc_io_service));
+					pre_sessions.emplace(pre_session_c_ptr);
+				}
+			});
 		});
 	}
 }
