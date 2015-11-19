@@ -101,9 +101,12 @@ private:
 
 struct plugin_info_type
 {
+	typedef void(*virtual_msg_handler_ptr)(uint16_t virtual_user_id, const char* data, uint32_t length);
+
 	std::string name;
 	plugin_id_type plugin_id;
-	std::unordered_map<uint16_t, int> virtual_user_list;
+	std::unordered_set<uint16_t> virtual_user_list;
+	virtual_msg_handler_ptr virtual_msg_handler;
 };
 
 extern const char* plugin_file_name;

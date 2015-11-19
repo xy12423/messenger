@@ -411,6 +411,11 @@ void virtual_session::push(const std::string& data)
 	srv->on_data(uid, std::make_shared<std::string>(data));
 }
 
+void virtual_session::push(std::string&& data)
+{
+	srv->on_data(uid, std::make_shared<std::string>(data));
+}
+
 void session::start()
 {
 	read_header();

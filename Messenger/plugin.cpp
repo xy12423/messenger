@@ -49,7 +49,7 @@ std::wstring ExportHandlerName[ExportHandlerCount] = {
 };
 void *ExportHandlers[ExportHandlerCount];
 
-std::unordered_set<lib_ptr> plugins;
+std::unordered_map<plugin_id_type, lib_ptr> plugins;
 std::unordered_map<std::string, void*> plugin_methods;
 
 void* plugin_GetMethodHandler(const char* method_name)
@@ -93,7 +93,6 @@ void set_handler(unsigned int id, void* handler)
 
 int load_plugin(const std::wstring &plugin_full_path)
 {
-	std::list<plugin_id_type>::iterator plugin_id_itr;
 	plugin_id_type plugin_id;
 	try
 	{
@@ -114,6 +113,7 @@ int load_plugin(const std::wstring &plugin_full_path)
 		OnDataPtr callback = reinterpret_cast<OnDataPtr>(ExportFuncPtr[OnData]);
 
 		//Alloc new plugin id
+		std::list<plugin_id_type>::iterator plugin_id_itr;
 		if (!new_plugin_id(plugin_id_itr))
 			throw(-1);	//No more plugin id
 		plugin_id = *plugin_id_itr;
@@ -170,9 +170,11 @@ int load_plugin(const std::wstring &plugin_full_path)
 			TypeRegs[type].plugin_id = plugin_id;
 		}
 
-		plugins.emplace(std::move(plugin));
+		plugins.emplace(plugin_id, std::move(plugin));
 
 		std::cout << "Plugin loaded:" << wxConvLocal.cWC2MB(plugin_full_path.c_str()) << std::endl;
+
+		free_plugin_id.erase(plugin_id_itr);
 	}
 	catch (std::exception &ex)
 	{
@@ -181,8 +183,17 @@ int load_plugin(const std::wstring &plugin_full_path)
 	}
 	catch (int) { return -1; }
 	
-	free_plugin_id.erase(plugin_id_itr);
 	return plugin_id;
+}
+
+void* load_symbol(plugin_id_type plugin_id, const char* name)
+{
+	try
+	{
+		return plugins.at(plugin_id)->GetSymbol(name);
+	}
+	catch (...) {}
+	return nullptr;
 }
 
 bool plugin_check_id_type(uint16_t plugin_id, uint8_t type)

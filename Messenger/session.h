@@ -153,6 +153,7 @@ public:
 	void send(const std::string& data, int priority, write_callback &&callback);
 
 	void push(const std::string& data);
+	void push(std::string&& data);
 
 	std::string get_address() const { return name; }
 private:

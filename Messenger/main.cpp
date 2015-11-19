@@ -75,16 +75,60 @@ void plugin_handler_ConnectTo(uint32_t addr, uint16_t port)
 
 int plugin_handler_NewVirtualUser(plugin_id_type plugin_id, const char* name)
 {
+	try
+	{
+		plugin_info_type &info = plugin_info.at(plugin_id);
+		plugin_info_type::virtual_msg_handler_ptr virtual_msg_handler = info.virtual_msg_handler;
+
+		session_ptr new_session;
+		if (virtual_msg_handler == nullptr)
+			new_session = std::make_shared<virtual_session>(srv, name, [](const std::string &) {});
+		else
+		{
+			new_session = std::make_shared<virtual_session>(srv, name, [new_session, virtual_msg_handler](const std::string &data) {
+				virtual_msg_handler(new_session->get_id(), data.data(), data.size());
+			});
+		}
+
+		srv->join(new_session);
+		new_session->start();
+		user_id_type new_user_id = new_session->get_id();
+		info.virtual_user_list.emplace(new_user_id);
+		return new_user_id;
+	}
+	catch (...) {}
 	return -1;
 }
 
 bool plugin_handler_DelVirtualUser(plugin_id_type plugin_id, uint16_t virtual_user_id)
 {
+	try
+	{
+		std::unordered_set<uint16_t> &virtual_user_list = plugin_info.at(plugin_id).virtual_user_list;
+		std::unordered_set<uint16_t>::iterator itr = virtual_user_list.find(virtual_user_id);
+		if (itr != virtual_user_list.end())
+		{
+			srv->leave(virtual_user_id);
+			virtual_user_list.erase(itr);
+			return true;
+		}
+	}
+	catch (...) {}
 	return false;
 }
 
-bool plugin_handler_VirtualUserMsg(uint16_t virtual_user_id, const char* message, uint32_t length)
+bool plugin_handler_VirtualUserMsg(plugin_id_type plugin_id, uint16_t virtual_user_id, const char* message, uint32_t length)
 {
+	try
+	{
+		plugin_info_type &info = plugin_info.at(plugin_id);
+		if (info.virtual_user_list.find(virtual_user_id) != info.virtual_user_list.end())
+		{
+			std::dynamic_pointer_cast<virtual_session>(srv->get_session(virtual_user_id))->push(std::string(message, length));
+			return true;
+		}
+	}
+	catch (...) {}
 	return false;
 }
 
@@ -217,6 +261,7 @@ mainFrame::mainFrame(const wxString &title)
 				plugin_info_type &info = plugin_info.emplace(plugin_id, plugin_info_type()).first->second;
 				info.name = fs::path(plugin_path).filename().string();
 				info.plugin_id = plugin_id;
+				info.virtual_msg_handler = reinterpret_cast<plugin_info_type::virtual_msg_handler_ptr>(load_symbol(plugin_id, "OnUserMsg"));
 			}
 		}
 	}
