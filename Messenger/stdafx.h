@@ -31,7 +31,7 @@
 #include <boost/asio.hpp>
 #include <boost/endian/conversion.hpp>
 namespace fs = boost::filesystem;
-namespace net = boost::asio;
+namespace asio = boost::asio;
 
 #include <cryptopp/cryptlib.h>
 #include <cryptopp/eccrypto.h>

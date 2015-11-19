@@ -1,8 +1,16 @@
 #include "stdafx.h"
 #include "frmAddrInput.h"
 
+#ifdef __WXMSW__
+const int _GUI_SIZE_X = 294;
+const int _GUI_SIZE_Y = 118;
+#else
+const int _GUI_SIZE_X = 274;
+const int _GUI_SIZE_Y = 98;
+#endif
+
 frmAddrInput::frmAddrInput(const wxString& title, int default_port)
-	: wxDialog(NULL, ID_FRAME, title, wxDefaultPosition, wxSize(294, 118))
+	: wxDialog(NULL, ID_FRAME, title, wxDefaultPosition, wxSize(_GUI_SIZE_X, _GUI_SIZE_Y))
 {
 	Center();
 
