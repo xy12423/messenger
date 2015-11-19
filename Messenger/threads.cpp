@@ -4,13 +4,13 @@
 #include "threads.h"
 
 extern server *srv;
-extern std::unordered_map<int, user_ext_data> user_ext;
+extern std::unordered_map<user_id_type, user_ext_type> user_ext;
 
 const int checkInterval = 10;
 
 iosrvThread::ExitCode iosrvThread::Entry()
 {
-	iosrv_work = std::make_shared<net::io_service::work>(iosrv);
+	iosrv_work = std::make_shared<asio::io_service::work>(iosrv);
 	while (!TestDestroy())
 	{
 		try
@@ -103,7 +103,7 @@ void fileSendThread::write()
 
 fileSendThread::ExitCode fileSendThread::Entry()
 {
-	iosrv_work = std::make_shared<net::io_service::work>(iosrv);
+	iosrv_work = std::make_shared<asio::io_service::work>(iosrv);
 	while (!TestDestroy())
 	{
 		try
