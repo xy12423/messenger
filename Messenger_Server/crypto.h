@@ -9,11 +9,11 @@ const size_t hash_size = 64;
 void genKey();
 void initKey();
 
-void encrypt(const std::string &str, std::string &ret, const CryptoPP::ECIES<CryptoPP::ECP>::Encryptor &e1);
-void decrypt(const std::string &str, std::string &ret);
+void encrypt(const std::string &src, std::string &dst, const CryptoPP::ECIES<CryptoPP::ECP>::Encryptor &e1);
+void decrypt(const std::string &src, std::string &dst);
 std::string getPublicKey();
 std::string getUserIDGlobal();
-void calcHash(const std::string &msg, std::string &ret, size_t input_shift = 0);
+void hash(const std::string &src, std::string &dst, size_t input_shift = 0);
 rand_num_type genRandomNumber();
 
 #endif

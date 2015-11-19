@@ -4,7 +4,7 @@
 #include "session.h"
 #include "main.h"
 
-net::io_service main_io_service, misc_io_service;
+asio::io_service main_io_service, misc_io_service;
 server *srv;
 cli_server_interface inter;
 volatile bool server_on = true;
@@ -119,7 +119,7 @@ void cli_server_interface::on_data(user_id_type id, const std::string &data)
 							{
 								trim(msg);
 								std::string tmp;
-								calcHash(msg, tmp);
+								hash(msg, tmp);
 								if (itr->second.passwd == tmp)
 								{
 									broadcast_msg(-1, msg_new_user + usr.name + '(' + usr.addr + ')');
@@ -149,7 +149,14 @@ void cli_server_interface::on_data(user_id_type id, const std::string &data)
 							if (tmp.front() == '/')
 							{
 								tmp.erase(0, 1);
-								process_command(tmp, user_records[usr.name]);
+
+								std::string msg_send = process_command(tmp, user_records[usr.name]);
+								if (!msg_send.empty())
+								{
+									insLen(msg_send);
+									msg_send.insert(0, 1, pac_type_msg);
+									srv->send_data(id, msg_send, session::priority_msg);
+								}
 							}
 							else
 								broadcast_msg(id, msg);
@@ -253,15 +260,16 @@ void cli_server_interface::broadcast_data(user_id_type src, const std::string &d
 	});
 }
 
-void cli_server_interface::process_command(std::string cmd, user_record &user)
+std::string cli_server_interface::process_command(std::string cmd, user_record &user)
 {
 	user_record::group_type group = user.group;
+	std::string ret;
 
 	int pos = cmd.find(' ');
 	std::string args;
 	if (pos != std::string::npos)
 	{
-		args.assign(cmd, pos + 1);
+		args.assign(cmd, pos + 1, std::string::npos);
 		cmd.erase(pos);
 	}
 	trim(args);
@@ -277,6 +285,7 @@ void cli_server_interface::process_command(std::string cmd, user_record &user)
 				main_io_service.post([this]() {
 					write_config();
 				});
+				ret = "Opped " + itr->second.name;
 			}
 		}
 	}
@@ -292,7 +301,7 @@ void cli_server_interface::process_command(std::string cmd, user_record &user)
 				trim(cmd);
 				trim(args);
 				std::string hashed_passwd;
-				calcHash(args, hashed_passwd);
+				hash(args, hashed_passwd);
 
 				user_record_list::iterator itr = user_records.find(cmd);
 				if (itr == user_records.end())
@@ -301,6 +310,7 @@ void cli_server_interface::process_command(std::string cmd, user_record &user)
 					main_io_service.post([this]() {
 						write_config();
 					});
+					ret = "Registered " + cmd;
 				}
 			}
 		}
@@ -316,21 +326,24 @@ void cli_server_interface::process_command(std::string cmd, user_record &user)
 				main_io_service.post([this]() {
 					write_config();
 				});
+				ret = "Unregistered " + args;
 			}
 		}
 	}
 	else if (cmd == "changepass")
 	{
 		user.passwd.clear();
-		calcHash(args, user.passwd);
+		hash(args, user.passwd);
 		main_io_service.post([this]() {
 			write_config();
 		});
+		ret = "Password changed";
 	}
 	else if (cmd == "con")
 	{
 		if (group == user_record::ADMIN)
 		{
+			ret = "Connecting";
 			srv->connect(args, portConnect);
 		}
 	}
@@ -341,6 +354,7 @@ void cli_server_interface::process_command(std::string cmd, user_record &user)
 			server_on = false;
 		}
 	}
+	return ret;
 }
 
 bool cli_server_interface::new_rand_port(port_type &ret)
@@ -446,7 +460,7 @@ int main(int argc, char *argv[])
 
 		read_config();
 
-		std::shared_ptr<net::io_service::work> main_iosrv_work = std::make_shared<net::io_service::work>(main_io_service);
+		std::shared_ptr<asio::io_service::work> main_iosrv_work = std::make_shared<asio::io_service::work>(main_io_service);
 		std::thread main_iosrv_thread([]() {
 			bool abnormally_exit;
 			do
@@ -461,7 +475,7 @@ int main(int argc, char *argv[])
 		});
 		main_iosrv_thread.detach();
 
-		std::shared_ptr<net::io_service::work> misc_iosrv_work = std::make_shared<net::io_service::work>(misc_io_service);
+		std::shared_ptr<asio::io_service::work> misc_iosrv_work = std::make_shared<asio::io_service::work>(misc_io_service);
 		std::thread misc_iosrv_thread([]() {
 			bool abnormally_exit;
 			do
@@ -484,12 +498,12 @@ int main(int argc, char *argv[])
 		user_root.name = "Server";
 		user_root.group = user_record::ADMIN;
 
-		srv = new server(main_io_service, misc_io_service, &inter, net::ip::tcp::endpoint(net::ip::tcp::v4(), portListener));
+		srv = new server(main_io_service, misc_io_service, inter, asio::ip::tcp::endpoint(asio::ip::tcp::v4(), portListener));
 		std::string command;
 		while (server_on)
 		{
 			std::getline(std::cin, command);
-			inter.process_command(command, user_root);
+			std::cout << inter.process_command(command, user_root) << std::endl;
 		}
 
 		write_config();
