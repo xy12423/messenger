@@ -4,7 +4,7 @@
 #include "session.h"
 #include "main.h"
 
-net::io_service main_io_service, misc_io_service;
+asio::io_service main_io_service, misc_io_service;
 server *srv;
 cli_server_interface inter;
 volatile bool server_on = true;
@@ -460,7 +460,7 @@ int main(int argc, char *argv[])
 
 		read_config();
 
-		std::shared_ptr<net::io_service::work> main_iosrv_work = std::make_shared<net::io_service::work>(main_io_service);
+		std::shared_ptr<asio::io_service::work> main_iosrv_work = std::make_shared<asio::io_service::work>(main_io_service);
 		std::thread main_iosrv_thread([]() {
 			bool abnormally_exit;
 			do
@@ -475,7 +475,7 @@ int main(int argc, char *argv[])
 		});
 		main_iosrv_thread.detach();
 
-		std::shared_ptr<net::io_service::work> misc_iosrv_work = std::make_shared<net::io_service::work>(misc_io_service);
+		std::shared_ptr<asio::io_service::work> misc_iosrv_work = std::make_shared<asio::io_service::work>(misc_io_service);
 		std::thread misc_iosrv_thread([]() {
 			bool abnormally_exit;
 			do
@@ -498,7 +498,7 @@ int main(int argc, char *argv[])
 		user_root.name = "Server";
 		user_root.group = user_record::ADMIN;
 
-		srv = new server(main_io_service, misc_io_service, &inter, net::ip::tcp::endpoint(net::ip::tcp::v4(), portListener));
+		srv = new server(main_io_service, misc_io_service, inter, asio::ip::tcp::endpoint(asio::ip::tcp::v4(), portListener));
 		std::string command;
 		while (server_on)
 		{
