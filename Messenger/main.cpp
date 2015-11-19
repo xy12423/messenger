@@ -52,12 +52,13 @@ void plugin_handler_SendData(plugin_id_type plugin_id, int to, const char* data,
 	std::string data_str(data, size);
 	if (to == -1)
 	{
-		std::for_each(user_ext.begin(), user_ext.end(), [&data_str](const std::pair<user_id_type, user_ext_type> &p) {
+		for (const std::pair<user_id_type, user_ext_type> &p : user_ext)
+		{
 			user_id_type id = p.first;
 			misc_io_service.post([id, data_str]() {
 				srv->send_data(id, data_str, session::priority_plugin);
 			});
-		});
+		};
 	}
 	else
 	{
@@ -293,7 +294,6 @@ void mainFrame::buttonCancelSend_Click(wxCommandEvent& event)
 	{
 		int uID = userIDs[listUser->GetSelection()];
 		threadFileSend->stop(uID);
-		srv->get_session(uID)->stop_file_transfer();
 	}
 }
 

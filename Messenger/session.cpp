@@ -278,11 +278,11 @@ void pre_session_s::sid_packet_done()
 				break;
 			case 3:
 			{
-				session_ptr new_user(std::make_shared<session>(srv, local_port, main_io_service, misc_io_service, std::move(socket), key_string,
+				session_ptr new_user(std::make_shared<session>(srv, local_port, key_string, main_io_service, misc_io_service, std::move(socket),
 					session_id, rand_num_send, rand_num_recv));
 
-				new_user->id = srv->join(new_user);
-				srv->check_key(new_user->id, key_string);
+				srv->join(new_user);
+				srv->check_key(new_user->get_id(), key_string);
 				new_user->start();
 
 				passed = true;
@@ -371,11 +371,11 @@ void pre_session_c::sid_packet_done()
 				break;
 			case 3:
 			{
-				session_ptr new_user(std::make_shared<session>(srv, local_port, main_io_service, misc_io_service, std::move(socket), key_string,
+				session_ptr new_user(std::make_shared<session>(srv, local_port, key_string, main_io_service, misc_io_service, std::move(socket),
 					session_id, rand_num_send, rand_num_recv));
 
-				new_user->id = srv->join(new_user);
-				srv->check_key(new_user->id, key_string);
+				srv->join(new_user);
+				srv->check_key(new_user->get_id(), key_string);
 				new_user->start();
 
 				passed = true;
@@ -435,20 +435,6 @@ void session::send(const std::string& data, int priority, write_callback &&callb
 	});
 }
 
-void session::stop_file_transfer()
-{
-	send("", priority_sys, [this]() {
-		write_que_tp::iterator itr = write_que.begin(), itrEnd = write_que.end();
-		for (; itr != itrEnd;)
-		{
-			if (itr->priority == priority_file)
-				itr = write_que.erase(itr);
-			else
-				itr++;
-		}
-	});
-}
-
 void session::read_header()
 {
 	try
@@ -470,7 +456,7 @@ void session::read_header()
 				{
 					if (length != 0)
 						std::cerr << "Socket Error:" << ec.message() << std::endl;
-					srv->leave(id);
+					srv->leave(uid);
 				}
 			}
 		});
@@ -480,7 +466,7 @@ void session::read_header()
 		if (!exiting)
 		{
 			std::cerr << ex.what() << std::endl;
-			srv->leave(id);
+			srv->leave(uid);
 		}
 	}
 }
@@ -507,7 +493,7 @@ void session::read_data(size_t size_last, std::shared_ptr<std::string> buf)
 					if (!exiting)
 					{
 						std::cerr << "Socket Error:" << ec.message() << std::endl;
-						srv->leave(id);
+						srv->leave(uid);
 					}
 				}
 			});
@@ -530,7 +516,7 @@ void session::read_data(size_t size_last, std::shared_ptr<std::string> buf)
 					if (!exiting)
 					{
 						std::cerr << "Socket Error:" << ec.message() << std::endl;
-						srv->leave(id);
+						srv->leave(uid);
 					}
 				}
 			});
@@ -541,7 +527,7 @@ void session::read_data(size_t size_last, std::shared_ptr<std::string> buf)
 		if (!exiting)
 		{
 			std::cerr << ex.what() << std::endl;
-			srv->leave(id);
+			srv->leave(uid);
 		}
 	}
 }
@@ -562,14 +548,14 @@ void session::process_data(std::shared_ptr<std::string> buf)
 			if (hash_real != hash_recv)
 			{
 				std::cerr << "Error:Hashing failed" << std::endl;
-				srv->leave(id);
+				srv->leave(uid);
 				return;
 			}
 
 			if (*reinterpret_cast<const session_id_type*>(buf->data() + hash_size) != session_id)
 			{
 				std::cerr << "Error:Checking failed" << std::endl;
-				srv->leave(id);
+				srv->leave(uid);
 				return;
 			}
 
@@ -577,12 +563,12 @@ void session::process_data(std::shared_ptr<std::string> buf)
 			if (*reinterpret_cast<const rand_num_type*>(buf->data() + hash_size + sizeof(session_id_type)) != rand_num)
 			{
 				std::cerr << "Error:Checking failed" << std::endl;
-				srv->leave(id);
+				srv->leave(uid);
 				return;
 			}
 			buf->erase(0, hash_size + sizeof(session_id_type) + sizeof(rand_num_type));
 			
-			srv->on_data(id, buf);
+			srv->on_data(uid, buf);
 		});
 	});
 }
@@ -631,7 +617,7 @@ void session::write()
 				if (!exiting)
 				{
 					std::cerr << "Socket Error:" << ec.message() << std::endl;
-					srv->leave(id);
+					srv->leave(uid);
 				}
 			}
 		});

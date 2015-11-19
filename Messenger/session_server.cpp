@@ -24,7 +24,7 @@ void server::start()
 			return;
 		if (!ec)
 		{
-			std::shared_ptr<pre_session_s> pre_session_s_ptr(std::make_shared<pre_session_s>(-1, socket, this, main_io_service, misc_io_service));
+			std::shared_ptr<pre_session_s> pre_session_s_ptr(std::make_shared<pre_session_s>(port_null, socket, this, main_io_service, misc_io_service));
 			pre_sessions.emplace(pre_session_s_ptr);
 		}
 
@@ -37,14 +37,14 @@ void server::pre_session_over(std::shared_ptr<pre_session> _pre, bool successful
 {
 	if (!successful)
 	{
-		if (_pre->get_port() != -1)
+		if (_pre->get_port() != port_null)
 			inter.free_rand_port(_pre->get_port());
 		connectedKeys.erase(_pre->get_key());
 	}
 	pre_sessions.erase(_pre);
 }
 
-user_id_type server::join(const session_ptr &_user)
+void server::join(const session_ptr &_user)
 {
 	user_id_type newID = nextID;
 	nextID++;
@@ -54,12 +54,12 @@ user_id_type server::join(const session_ptr &_user)
 	catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
 	catch (...) {}
 
-	return newID;
+	_user->uid = newID;
 }
 
 void server::leave(user_id_type _user)
 {
-	sessionList::iterator itr(sessions.find(_user));
+	session_list_type::iterator itr(sessions.find(_user));
 	if (itr == sessions.end())
 		return;
 	session_ptr this_session = itr->second;
@@ -69,7 +69,7 @@ void server::leave(user_id_type _user)
 	catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
 	catch (...) {}
 
-	if (this_session->get_port() != -1)
+	if (this_session->get_port() != port_null)
 		inter.free_rand_port(this_session->get_port());
 	connectedKeys.erase(this_session->get_key());
 	sessions.erase(itr);
@@ -97,7 +97,7 @@ bool server::send_data(user_id_type id, const std::string& data, int priority, c
 
 bool server::send_data(user_id_type id, const std::string& data, int priority, session::write_callback &&callback)
 {
-	sessionList::iterator itr(sessions.find(id));
+	session_list_type::iterator itr(sessions.find(id));
 	if (itr == sessions.end())
 		return false;
 	session_ptr sptr = itr->second;

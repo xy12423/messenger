@@ -8,6 +8,7 @@ typedef uint32_t data_length_type;
 
 typedef uint16_t port_type;
 typedef int32_t port_type_l;
+const port_type_l port_null = -1;
 
 typedef uint16_t user_id_type;
 typedef uint64_t session_id_type;
@@ -102,7 +103,7 @@ private:
 	virtual void sid_packet_done();
 };
 
-class session : public std::enable_shared_from_this<session>
+class session_base : public std::enable_shared_from_this<session_base>
 {
 public:
 	static const int priority_sys = 30;
@@ -112,12 +113,39 @@ public:
 
 	typedef std::function<void()> write_callback;
 
-	session(server *_srv, port_type_l _local_port,
-		asio::io_service& _main_iosrv, asio::io_service& _misc_iosrv,
-		socket_ptr &&_socket,
-		const std::string &_key_string,
+	session_base(server *_srv, port_type_l _local_port, const std::string &_key_string)
+		:srv(_srv), local_port(_local_port), key_string(_key_string)
+	{}
+
+	virtual void start() = 0;
+	virtual void shutdown() = 0;
+
+	virtual void send(const std::string& data, int priority, write_callback &&callback) = 0;
+
+	virtual std::string get_address() const = 0;
+	user_id_type get_id() const { return uid; }
+	port_type_l get_port() const { return local_port; }
+	const std::string& get_key() const { return key_string; }
+
+	friend class server;
+protected:
+	std::string key_string;
+	user_id_type uid;
+
+	server *srv;
+	port_type_l local_port;
+};
+typedef std::shared_ptr<session_base> session_ptr;
+typedef std::unordered_map<user_id_type, session_ptr> session_list_type;
+
+class session : public session_base
+{
+public:
+	session(server *_srv, port_type_l _local_port, const std::string &_key_string,
+		asio::io_service& _main_iosrv, asio::io_service& _misc_iosrv, socket_ptr &&_socket,
 		session_id_type _session_id, rand_num_type _rand_num_send, rand_num_type _rand_num_recv)
-		:srv(_srv), local_port(_local_port), main_iosrv(_main_iosrv), misc_iosrv(_misc_iosrv), socket(_socket), key_string(_key_string),
+		:session_base(_srv, _local_port, _key_string),
+		main_iosrv(_main_iosrv), misc_iosrv(_misc_iosrv), socket(_socket),
 		session_id(_session_id), rand_num_send(_rand_num_send), rand_num_recv(_rand_num_recv)
 	{
 		read_msg_buffer = std::make_unique<char[]>(msg_buffer_size);
@@ -129,21 +157,21 @@ public:
 	~session()
 	{
 		if (!exiting)
-			shutdown();
+		{
+			try
+			{
+				shutdown();
+			}
+			catch (...) {}
+		}
 	}
 
 	void start();
-	void send(const std::string& data, int priority, write_callback &&callback);
-	void stop_file_transfer();
-
 	void shutdown() { exiting = true; socket->shutdown(socket->shutdown_both); socket->close(); }
 
-	std::string get_address() const { return socket->remote_endpoint().address().to_string(); }
-	port_type_l get_port() const { return local_port; }
-	const std::string& get_key() const { return key_string; }
+	void send(const std::string& data, int priority, write_callback &&callback);
 
-	friend class pre_session_s;
-	friend class pre_session_c;
+	std::string get_address() const { return socket->remote_endpoint().address().to_string(); }
 private:
 	void read_header();
 	void read_data(size_t sizeLast, std::shared_ptr<std::string> buf);
@@ -153,19 +181,16 @@ private:
 	inline rand_num_type get_rand_num_send() { if (rand_num_send == std::numeric_limits<rand_num_type>::max()) rand_num_send = 0; else rand_num_send++; return rand_num_send; };
 	inline rand_num_type get_rand_num_recv() { if (rand_num_recv == std::numeric_limits<rand_num_type>::max()) rand_num_recv = 0; else rand_num_recv++; return rand_num_recv; };
 
-	asio::io_service &main_iosrv, &misc_iosrv;
-	socket_ptr socket;
-
-	std::string key_string;
 	CryptoPP::ECIES<CryptoPP::ECP>::Encryptor e1;
-
 	session_id_type session_id;
 	rand_num_type rand_num_send, rand_num_recv;
 
-	user_id_type id;
+	asio::io_service &main_iosrv, &misc_iosrv;
+	socket_ptr socket;
 
 	std::unique_ptr<char[]> read_msg_buffer;
 	const size_t msg_buffer_size = 0x4000;
+
 	struct write_task {
 		write_task() {};
 		write_task(const std::string& _data, int _priority, write_callback&& _callback) :data(_data), callback(_callback) { priority = _priority; }
@@ -176,14 +201,9 @@ private:
 	};
 	typedef std::list<write_task> write_que_tp;
 	write_que_tp write_que;
-	bool writing;
 
-	server *srv;
-	port_type_l local_port;
 	volatile bool exiting = false;
 };
-typedef std::shared_ptr<session> session_ptr;
-typedef std::unordered_map<user_id_type, session_ptr> sessionList;
 
 class server_interface
 {
@@ -237,6 +257,7 @@ public:
 		closing = true;
 		acceptor.close();
 		pre_sessions.clear();
+		for (const auto& this_session : sessions) this_session.second->shutdown();
 		sessions.clear();
 		write_data();
 	}
@@ -248,7 +269,7 @@ public:
 	bool send_data(user_id_type id, const std::string& data, int priority, session::write_callback &&callback);
 
 	void pre_session_over(std::shared_ptr<pre_session> _pre, bool successful = false);
-	user_id_type join(const session_ptr &_user);
+	void join(const session_ptr &_user);
 	void leave(user_id_type id);
 
 	void connect(const std::string &addr, port_type remote_port);
@@ -279,7 +300,7 @@ private:
 	std::unordered_set<std::string> connectedKeys;
 
 	std::unordered_set<std::shared_ptr<pre_session>> pre_sessions;
-	sessionList sessions;
+	session_list_type sessions;
 	user_id_type nextID = 0;
 
 	server_interface &inter;

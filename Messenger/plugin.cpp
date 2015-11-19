@@ -160,15 +160,15 @@ int load_plugin(const std::wstring &plugin_full_path)
 		}
 
 		//Reg methods and types
-		std::for_each(methods.begin(), methods.end(), [](const std::pair<std::string, void*> &method) {
+		for (const std::pair<std::string, void*> &method : methods)
 			plugin_methods.emplace(method);
-		});
-		std::for_each(types.begin(), types.end(), [callback, plugin_id](uint8_t type) {
+		for (uint8_t type : types)
+		{
 			TypeRegs[type].used = true;
 			TypeRegs[type].callback = callback;
 			TypeRegs[type].redirect = type | 0x80;
 			TypeRegs[type].plugin_id = plugin_id;
-		});
+		}
 
 		plugins.emplace(std::move(plugin));
 
