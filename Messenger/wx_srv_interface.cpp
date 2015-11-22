@@ -41,19 +41,24 @@ void wx_srv_interface::on_data(user_id_type id, const std::string &data)
 				dataItr += sizeMsg;
 
 				wxString msg(usr.addr + ':' + wxConvUTF8.cMB2WC(msg_utf8.c_str()) + '\n');
-				usr.log.append(msg);
-				if (frm->listUser->GetSelection() != -1)
-				{
-					if (id == frm->userIDs[frm->listUser->GetSelection()])
-						frm->textMsg->AppendText(msg);
-					else
-						frm->textInfo->AppendText("Received message from " + usr.addr + "\n");
-				}
-				else
-					frm->textInfo->AppendText("Received message from " + usr.addr + "\n");
 
 				wxThreadEvent *newEvent = new wxThreadEvent;
-				newEvent->SetInt(-1);
+				newEvent->SetPayload<gui_callback>([this, id, msg]() {
+					user_ext_type &usr = user_ext.at(id);
+					usr.log.append(msg);
+					if (frm->listUser->GetSelection() != -1)
+					{
+						if (id == frm->userIDs[frm->listUser->GetSelection()])
+							frm->textMsg->AppendText(msg);
+						else
+							frm->textInfo->AppendText("Received message from " + usr.addr + "\n");
+					}
+					else
+						frm->textInfo->AppendText("Received message from " + usr.addr + "\n");
+
+					if (!frm->IsActive())
+						frm->RequestUserAttention();
+				});
 				wxQueueEvent(frm, newEvent);
 
 				break;
@@ -147,14 +152,18 @@ void wx_srv_interface::on_join(user_id_type id)
 	if (frm == nullptr)
 		return;
 
-	user_ext_type &ext = user_ext.emplace(id, user_ext_type()).first->second;
-	std::string addr = srv->get_session(id)->get_address();
-	ext.addr = wxConvLocal.cMB2WC(addr.c_str());
+	wxThreadEvent *newEvent = new wxThreadEvent;
+	newEvent->SetPayload<gui_callback>([this, id]() {
+		user_ext_type &ext = user_ext.emplace(id, user_ext_type()).first->second;
+		std::string addr = srv->get_session(id)->get_address();
+		ext.addr = wxConvLocal.cMB2WC(addr.c_str());
 
-	frm->listUser->Append(ext.addr);
-	if (frm->listUser->GetSelection() == -1)
-		frm->listUser->SetSelection(frm->listUser->GetCount() - 1);
-	frm->userIDs.push_back(id);
+		frm->listUser->Append(ext.addr);
+		if (frm->listUser->GetSelection() == -1)
+			frm->listUser->SetSelection(frm->listUser->GetCount() - 1);
+		frm->userIDs.push_back(id);
+	});
+	wxQueueEvent(frm, newEvent);
 }
 
 void wx_srv_interface::on_leave(user_id_type id)
@@ -163,14 +172,18 @@ void wx_srv_interface::on_leave(user_id_type id)
 		return;
 
 	threadFileSend->stop(id);
-	int i = 0;
-	std::vector<int>::iterator itr = frm->userIDs.begin(), itrEnd = frm->userIDs.end();
-	for (; itr != itrEnd && *itr != id; itr++)i++;
-	if (frm->listUser->GetSelection() == i)
-		frm->textMsg->SetValue(wxEmptyString);
-	frm->listUser->Delete(i);
-	frm->userIDs.erase(itr);
-	user_ext.erase(id);
+	wxThreadEvent *newEvent = new wxThreadEvent;
+	newEvent->SetPayload<gui_callback>([this, id]() {
+		int i = 0;
+		std::vector<int>::iterator itr = frm->userIDs.begin(), itrEnd = frm->userIDs.end();
+		for (; itr != itrEnd && *itr != id; itr++)i++;
+		if (frm->listUser->GetSelection() == i)
+			frm->textMsg->SetValue(wxEmptyString);
+		frm->listUser->Delete(i);
+		frm->userIDs.erase(itr);
+		user_ext.erase(id);
+	});
+	wxQueueEvent(frm, newEvent);
 }
 
 void wx_srv_interface::on_unknown_key(user_id_type id, const std::string& key)
@@ -179,8 +192,13 @@ void wx_srv_interface::on_unknown_key(user_id_type id, const std::string& key)
 		return;
 
 	wxThreadEvent *newEvent = new wxThreadEvent;
-	newEvent->SetInt(id);
-	newEvent->SetPayload<std::string>(key);
+	newEvent->SetPayload<gui_callback>([id, key]() {
+		int answer = wxMessageBox(wxT("The public key from " + user_ext.at(id).addr + " hasn't shown before.Trust it?"), wxT("Confirm"), wxYES_NO);
+		if (answer != wxYES)
+			srv->disconnect(id);
+		else
+			srv->certify_key(key);
+	});
 	wxQueueEvent(frm, newEvent);
 }
 

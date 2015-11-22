@@ -243,7 +243,7 @@ mainFrame::mainFrame(const wxString &title)
 		throw(std::runtime_error("Can't create fileSendThread"));
 	}
 
-	textStrm = new textStream(textInfo);
+	textStrm = new textStream(this, textInfo);
 	cout_orig = std::cout.rdbuf();
 	std::cout.rdbuf(textStrm);
 	cerr_orig = std::cerr.rdbuf();
@@ -401,20 +401,7 @@ void mainFrame::buttonExportKey_Click(wxCommandEvent& event)
 
 void mainFrame::thread_Message(wxThreadEvent& event)
 {
-	int id = event.GetInt();
-	if (id == -1)
-	{
-		if (!IsActive())
-			RequestUserAttention();
-	}
-	else
-	{
-		int answer = wxMessageBox(wxT("The public key from " + user_ext.at(id).addr + " hasn't shown before.Trust it?"), wxT("Confirm"), wxYES_NO);
-		if (answer != wxYES)
-			srv->disconnect(id);
-		else
-			srv->certify_key(event.GetPayload<std::string>());
-	}
+	event.GetPayload<gui_callback>()();
 }
 
 void mainFrame::mainFrame_Close(wxCloseEvent& event)
