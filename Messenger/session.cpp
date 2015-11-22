@@ -2,12 +2,12 @@
 #include "crypto.h"
 #include "session.h"
 
-void pre_session::read_key_header()
+void pre_session::read_key_header(bool ignore_error)
 {
 	asio::async_read(*socket,
 		asio::buffer(reinterpret_cast<char*>(&(this->key_length)), sizeof(key_length_type)),
 		asio::transfer_exactly(sizeof(key_length_type)),
-		[this](boost::system::error_code ec, std::size_t length)
+		[this, ignore_error](boost::system::error_code ec, std::size_t length)
 	{
 		if (!ec)
 		{
@@ -18,7 +18,8 @@ void pre_session::read_key_header()
 		{
 			if (!exiting)
 			{
-				std::cerr << "Socket Error:" << ec.message() << std::endl;
+				if (!ignore_error)
+					std::cerr << "Socket Error:" << ec.message() << std::endl;
 				srv->pre_session_over(shared_from_this());
 			}
 		}
@@ -56,12 +57,12 @@ void pre_session::read_key()
 	});
 }
 
-void pre_session::read_session_id(int check_level)
+void pre_session::read_session_id(int check_level, bool ignore_error)
 {
 	asio::async_read(*socket,
 		asio::buffer(reinterpret_cast<char*>(&(this->sid_packet_length)), sizeof(data_length_type)),
 		asio::transfer_exactly(sizeof(data_length_type)),
-		[this, check_level](boost::system::error_code ec, std::size_t length)
+		[this, check_level, ignore_error](boost::system::error_code ec, std::size_t length)
 	{
 		if (!ec)
 			read_session_id_body(check_level);
@@ -69,7 +70,8 @@ void pre_session::read_session_id(int check_level)
 		{
 			if (!exiting)
 			{
-				std::cerr << "Socket Error:" << ec.message() << std::endl;
+				if (!ignore_error)
+					std::cerr << "Socket Error:" << ec.message() << std::endl;
 				srv->pre_session_over(shared_from_this());
 			}
 		}
@@ -220,7 +222,7 @@ void pre_session_s::stage1()
 	{
 		if (!ec)
 		{
-			read_key_header();
+			read_key_header(true);
 		}
 		else
 		{
@@ -325,7 +327,7 @@ void pre_session_c::stage2()
 				CryptoPP::StringSource keySource(key_string, true);
 				e1.AccessPublicKey().Load(keySource);
 
-				read_session_id(0);
+				read_session_id(0, true);
 			}
 			else
 			{
@@ -419,6 +421,15 @@ void virtual_session::push(std::string&& data)
 void session::start()
 {
 	read_header();
+}
+
+void session::shutdown()
+{
+	exiting = true;
+	socket->shutdown(socket->shutdown_both);
+	socket->close();
+	for (const write_task &task : write_que)
+		task.callback();
 }
 
 void session::send(const std::string& data, int priority, write_callback &&callback)

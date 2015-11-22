@@ -43,10 +43,10 @@ private:
 	virtual void stage2() = 0;
 	virtual void sid_packet_done() = 0;
 protected:
-	void read_key_header();
+	void read_key_header(bool ignore_error = false);
 	void read_key();
 
-	void read_session_id(int check_level);
+	void read_session_id(int check_level, bool ignore_error = false);
 	void read_session_id_body(int check_level);
 	void write_session_id();
 
@@ -143,8 +143,8 @@ class virtual_session :public session_base
 public:
 	typedef std::function<void(const std::string &)> on_data_callback;
 
-	virtual_session(server *_srv, const std::string &_name, on_data_callback &&_callback)
-		:session_base(_srv, port_null, ""), name(_name), on_data(_callback)
+	virtual_session(server *_srv, const std::string &_name)
+		:session_base(_srv, port_null, ""), name(_name)
 	{}
 
 	void start() {};
@@ -156,6 +156,8 @@ public:
 	void push(std::string&& data);
 
 	std::string get_address() const { return name; }
+
+	void set_callback(on_data_callback &&_callback) { on_data = _callback; }
 private:
 	std::string name;
 	on_data_callback on_data;
@@ -190,7 +192,7 @@ public:
 	}
 
 	void start();
-	void shutdown() { exiting = true; socket->shutdown(socket->shutdown_both); socket->close(); }
+	void shutdown();
 
 	void send(const std::string& data, int priority, write_callback &&callback);
 

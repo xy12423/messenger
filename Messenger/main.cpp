@@ -44,6 +44,7 @@ wx_srv_interface inter;
 asio::io_service main_io_service, misc_io_service;
 iosrvThread *threadNetwork, *threadMisc;
 std::unordered_map<plugin_id_type, plugin_info_type> plugin_info;
+std::unordered_set<user_id_type> virtual_users;
 
 void plugin_handler_SendData(plugin_id_type plugin_id, int to, const char* data, size_t size)
 {
@@ -79,13 +80,19 @@ int plugin_handler_NewVirtualUser(plugin_id_type plugin_id, const char* name)
 	{
 		plugin_info_type &info = plugin_info.at(plugin_id);
 		plugin_info_type::virtual_msg_handler_ptr virtual_msg_handler = info.virtual_msg_handler;
+		std::string name_str = info.name;
+		if (name[0] != '\0')
+		{
+			name_str.push_back(':');
+			name_str.append(name);
+		}
 
-		session_ptr new_session;
+		std::shared_ptr<virtual_session> new_session = std::make_shared<virtual_session>(srv, name_str);
 		if (virtual_msg_handler == nullptr)
-			new_session = std::make_shared<virtual_session>(srv, name, [](const std::string &) {});
+			new_session->set_callback([](const std::string &) {});
 		else
 		{
-			new_session = std::make_shared<virtual_session>(srv, name, [new_session, virtual_msg_handler](const std::string &data) {
+			new_session->set_callback([new_session, virtual_msg_handler](const std::string &data) {
 				virtual_msg_handler(new_session->get_id(), data.data(), data.size());
 			});
 		}
@@ -94,6 +101,7 @@ int plugin_handler_NewVirtualUser(plugin_id_type plugin_id, const char* name)
 		new_session->start();
 		user_id_type new_user_id = new_session->get_id();
 		info.virtual_user_list.emplace(new_user_id);
+		virtual_users.emplace(new_user_id);
 		return new_user_id;
 	}
 	catch (...) {}
@@ -140,7 +148,12 @@ const char* plugin_method_GetUserID()
 
 void plugin_method_Print(plugin_id_type plugin_id, const char* msg)
 {
-	std::cout << "Plugin:" << msg << std::endl;
+	try
+	{
+		plugin_info_type &info = plugin_info.at(plugin_id);
+		std::cout << "Plugin:" << info.name << ':' << msg << std::endl;
+	}
+	catch (...) {}
 }
 
 mainFrame::mainFrame(const wxString &title)
@@ -230,7 +243,7 @@ mainFrame::mainFrame(const wxString &title)
 		throw(std::runtime_error("Can't create fileSendThread"));
 	}
 
-	textStrm = new textStream(textInfo);
+	textStrm = new textStream(this, textInfo);
 	cout_orig = std::cout.rdbuf();
 	std::cout.rdbuf(textStrm);
 	cerr_orig = std::cerr.rdbuf();
@@ -259,7 +272,7 @@ mainFrame::mainFrame(const wxString &title)
 				std::wstring plugin_path(wxConvUTF8.cMB2WC(plugin_path_utf8.c_str()));
 				plugin_id_type plugin_id = load_plugin(plugin_path);
 				plugin_info_type &info = plugin_info.emplace(plugin_id, plugin_info_type()).first->second;
-				info.name = fs::path(plugin_path).filename().string();
+				info.name = fs::path(plugin_path).filename().stem().string();
 				info.plugin_id = plugin_id;
 				info.virtual_msg_handler = reinterpret_cast<plugin_info_type::virtual_msg_handler_ptr>(load_symbol(plugin_id, "OnUserMsg"));
 			}
@@ -293,7 +306,10 @@ void mainFrame::buttonDel_Click(wxCommandEvent& event)
 {
 	int selection = listUser->GetSelection();
 	if (selection != -1)
-		srv->disconnect(userIDs[selection]);
+	{
+		if (virtual_users.find(userIDs[selection]) == virtual_users.end())
+			srv->disconnect(userIDs[selection]);
+	}
 }
 
 void mainFrame::buttonSend_Click(wxCommandEvent& event)
@@ -385,20 +401,7 @@ void mainFrame::buttonExportKey_Click(wxCommandEvent& event)
 
 void mainFrame::thread_Message(wxThreadEvent& event)
 {
-	int id = event.GetInt();
-	if (id == -1)
-	{
-		if (!IsActive())
-			RequestUserAttention();
-	}
-	else
-	{
-		int answer = wxMessageBox(wxT("The public key from " + user_ext.at(id).addr + " hasn't shown before.Trust it?"), wxT("Confirm"), wxYES_NO);
-		if (answer != wxYES)
-			srv->disconnect(id);
-		else
-			srv->certify_key(event.GetPayload<std::string>());
-	}
+	event.GetPayload<gui_callback>()();
 }
 
 void mainFrame::mainFrame_Close(wxCloseEvent& event)
