@@ -5,6 +5,7 @@
 #include "main.h"
 
 extern server* srv;
+extern fileSendThread *threadFileSend;
 extern std::unordered_map<user_id_type, user_ext_type> user_ext;
 
 #define checkErr(x) if (dataItr + (x) > dataEnd) throw(0)
@@ -145,6 +146,7 @@ void wx_srv_interface::on_join(user_id_type id)
 {
 	if (frm == nullptr)
 		return;
+
 	user_ext_type &ext = user_ext.emplace(id, user_ext_type()).first->second;
 	std::string addr = srv->get_session(id)->get_address();
 	ext.addr = wxConvLocal.cMB2WC(addr.c_str());
@@ -159,6 +161,8 @@ void wx_srv_interface::on_leave(user_id_type id)
 {
 	if (frm == nullptr)
 		return;
+
+	threadFileSend->stop(id);
 	int i = 0;
 	std::vector<int>::iterator itr = frm->userIDs.begin(), itrEnd = frm->userIDs.end();
 	for (; itr != itrEnd && *itr != id; itr++)i++;
