@@ -6,7 +6,8 @@
 #include "main.h"
 #include "frmAddrInput.h"
 
-const port_type portListener = 4826;
+const port_type portListenDefault = 4826;
+port_type portListen = portListenDefault;
 const char* plugin_file_name = "plugins.txt";
 
 wxBEGIN_EVENT_TABLE(mainFrame, wxFrame)
@@ -291,7 +292,7 @@ void mainFrame::buttonAdd_Click(wxCommandEvent& event)
 {
 	try
 	{
-		frmAddrInput inputDlg(wxT("Please input address"), portListener);
+		frmAddrInput inputDlg(wxT("Please input address"), portListen);
 		if (inputDlg.ShowModal() != wxID_OK || inputDlg.CheckInput() == false)
 			return;
 		srv->connect(inputDlg.GetAddress().ToStdString(), inputDlg.GetPort());
@@ -412,7 +413,6 @@ void mainFrame::mainFrame_Close(wxCloseEvent& event)
 		std::cerr.rdbuf(cerr_orig);
 		delete textStrm;
 
-		threadFileSend->stop_thread();
 		threadFileSend->Delete();
 
 		inter.set_frame(nullptr);
@@ -428,6 +428,7 @@ IMPLEMENT_APP(MyApp)
 
 bool MyApp::OnInit()
 {
+	int stage = 0;
 	try
 	{
 		threadNetwork = new iosrvThread(main_io_service);
@@ -436,16 +437,55 @@ bool MyApp::OnInit()
 			delete threadNetwork;
 			throw(std::runtime_error("Can't create iosrvThread"));
 		}
+		stage = 1;
 		threadMisc = new iosrvThread(misc_io_service);
 		if (threadMisc->Run() != wxTHREAD_NO_ERROR)
 		{
 			delete threadMisc;
 			throw(std::runtime_error("Can't create iosrvThread"));
 		}
+		stage = 2;
+
+		port_type portsBegin = 5000, portsEnd = 9999;
+		bool use_v6 = false;
+
+		for (int i = 1; i < argc; i++)
+		{
+			std::string arg(argv[i]);
+			if (arg.substr(0, 5) == "port=")
+			{
+				portListen = std::stoi(arg.substr(5));
+			}
+			else if (arg.substr(0, 6) == "ports=")
+			{
+				int pos = arg.find('-', 6);
+				if (pos == std::string::npos)
+				{
+					inter.set_static_port(std::stoi(arg.substr(6)));
+					portsBegin = 1;
+					portsEnd = 0;
+				}
+				else
+				{
+					std::string ports_begin = arg.substr(6, pos - 6), ports_end = arg.substr(pos + 1);
+					portsBegin = std::stoi(ports_begin);
+					portsEnd = std::stoi(ports_end);
+					inter.set_static_port(-1);
+				}
+			}
+			else if (arg == "usev6")
+			{
+				use_v6 = true;
+			}
+			else
+			{
+				throw(std::invalid_argument("Invalid argument:" + arg));
+			}
+		}
 		
-		for (int i = 5001; i <= 10000; i++)
-			inter.free_rand_port(i);
-		srv = new server(main_io_service, misc_io_service, inter, asio::ip::tcp::endpoint(asio::ip::tcp::v4(), portListener));
+		for (; portsBegin <= portsEnd; portsBegin++)
+			inter.free_rand_port(portsBegin);
+		srv = new server(main_io_service, misc_io_service, inter, asio::ip::tcp::endpoint((use_v6 ? asio::ip::tcp::v6() : asio::ip::tcp::v4()), portListen));
 
 		form = new mainFrame(wxT("Messenger"));
 		form->Show();
@@ -453,6 +493,16 @@ bool MyApp::OnInit()
 	}
 	catch (std::exception &ex)
 	{
+		switch (stage)
+		{
+			case 2:
+				threadMisc->Delete();
+			case 1:
+				threadNetwork->Delete();
+			default:
+				break;
+		}
+
 		wxMessageBox(ex.what(), wxT("Error"), wxOK | wxICON_ERROR);
 		return false;
 	}
@@ -464,10 +514,7 @@ int MyApp::OnExit()
 {
 	try
 	{
-		threadMisc->stop();
 		threadMisc->Delete();
-
-		threadNetwork->stop();
 		threadNetwork->Delete();
 
 		delete srv;

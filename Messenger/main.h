@@ -92,9 +92,11 @@ public:
 	virtual void free_rand_port(port_type port) { ports.push_back(port); };
 
 	void set_frame(mainFrame *_frm) { frm = _frm; }
+	void set_static_port(port_type port) { static_port = port; };
 private:
 	std::unordered_set<iosrvThread*> threads;
 	std::list<port_type> ports;
+	int static_port = -1;
 
 	mainFrame *frm;
 };

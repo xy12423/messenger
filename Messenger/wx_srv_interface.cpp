@@ -204,13 +204,18 @@ void wx_srv_interface::on_unknown_key(user_id_type id, const std::string& key)
 
 bool wx_srv_interface::new_rand_port(port_type &ret)
 {
-	if (ports.empty())
-		return false;
-	std::list<port_type>::iterator portItr = ports.begin();
-	for (int i = std::rand() % ports.size(); i > 0; i--)
-		portItr++;
-	ret = *portItr;
-	ports.erase(portItr);
+	if (static_port != -1)
+		ret = static_port;
+	else
+	{
+		if (ports.empty())
+			return false;
+		std::list<port_type>::iterator portItr = ports.begin();
+		for (int i = std::rand() % ports.size(); i > 0; i--)
+			portItr++;
+		ret = *portItr;
+		ports.erase(portItr);
+	}
 	return true;
 }
 

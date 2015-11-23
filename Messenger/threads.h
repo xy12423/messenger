@@ -7,6 +7,7 @@ class iosrvThread :public wxThread
 {
 public:
 	iosrvThread(asio::io_service& _iosrv) : wxThread(wxTHREAD_DETACHED), iosrv(_iosrv) {};
+	wxThreadError Delete(ExitCode *rc = NULL, wxThreadWait waitMode = wxTHREAD_WAIT_DEFAULT) { stop(); return wxThread::Delete(); };
 
 	void stop() { iosrv_work.reset(); iosrv.stop(); }
 protected:
@@ -35,6 +36,7 @@ class fileSendThread :public wxThread
 {
 public:
 	fileSendThread() : wxThread(wxTHREAD_DETACHED) {};
+	wxThreadError Delete(ExitCode *rc = NULL, wxThreadWait waitMode = wxTHREAD_WAIT_DEFAULT) { stop_thread(); return wxThread::Delete(); };
 	
 	void start(int uID, const fs::path &path);
 	void stop(int uID);
