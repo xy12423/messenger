@@ -166,6 +166,7 @@ void server::connect(const asio::ip::tcp::resolver::query &query)
 				[this, local_port, socket](const boost::system::error_code& ec, asio::ip::tcp::resolver::iterator next)->asio::ip::tcp::resolver::iterator
 			{
 				asio::ip::tcp::endpoint::protocol_type ip_protocol = next->endpoint().protocol();
+				socket->close();
 				socket->open(ip_protocol);
 				socket->bind(asio::ip::tcp::endpoint(ip_protocol, local_port));
 				return next;
