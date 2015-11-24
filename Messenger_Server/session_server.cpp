@@ -63,12 +63,12 @@ void server::leave(user_id_type _user)
 	if (itr == sessions.end())
 		return;
 	session_ptr this_session = itr->second;
-	this_session->shutdown();
 
 	try { inter.on_leave(_user); }
 	catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
 	catch (...) {}
 
+	this_session->shutdown();
 	if (this_session->get_port() != port_null)
 		inter.free_rand_port(this_session->get_port());
 	connectedKeys.erase(this_session->get_key());
@@ -124,8 +124,9 @@ void server::connect(const asio::ip::tcp::endpoint &remote_endpoint)
 	{
 		socket_ptr socket = std::make_shared<asio::ip::tcp::socket>(main_io_service);
 
-		socket->open(asio::ip::tcp::v4());
-		socket->bind(asio::ip::tcp::endpoint(asio::ip::tcp::v4(), local_port));
+		asio::ip::tcp::endpoint::protocol_type ip_protocol = remote_endpoint.protocol();
+		socket->open(ip_protocol);
+		socket->bind(asio::ip::tcp::endpoint(ip_protocol, local_port));
 		socket->async_connect(remote_endpoint,
 			[this, local_port, socket](boost::system::error_code ec)
 		{
@@ -153,19 +154,26 @@ void server::connect(const asio::ip::tcp::resolver::query &query)
 		resolver.async_resolve(query,
 			[this, local_port](const boost::system::error_code& ec, asio::ip::tcp::resolver::iterator itr)
 		{
+			if (ec)
+			{
+				std::cerr << "Socket Error:" << ec.message() << std::endl;
+				inter.free_rand_port(local_port);
+				return;
+			}
 			socket_ptr socket = std::make_shared<asio::ip::tcp::socket>(main_io_service);
 
-			socket->open(asio::ip::tcp::v4());
-			socket->bind(asio::ip::tcp::endpoint(asio::ip::tcp::v4(), local_port));
 			asio::async_connect(*socket, itr, asio::ip::tcp::resolver::iterator(),
+				[this, local_port, socket](const boost::system::error_code& ec, asio::ip::tcp::resolver::iterator next)->asio::ip::tcp::resolver::iterator
+			{
+				asio::ip::tcp::endpoint::protocol_type ip_protocol = next->endpoint().protocol();
+				socket->close();
+				socket->open(ip_protocol);
+				socket->bind(asio::ip::tcp::endpoint(ip_protocol, local_port));
+				return next;
+			},
 				[this, local_port, socket](boost::system::error_code ec, asio::ip::tcp::resolver::iterator itr)
 			{
-				if (itr == asio::ip::tcp::resolver::iterator())
-				{
-					std::cerr << "Can't connect to host" << std::endl;
-					inter.free_rand_port(local_port);
-				}
-				else if (ec)
+				if (ec)
 				{
 					std::cerr << "Socket Error:" << ec.message() << std::endl;
 					inter.free_rand_port(local_port);

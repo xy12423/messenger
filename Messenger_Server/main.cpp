@@ -388,6 +388,7 @@ int main(int argc, char *argv[])
 #endif
 		port_type portListener = 4826;
 		port_type portsBegin = 5000, portsEnd = 9999;
+		bool use_v6 = false;
 
 		for (int i = 1; i < argc; i++)
 		{
@@ -450,6 +451,10 @@ int main(int argc, char *argv[])
 					inter.set_static_port(-1);
 				}
 			}
+			else if (arg == "usev6")
+			{
+				use_v6 = true;
+			}
 			else
 			{
 				print_usage();
@@ -498,7 +503,7 @@ int main(int argc, char *argv[])
 		user_root.name = "Server";
 		user_root.group = user_record::ADMIN;
 
-		srv = new server(main_io_service, misc_io_service, inter, asio::ip::tcp::endpoint(asio::ip::tcp::v4(), portListener));
+		srv = new server(main_io_service, misc_io_service, inter, asio::ip::tcp::endpoint((use_v6 ? asio::ip::tcp::v6() : asio::ip::tcp::v4()), portListener));
 		std::string command;
 		while (server_on)
 		{
