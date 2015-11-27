@@ -4,10 +4,15 @@
 typedef void(*RegPluginPtr)(plugin_id_type plugin_id);
 typedef uint8_t(*RegNextTypePtr)();
 typedef const char*(*RegNextMethodPtr)();
+typedef const char*(*RegNextCallbackPtr)();
 
 typedef void*(*GetMethodHandlerPtr)(const char* method_name);
 typedef void(*SetGetMethodHandlerPtr)(GetMethodHandlerPtr handler);
+typedef void*(*GetCallbackHandlerPtr)(plugin_id_type id, const char* method_name);
+typedef void(*SetGetCallbackHandlerPtr)(GetCallbackHandlerPtr handler);
 typedef void(*SetHandlerPtr)(void* handler);
+
+typedef void(*InitPtr)();
 
 typedef void(*OnDataPtr)(int from, uint8_t type, const char* data, uint32_t length);
 
@@ -26,7 +31,11 @@ enum ExportFunc {
 	RegPlugin,
 	RegNextType,
 	RegNextMethod,
+	RegNextCallback,
+
 	SetGetMethodHandler,
+	SetGetCallbackHandler,
+
 	OnData,
 
 	ExportFuncCount
@@ -35,7 +44,11 @@ std::wstring ExportFuncName[ExportFuncCount] = {
 	wxT("RegPlugin"),
 	wxT("RegNextType"),
 	wxT("RegNextMethod"),
+	wxT("RegNextCallback"),
+
 	wxT("SetGetMethodHandler"),
+	wxT("SetGetCallbackHandler"),
+
 	wxT("OnData")
 };
 
@@ -43,21 +56,31 @@ const int ExportHandlerCount = ExportHandlerID::ExportHandlerCount;
 std::wstring ExportHandlerName[ExportHandlerCount] = {
 	wxT("SendDataHandler"),
 	wxT("ConnectToHandler"),
-	wxT("NewUserHandler"),
-	wxT("DelUserHandler"),
-	wxT("UserMsgHandler"),
 };
 void *ExportHandlers[ExportHandlerCount];
 
+typedef std::unordered_map<std::string, void*> plugin_methods_tp;
 std::unordered_map<plugin_id_type, lib_ptr> plugins;
-std::unordered_map<std::string, void*> plugin_methods;
+plugin_methods_tp plugin_methods;
+std::unordered_map<plugin_id_type, plugin_methods_tp> plugin_callbacks;
 
-void* plugin_GetMethodHandler(const char* method_name)
+void* get_method(const char* method_name)
 {
-	std::unordered_map<std::string, void*>::iterator itr = plugin_methods.find(method_name);
+	plugin_methods_tp::iterator itr = plugin_methods.find(method_name);
 	if (itr != plugin_methods.end())
 		return itr->second;
 	return nullptr;
+}
+
+void* get_callback(plugin_id_type id, const char* callback_name)
+{
+	std::unordered_map<plugin_id_type, plugin_methods_tp>::iterator itr = plugin_callbacks.find(id);
+	if (itr == plugin_callbacks.end())
+		return nullptr;
+	plugin_methods_tp::iterator itr2 = itr->second.find(callback_name);
+	if (itr2 == itr->second.end())
+		return nullptr;
+	return itr2->second;
 }
 
 bool new_plugin_id(std::list<plugin_id_type>::iterator &ret)
@@ -110,7 +133,8 @@ int load_plugin(const std::wstring &plugin_full_path)
 		}
 		RegNextTypePtr regType = reinterpret_cast<RegNextTypePtr>(ExportFuncPtr[RegNextType]);
 		RegNextMethodPtr regMethod = reinterpret_cast<RegNextMethodPtr>(ExportFuncPtr[RegNextMethod]);
-		OnDataPtr callback = reinterpret_cast<OnDataPtr>(ExportFuncPtr[OnData]);
+		RegNextCallbackPtr regCallback = reinterpret_cast<RegNextCallbackPtr>(ExportFuncPtr[RegNextCallback]);
+		OnDataPtr cbOnData = reinterpret_cast<OnDataPtr>(ExportFuncPtr[OnData]);
 
 		//Alloc new plugin id
 		std::list<plugin_id_type>::iterator plugin_id_itr;
@@ -118,7 +142,8 @@ int load_plugin(const std::wstring &plugin_full_path)
 			throw(-1);	//No more plugin id
 		plugin_id = *plugin_id_itr;
 		reinterpret_cast<RegPluginPtr>(ExportFuncPtr[RegPlugin])(plugin_id);
-		reinterpret_cast<SetGetMethodHandlerPtr>(ExportFuncPtr[SetGetMethodHandler])(plugin_GetMethodHandler);
+		reinterpret_cast<SetGetMethodHandlerPtr>(ExportFuncPtr[SetGetMethodHandler])(get_method);
+		reinterpret_cast<SetGetCallbackHandlerPtr>(ExportFuncPtr[SetGetCallbackHandler])(get_callback);
 
 		//Get methods
 		std::unordered_map<std::string, void*> methods;
@@ -136,6 +161,20 @@ int load_plugin(const std::wstring &plugin_full_path)
 
 			methods.emplace(nextMethod, nextMethodPtr);
 			nextMethodCStr = regMethod();
+		}
+
+		//Get callbacks
+		std::unordered_map<std::string, void*> callbacks;
+		const char* nextCallbackCStr = regCallback();
+		std::string nextCallback;
+		while (nextCallbackCStr != nullptr && !(nextCallback.assign(nextCallbackCStr)).empty())
+		{
+			void* nextCallbackPtr = plugin->GetSymbol(nextCallback);
+			if (nextCallbackPtr == nullptr)
+				throw(-1);	//Callback not found
+
+			callbacks.emplace(nextCallback, nextCallbackPtr);
+			nextCallbackCStr = regCallback();
 		}
 
 		//Get types
@@ -159,18 +198,29 @@ int load_plugin(const std::wstring &plugin_full_path)
 			SetHandler(ExportHandlers[i]);
 		}
 
-		//Reg methods and types
+		//Reg methods, callbacks and types
 		for (const std::pair<std::string, void*> &method : methods)
 			plugin_methods.emplace(method);
+		plugin_callbacks.emplace(plugin_id, std::move(callbacks));
 		for (uint8_t type : types)
 		{
 			TypeRegs[type].used = true;
-			TypeRegs[type].callback = callback;
+			TypeRegs[type].callback = cbOnData;
 			TypeRegs[type].redirect = type | 0x80;
 			TypeRegs[type].plugin_id = plugin_id;
 		}
 
-		plugins.emplace(plugin_id, std::move(plugin));
+		lib_ptr &plugin_ref = plugins.emplace(plugin_id, std::move(plugin)).first->second;
+
+		InitPtr Init = reinterpret_cast<InitPtr>(plugin_ref->GetSymbol(wxT("Init")));
+		if (Init != nullptr)
+		{
+			try
+			{
+				Init();
+			}
+			catch (...) {}
+		}
 
 		std::cout << "Plugin loaded:" << wxConvLocal.cWC2MB(plugin_full_path.c_str()) << std::endl;
 
@@ -196,7 +246,7 @@ void* load_symbol(plugin_id_type plugin_id, const char* name)
 	return nullptr;
 }
 
-bool plugin_check_id_type(uint16_t plugin_id, uint8_t type)
+bool plugin_check_id_type(plugin_id_type plugin_id, uint8_t type)
 {
 	return (type & 0x80) && (TypeRegs[type & 0x7F].plugin_id == plugin_id);
 }

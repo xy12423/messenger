@@ -259,9 +259,10 @@ mainFrame::mainFrame(const wxString &title)
 
 		set_handler(ExportHandlerID::SendDataHandler, reinterpret_cast<void*>(plugin_handler_SendData));
 		set_handler(ExportHandlerID::ConnectToHandler, reinterpret_cast<void*>(plugin_handler_ConnectTo));
-		set_handler(ExportHandlerID::NewUserHandler, reinterpret_cast<void*>(plugin_handler_NewVirtualUser));
-		set_handler(ExportHandlerID::DelUserHandler, reinterpret_cast<void*>(plugin_handler_DelVirtualUser));
-		set_handler(ExportHandlerID::UserMsgHandler, reinterpret_cast<void*>(plugin_handler_VirtualUserMsg));
+
+		set_method("NewUser", reinterpret_cast<void*>(plugin_handler_NewVirtualUser));
+		set_method("DelUser", reinterpret_cast<void*>(plugin_handler_DelVirtualUser));
+		set_method("UserMsg", reinterpret_cast<void*>(plugin_handler_VirtualUserMsg));
 
 		std::ifstream fin(plugin_file_name);
 		std::string plugin_path_utf8;
@@ -275,7 +276,7 @@ mainFrame::mainFrame(const wxString &title)
 				plugin_info_type &info = plugin_info.emplace(plugin_id, plugin_info_type()).first->second;
 				info.name = fs::path(plugin_path).filename().stem().string();
 				info.plugin_id = plugin_id;
-				info.virtual_msg_handler = reinterpret_cast<plugin_info_type::virtual_msg_handler_ptr>(load_symbol(plugin_id, "OnUserMsg"));
+				info.virtual_msg_handler = reinterpret_cast<plugin_info_type::virtual_msg_handler_ptr>(get_callback(plugin_id, "OnUserMsg"));
 			}
 		}
 	}
