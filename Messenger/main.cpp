@@ -38,12 +38,13 @@ const int _GUI_SIZE_Y = 540;
 #endif
 
 fileSendThread *threadFileSend;
-
-server* srv;
-std::unordered_map<user_id_type, user_ext_type> user_ext;
-wx_srv_interface inter;
-asio::io_service main_io_service, misc_io_service;
 iosrvThread *threadNetwork, *threadMisc;
+
+asio::io_service main_io_service, misc_io_service;
+std::unique_ptr<server> srv;
+wx_srv_interface inter;
+
+std::unordered_map<user_id_type, user_ext_type> user_ext;
 std::unordered_map<plugin_id_type, plugin_info_type> plugin_info;
 std::unordered_set<user_id_type> virtual_users;
 
@@ -88,7 +89,7 @@ int plugin_handler_NewVirtualUser(plugin_id_type plugin_id, const char* name)
 			name_str.append(name);
 		}
 
-		std::shared_ptr<virtual_session> new_session = std::make_shared<virtual_session>(srv, name_str);
+		std::shared_ptr<virtual_session> new_session = std::make_shared<virtual_session>(*srv, name_str);
 		if (virtual_msg_handler == nullptr)
 			new_session->set_callback([](const std::string &) {});
 		else
@@ -236,13 +237,6 @@ mainFrame::mainFrame(const wxString &title)
 	entries[0].Set(wxACCEL_CTRL, WXK_RETURN, ID_BUTTONSEND);
 	wxAcceleratorTable accel(entry_count, entries);
 	SetAcceleratorTable(accel);
-
-	threadFileSend = new fileSendThread();
-	if (threadFileSend->Run() != wxTHREAD_NO_ERROR)
-	{
-		delete threadFileSend;
-		throw(std::runtime_error("Can't create fileSendThread"));
-	}
 
 	textStrm = new textStream(this, textInfo);
 	cout_orig = std::cout.rdbuf();
@@ -414,8 +408,6 @@ void mainFrame::mainFrame_Close(wxCloseEvent& event)
 		std::cerr.rdbuf(cerr_orig);
 		delete textStrm;
 
-		threadFileSend->Delete();
-
 		inter.set_frame(nullptr);
 	}
 	catch (std::exception &ex)
@@ -432,23 +424,13 @@ bool MyApp::OnInit()
 	int stage = 0;
 	try
 	{
-		threadNetwork = new iosrvThread(main_io_service);
-		if (threadNetwork->Run() != wxTHREAD_NO_ERROR)
-		{
-			delete threadNetwork;
-			throw(std::runtime_error("Can't create iosrvThread"));
-		}
-		stage = 1;
-		threadMisc = new iosrvThread(misc_io_service);
-		if (threadMisc->Run() != wxTHREAD_NO_ERROR)
-		{
-			delete threadMisc;
-			throw(std::runtime_error("Can't create iosrvThread"));
-		}
-		stage = 2;
-
 		port_type portsBegin = 5000, portsEnd = 9999;
 		bool use_v6 = false;
+
+		threadNetwork = new iosrvThread(main_io_service);
+		stage = 1;
+		threadMisc = new iosrvThread(misc_io_service);
+		stage = 2;
 
 		for (int i = 1; i < argc; i++)
 		{
@@ -486,16 +468,38 @@ bool MyApp::OnInit()
 		
 		for (; portsBegin <= portsEnd; portsBegin++)
 			inter.free_rand_port(portsBegin);
-		srv = new server(main_io_service, misc_io_service, inter, asio::ip::tcp::endpoint((use_v6 ? asio::ip::tcp::v6() : asio::ip::tcp::v4()), portListen));
+		srv = std::make_unique<server>(main_io_service, misc_io_service, inter, asio::ip::tcp::endpoint((use_v6 ? asio::ip::tcp::v6() : asio::ip::tcp::v4()), portListen));
+		inter.set_server(srv.get());
+
+		threadFileSend = new fileSendThread(*srv);
+		stage = 3;
 
 		form = new mainFrame(wxT("Messenger"));
 		form->Show();
 		inter.set_frame(form);
+
+		if (threadNetwork->Run() != wxTHREAD_NO_ERROR)
+		{
+			delete threadNetwork;
+			throw(std::runtime_error("Can't run iosrvThread"));
+		}
+		if (threadMisc->Run() != wxTHREAD_NO_ERROR)
+		{
+			delete threadMisc;
+			throw(std::runtime_error("Can't run iosrvThread"));
+		}
+		if (threadFileSend->Run() != wxTHREAD_NO_ERROR)
+		{
+			delete threadFileSend;
+			throw(std::runtime_error("Can't run fileSendThread"));
+		}
 	}
 	catch (std::exception &ex)
 	{
 		switch (stage)
 		{
+			case 3:
+				threadFileSend->Delete();
 			case 2:
 				threadMisc->Delete();
 			case 1:
@@ -515,10 +519,11 @@ int MyApp::OnExit()
 {
 	try
 	{
+		threadFileSend->Delete();
 		threadMisc->Delete();
 		threadNetwork->Delete();
 
-		delete srv;
+		srv.reset();
 	}
 	catch (...)
 	{

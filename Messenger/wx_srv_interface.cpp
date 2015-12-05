@@ -4,7 +4,6 @@
 #include "plugin.h"
 #include "main.h"
 
-extern server* srv;
 extern fileSendThread *threadFileSend;
 extern std::unordered_map<user_id_type, user_ext_type> user_ext;
 
@@ -192,11 +191,11 @@ void wx_srv_interface::on_unknown_key(user_id_type id, const std::string& key)
 		return;
 
 	wxThreadEvent *newEvent = new wxThreadEvent;
-	newEvent->SetPayload<gui_callback>([id, key]() {
-		int answer = wxMessageBox(wxT("The public key from " + user_ext.at(id).addr + " hasn't shown before.Trust it?"), wxT("Confirm"), wxYES_NO);
-		if (answer != wxYES)
+	newEvent->SetPayload<gui_callback>([this, id, key]() {
+		int answer = wxMessageBox(wxT("The public key from " + user_ext.at(id).addr + " hasn't shown before.Trust it?"), wxT("Confirm"), wxYES_NO | wxCANCEL);
+		if (answer == wxNO)
 			srv->disconnect(id);
-		else
+		else if (answer == wxYES)
 			srv->certify_key(key);
 	});
 	wxQueueEvent(frm, newEvent);

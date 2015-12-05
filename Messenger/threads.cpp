@@ -3,7 +3,6 @@
 #include "session.h"
 #include "threads.h"
 
-extern server *srv;
 extern std::unordered_map<user_id_type, user_ext_type> user_ext;
 
 const int checkInterval = 10;
@@ -53,7 +52,7 @@ void fileSendThread::start(int uID, const fs::path &path)
 			wxCharBuffer msgBuf = wxConvLocal.cWC2MB(
 				(wxT("Sending file ") + fileName + wxT(" To ") + user_ext[uID].addr).c_str()
 				);
-			srv->send_data(uID, head, session::priority_file, std::string(msgBuf.data(), msgBuf.length()));
+			srv.send_data(uID, head, session::priority_file, std::string(msgBuf.data(), msgBuf.length()));
 			
 			if (write_not_in_progress)
 				write();
@@ -88,7 +87,7 @@ void fileSendThread::write()
 		(task.fileName + wxT(":Sended block ") + std::to_wstring(task.blockCount) + wxT("/") + std::to_wstring(task.blockCountAll) + wxT(" To ") + user_ext[task.uID].addr).c_str()
 		);
 	std::string msg(msgBuf.data(), msgBuf.length());
-	srv->send_data(task.uID, sendBuf, session::priority_file, [msg, this]() {
+	srv.send_data(task.uID, sendBuf, session::priority_file, [msg, this]() {
 		std::cout << msg << std::endl;
 		iosrv.post([this]() {
 			if (!tasks.empty())
