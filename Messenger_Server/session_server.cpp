@@ -24,13 +24,12 @@ void server::start()
 			return;
 		if (!ec)
 		{
-			std::shared_ptr<pre_session_s> pre_session_s_ptr(std::make_shared<pre_session_s>(port_null, socket, this, main_io_service, misc_io_service));
+			std::shared_ptr<pre_session_s> pre_session_s_ptr(std::make_shared<pre_session_s>(port_null, socket, *this, main_io_service, misc_io_service));
 			pre_sessions.emplace(pre_session_s_ptr);
 		}
 
 		start();
-	}
-	);
+	});
 }
 
 void server::pre_session_over(std::shared_ptr<pre_session> _pre, bool successful)
@@ -132,7 +131,7 @@ void server::connect(const asio::ip::tcp::endpoint &remote_endpoint)
 		{
 			if (!ec)
 			{
-				std::shared_ptr<pre_session_c> pre_session_c_ptr(std::make_shared<pre_session_c>(local_port, socket, this, main_io_service, misc_io_service));
+				std::shared_ptr<pre_session_c> pre_session_c_ptr(std::make_shared<pre_session_c>(local_port, socket, *this, main_io_service, misc_io_service));
 				pre_sessions.emplace(pre_session_c_ptr);
 			}
 			else
@@ -180,7 +179,7 @@ void server::connect(const asio::ip::tcp::resolver::query &query)
 				}
 				else
 				{
-					std::shared_ptr<pre_session_c> pre_session_c_ptr(std::make_shared<pre_session_c>(local_port, socket, this, main_io_service, misc_io_service));
+					std::shared_ptr<pre_session_c> pre_session_c_ptr(std::make_shared<pre_session_c>(local_port, socket, *this, main_io_service, misc_io_service));
 					pre_sessions.emplace(pre_session_c_ptr);
 				}
 			});

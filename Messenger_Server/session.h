@@ -22,13 +22,12 @@ class server;
 class pre_session : public std::enable_shared_from_this<pre_session>
 {
 public:
-	pre_session(server *_srv, port_type_l _local_port, asio::io_service &main_io_srv, asio::io_service &misc_io_srv, const socket_ptr &_socket)
+	pre_session(server &_srv, port_type_l _local_port, asio::io_service &main_io_srv, asio::io_service &misc_io_srv, const socket_ptr &_socket)
 		:srv(_srv),
 		main_io_service(main_io_srv),
 		misc_io_service(misc_io_srv),
 		socket(_socket)
 	{
-		srv = _srv;
 		local_port = _local_port;
 	}
 
@@ -66,7 +65,7 @@ protected:
 	asio::io_service &main_io_service, &misc_io_service;
 	socket_ptr socket;
 
-	server *srv;
+	server &srv;
 	port_type_l local_port;
 	volatile bool exiting = false, passed = false;
 };
@@ -74,7 +73,7 @@ protected:
 class pre_session_s :public pre_session
 {
 public:
-	pre_session_s(port_type_l local_port, const socket_ptr &_socket, server *_srv, asio::io_service &main_io_srv, asio::io_service &misc_io_srv)
+	pre_session_s(port_type_l local_port, const socket_ptr &_socket, server &_srv, asio::io_service &main_io_srv, asio::io_service &misc_io_srv)
 		:pre_session(_srv, local_port, main_io_srv, misc_io_srv, _socket)
 	{
 		start();
@@ -90,7 +89,7 @@ private:
 class pre_session_c :public pre_session
 {
 public:
-	pre_session_c(port_type_l local_port, const socket_ptr &_socket, server *_srv, asio::io_service &main_io_srv, asio::io_service &misc_io_srv)
+	pre_session_c(port_type_l local_port, const socket_ptr &_socket, server &_srv, asio::io_service &main_io_srv, asio::io_service &misc_io_srv)
 		:pre_session(_srv, local_port, main_io_srv, misc_io_srv, _socket)
 	{
 		start();
@@ -113,7 +112,7 @@ public:
 
 	typedef std::function<void()> write_callback;
 
-	session_base(server *_srv, port_type_l _local_port, const std::string &_key_string)
+	session_base(server &_srv, port_type_l _local_port, const std::string &_key_string)
 		:srv(_srv), local_port(_local_port), key_string(_key_string)
 	{}
 
@@ -132,7 +131,7 @@ protected:
 	std::string key_string;
 	user_id_type uid;
 
-	server *srv;
+	server &srv;
 	port_type_l local_port;
 };
 typedef std::shared_ptr<session_base> session_ptr;
@@ -143,7 +142,7 @@ class virtual_session :public session_base
 public:
 	typedef std::function<void(const std::string &)> on_data_callback;
 
-	virtual_session(server *_srv, const std::string &_name)
+	virtual_session(server &_srv, const std::string &_name)
 		:session_base(_srv, port_null, ""), name(_name)
 	{}
 
@@ -166,7 +165,7 @@ private:
 class session : public session_base
 {
 public:
-	session(server *_srv, port_type_l _local_port, const std::string &_key_string,
+	session(server &_srv, port_type_l _local_port, const std::string &_key_string,
 		asio::io_service& _main_iosrv, asio::io_service& _misc_iosrv, socket_ptr &&_socket,
 		session_id_type _session_id, rand_num_type _rand_num_send, rand_num_type _rand_num_recv)
 		:session_base(_srv, _local_port, _key_string),
@@ -282,7 +281,7 @@ public:
 		closing = true;
 		acceptor.close();
 		pre_sessions.clear();
-		for (const auto& this_session : sessions) this_session.second->shutdown();
+		for (const auto& pair : sessions) pair.second->shutdown();
 		sessions.clear();
 		write_data();
 	}
