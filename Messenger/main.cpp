@@ -41,7 +41,7 @@ fileSendThread *threadFileSend;
 iosrvThread *threadNetwork, *threadMisc;
 
 asio::io_service main_io_service, misc_io_service;
-std::unique_ptr<server> srv;
+std::unique_ptr<msgr_proto::server> srv;
 wx_srv_interface inter;
 
 std::unordered_map<user_id_type, user_ext_type> user_ext;
@@ -59,14 +59,14 @@ void plugin_handler_SendData(plugin_id_type plugin_id, int to, const char* data,
 		{
 			user_id_type id = p.first;
 			misc_io_service.post([id, data_str]() {
-				srv->send_data(id, data_str, session::priority_plugin);
+				srv->send_data(id, data_str, msgr_proto::session::priority_plugin);
 			});
 		};
 	}
 	else
 	{
 		misc_io_service.post([to, data_str]() {
-			srv->send_data(to, data_str, session::priority_plugin);
+			srv->send_data(to, data_str, msgr_proto::session::priority_plugin);
 		});
 	}
 }
@@ -89,7 +89,7 @@ int plugin_handler_NewVirtualUser(plugin_id_type plugin_id, const char* name)
 			name_str.append(name);
 		}
 
-		std::shared_ptr<virtual_session> new_session = std::make_shared<virtual_session>(*srv, name_str);
+		std::shared_ptr<msgr_proto::virtual_session> new_session = std::make_shared<msgr_proto::virtual_session>(*srv, name_str);
 		if (virtual_msg_handler == nullptr)
 			new_session->set_callback([](const std::string &) {});
 		else
@@ -134,7 +134,7 @@ bool plugin_handler_VirtualUserMsg(plugin_id_type plugin_id, uint16_t virtual_us
 		plugin_info_type &info = plugin_info.at(plugin_id);
 		if (info.virtual_user_list.find(virtual_user_id) != info.virtual_user_list.end())
 		{
-			std::dynamic_pointer_cast<virtual_session>(srv->get_session(virtual_user_id))->push(std::string(message, length));
+			std::dynamic_pointer_cast<msgr_proto::virtual_session>(srv->get_session(virtual_user_id))->push(std::string(message, length));
 			return true;
 		}
 	}
@@ -322,7 +322,7 @@ void mainFrame::buttonSend_Click(wxCommandEvent& event)
 			insLen(msgutf8);
 			msgutf8.insert(0, 1, pac_type_msg);
 			misc_io_service.post([uID, msgutf8]() {
-				srv->send_data(uID, msgutf8, session::priority_msg);
+				srv->send_data(uID, msgutf8, msgr_proto::session::priority_msg);
 			});
 			textMsg->AppendText("Me:" + msg + '\n');
 			user_ext[uID].log.append("Me:" + msg + '\n');
@@ -364,13 +364,14 @@ void mainFrame::buttonImportKey_Click(wxCommandEvent& event)
 		size_t pubCount = 0, keyLen = 0;
 		std::ifstream publicIn(path, std::ios_base::in | std::ios_base::binary);
 		publicIn.read(reinterpret_cast<char*>(&pubCount), sizeof(size_t));
+		std::vector<char> buf;
+
 		for (; pubCount > 0; pubCount--)
 		{
 			publicIn.read(reinterpret_cast<char*>(&keyLen), sizeof(size_t));
-			char *buf = new char[keyLen];
-			publicIn.read(buf, keyLen);
-			srv->certify_key(std::string(buf, keyLen));
-			delete[] buf;
+			buf.resize(keyLen);
+			publicIn.read(buf.data(), keyLen);
+			srv->certify_key(std::string(buf.data(), keyLen));
 		}
 	}
 }
@@ -468,8 +469,8 @@ bool MyApp::OnInit()
 		
 		for (; portsBegin <= portsEnd; portsBegin++)
 			inter.free_rand_port(portsBegin);
-		srv = std::make_unique<server>(main_io_service, misc_io_service, inter, asio::ip::tcp::endpoint((use_v6 ? asio::ip::tcp::v6() : asio::ip::tcp::v4()), portListen));
-		inter.set_server(srv.get());
+		srv = std::make_unique<msgr_proto::server>(main_io_service, misc_io_service, inter,
+			asio::ip::tcp::endpoint((use_v6 ? asio::ip::tcp::v6() : asio::ip::tcp::v4()), portListen));
 
 		threadFileSend = new fileSendThread(*srv);
 		stage = 3;

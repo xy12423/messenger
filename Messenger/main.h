@@ -92,7 +92,6 @@ public:
 	virtual void free_rand_port(port_type port) { ports.push_back(port); };
 
 	void set_frame(mainFrame *_frm) { frm = _frm; }
-	void set_server(server *_srv) { srv = _srv; }
 	void set_static_port(port_type port) { static_port = port; };
 private:
 	std::unordered_set<iosrvThread*> threads;
@@ -100,7 +99,6 @@ private:
 	int static_port = -1;
 
 	mainFrame *frm;
-	server *srv;
 };
 
 class MyApp : public wxApp

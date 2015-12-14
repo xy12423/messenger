@@ -35,7 +35,7 @@ struct fileSendTask
 class fileSendThread :public wxThread
 {
 public:
-	fileSendThread(server &_srv) : wxThread(wxTHREAD_DETACHED), srv(_srv) {}
+	fileSendThread(msgr_proto::server &_srv) : wxThread(wxTHREAD_DETACHED), srv(_srv) {}
 	wxThreadError Delete(ExitCode *rc = NULL, wxThreadWait waitMode = wxTHREAD_WAIT_DEFAULT) { stop_thread(); return wxThread::Delete(); }
 	
 	void start(int uID, const fs::path &path);
@@ -54,7 +54,7 @@ private:
 	std::unique_ptr<char[]> block = std::make_unique<char[]>(fileBlockLen);
 
 	asio::io_service iosrv;
-	server &srv;
+	msgr_proto::server &srv;
 	std::shared_ptr<asio::io_service::work> iosrv_work;
 };
 
