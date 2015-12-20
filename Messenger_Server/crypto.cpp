@@ -70,7 +70,7 @@ void hash(const std::string &src, std::string &dst, size_t input_shift)
 	CryptoPP::SHA512 hasher;
 	char result[hash_size];
 	memset(result, 0, sizeof(result));
-	hasher.CalculateDigest(reinterpret_cast<byte*>(result), reinterpret_cast<const byte*>(src.data() + input_shift), src.size() - input_shift);
+	hasher.CalculateDigest(reinterpret_cast<byte*>(result), reinterpret_cast<const byte*>(src.data()), src.size() - input_shift);
 	dst.append(result, hash_size);
 }
 

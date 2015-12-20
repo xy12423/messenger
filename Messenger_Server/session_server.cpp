@@ -2,14 +2,14 @@
 #include "crypto.h"
 #include "session.h"
 
-using boost::system::error_code;
+using namespace msgr_proto;
 
 const char* privatekeyFile = ".privatekey";
 const char* publickeysFile = ".publickey";
 
 void insLen(std::string &data)
 {
-	data_length_type len = boost::endian::native_to_little<data_length_type>(static_cast<data_length_type>(data.size()));
+	data_length_type len = boost::endian::native_to_little(static_cast<data_length_type>(data.size()));
 	data.insert(0, std::string(reinterpret_cast<const char*>(&len), sizeof(data_length_type)));
 }
 
@@ -32,7 +32,7 @@ void server::start()
 	});
 }
 
-void server::pre_session_over(std::shared_ptr<pre_session> _pre, bool successful)
+void server::pre_session_over(const std::shared_ptr<pre_session> &_pre, bool successful)
 {
 	if (!successful)
 	{
@@ -172,15 +172,15 @@ void server::connect(const asio::ip::tcp::resolver::query &query)
 			},
 				[this, local_port, socket](boost::system::error_code ec, asio::ip::tcp::resolver::iterator itr)
 			{
-				if (ec)
-				{
-					std::cerr << "Socket Error:" << ec.message() << std::endl;
-					inter.free_rand_port(local_port);
-				}
-				else
+				if (!ec)
 				{
 					std::shared_ptr<pre_session_c> pre_session_c_ptr(std::make_shared<pre_session_c>(local_port, socket, *this, main_io_service, misc_io_service));
 					pre_sessions.emplace(pre_session_c_ptr);
+				}
+				else
+				{
+					std::cerr << "Socket Error:" << ec.message() << std::endl;
+					inter.free_rand_port(local_port);
 				}
 			});
 		});
@@ -216,7 +216,7 @@ void server::read_data()
 	}
 
 	e0str = getPublicKey();
-	key_length_type e0len = boost::endian::native_to_little<key_length_type>(static_cast<key_length_type>(e0str.size()));
+	key_length_type e0len = boost::endian::native_to_little(static_cast<key_length_type>(e0str.size()));
 	e0str = std::string(reinterpret_cast<const char*>(&e0len), sizeof(key_length_type)) + e0str;
 }
 
