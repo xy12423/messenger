@@ -220,8 +220,8 @@ namespace msgr_proto
 		std::string get_address() const { return socket->remote_endpoint().address().to_string(); }
 	private:
 		void read_header();
-		void read_data(size_t sizeLast, std::shared_ptr<std::string> buf);
-		void process_data(std::shared_ptr<std::string> buf);
+		void read_data(size_t sizeLast, const std::shared_ptr<std::string> &buf);
+		void process_data(const std::shared_ptr<std::string> &buf);
 		void write();
 
 		inline rand_num_type get_rand_num_send() { if (rand_num_send == std::numeric_limits<rand_num_type>::max()) rand_num_send = 0; else rand_num_send++; return rand_num_send; };
@@ -235,7 +235,7 @@ namespace msgr_proto
 		socket_ptr socket;
 
 		std::unique_ptr<char[]> read_msg_buffer;
-		const size_t msg_buffer_size = 0x4000;
+		static const size_t msg_buffer_size = 0x4000;
 
 		struct write_task {
 			write_task() {};
@@ -300,7 +300,7 @@ namespace msgr_proto
 		bool send_data(user_id_type id, const std::string& data, int priority, const std::string& message);
 		bool send_data(user_id_type id, const std::string& data, int priority, session::write_callback &&callback);
 
-		void pre_session_over(std::shared_ptr<pre_session> _pre, bool successful = false);
+		void pre_session_over(const std::shared_ptr<pre_session> &_pre, bool successful = false);
 		void join(const session_ptr &_user);
 		void leave(user_id_type id);
 

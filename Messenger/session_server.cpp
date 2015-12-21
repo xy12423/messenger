@@ -32,7 +32,7 @@ void server::start()
 	});
 }
 
-void server::pre_session_over(std::shared_ptr<pre_session> _pre, bool successful)
+void server::pre_session_over(const std::shared_ptr<pre_session> &_pre, bool successful)
 {
 	if (!successful)
 	{
