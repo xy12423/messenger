@@ -54,7 +54,7 @@ namespace msgr_proto
 			local_port = _local_port;
 		}
 
-		~pre_session() { if (!passed) { exiting = true; socket->close(); } }
+		~pre_session() { exiting = true; if (!passed) { socket->close(); } }
 
 		port_type_l get_port() const { return local_port; }
 		const std::string& get_key() const { return key_string; }
@@ -138,6 +138,7 @@ namespace msgr_proto
 		session_base(server &_srv, port_type_l _local_port, const std::string &_key_string)
 			:srv(_srv), local_port(_local_port), key_string(_key_string)
 		{}
+		session_base(const session_base &) = delete;
 
 		virtual void start() = 0;
 		virtual void shutdown() = 0;

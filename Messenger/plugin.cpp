@@ -236,16 +236,6 @@ int load_plugin(const std::wstring &plugin_full_path)
 	return plugin_id;
 }
 
-void* load_symbol(plugin_id_type plugin_id, const char* name)
-{
-	try
-	{
-		return plugins.at(plugin_id)->GetSymbol(name);
-	}
-	catch (...) {}
-	return nullptr;
-}
-
 bool plugin_check_id_type(plugin_id_type plugin_id, uint8_t type)
 {
 	return (type & 0x80) && (TypeRegs[type & 0x7F].plugin_id == plugin_id);
