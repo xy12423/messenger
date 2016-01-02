@@ -196,8 +196,8 @@ MessengerGUI/
 .privatekey
 .publickey
 
-+# Object files
-+*.o
-+
-+# Built binary
-+Messenger/messenger
+# Object files
+*.o
+
+# Built binary
+Messenger/messenger
