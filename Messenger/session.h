@@ -195,7 +195,7 @@ namespace msgr_proto
 			:session_base(_srv, _local_port, _key_string),
 			main_iosrv(_main_iosrv), misc_iosrv(_misc_iosrv), socket(_socket),
 			session_id(_session_id), rand_num_send(_rand_num_send), rand_num_recv(_rand_num_recv),
-			read_msg_buffer(std::make_unique<char[]>(msg_buffer_size))
+			read_buffer(std::make_unique<char[]>(read_buffer_size))
 		{
 			CryptoPP::StringSource keySource(key_string, true);
 			e1.AccessPublicKey().Load(keySource);
@@ -235,8 +235,8 @@ namespace msgr_proto
 		asio::io_service &main_iosrv, &misc_iosrv;
 		socket_ptr socket;
 
-		std::unique_ptr<char[]> read_msg_buffer;
-		static const size_t msg_buffer_size = 0x4000;
+		std::unique_ptr<char[]> read_buffer;
+		static const size_t read_buffer_size = 0x4000;
 
 		struct write_task {
 			write_task() {};

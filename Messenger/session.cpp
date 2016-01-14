@@ -465,13 +465,14 @@ void session::read_header()
 	{
 		session_ptr self = shared_from_this();
 		asio::async_read(*socket,
-			asio::buffer(read_msg_buffer.get(), sizeof(data_length_type)),
+			asio::buffer(read_buffer.get(), sizeof(data_length_type)),
 			asio::transfer_exactly(sizeof(data_length_type)),
 			[this, self](boost::system::error_code ec, std::size_t length)
 		{
 			if (!ec)
 			{
-				data_length_type size_recv = *(reinterpret_cast<data_length_type*>(read_msg_buffer.get()));
+				data_length_type size_recv = *(reinterpret_cast<data_length_type*>(read_buffer.get()));
+				size_recv = boost::endian::little_to_native(size_recv);
 				read_data(size_recv, std::make_shared<std::string>());
 			}
 			else
@@ -500,16 +501,16 @@ void session::read_data(size_t size_last, const std::shared_ptr<std::string> &bu
 	try
 	{
 		session_ptr self = shared_from_this();
-		if (size_last > msg_buffer_size)
+		if (size_last > read_buffer_size)
 		{
 			asio::async_read(*socket,
-				asio::buffer(read_msg_buffer.get(), msg_buffer_size),
-				asio::transfer_exactly(msg_buffer_size),
+				asio::buffer(read_buffer.get(), read_buffer_size),
+				asio::transfer_exactly(read_buffer_size),
 				[this, self, size_last, buf](boost::system::error_code ec, std::size_t length)
 			{
 				if (!ec)
 				{
-					buf->append(read_msg_buffer.get(), length);
+					buf->append(read_buffer.get(), length);
 					read_data(size_last - length, buf);
 				}
 				else
@@ -525,13 +526,13 @@ void session::read_data(size_t size_last, const std::shared_ptr<std::string> &bu
 		else
 		{
 			asio::async_read(*socket,
-				asio::buffer(read_msg_buffer.get(), size_last),
+				asio::buffer(read_buffer.get(), size_last),
 				asio::transfer_exactly(size_last),
 				[this, self, buf](boost::system::error_code ec, std::size_t length)
 			{
 				if (!ec)
 				{
-					buf->append(read_msg_buffer.get(), length);
+					buf->append(read_buffer.get(), length);
 					process_data(buf);
 					start();
 				}
