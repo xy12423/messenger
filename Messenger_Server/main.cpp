@@ -4,6 +4,8 @@
 #include "session.h"
 #include "main.h"
 
+std::promise<void> exit_promise;
+
 asio::io_service main_io_service, misc_io_service;
 cli_server_interface inter;
 volatile bool server_on = true;
@@ -231,7 +233,7 @@ void cli_server_interface::on_leave(user_id_type id)
 	user_exts.erase(itr);
 }
 
-void cli_server_interface::broadcast_msg(user_id_type src, const std::string &msg)
+void cli_server_interface::broadcast_msg(int src, const std::string &msg)
 {
 	std::string msg_send;
 	user_ext &usr = user_exts[src];
@@ -277,7 +279,7 @@ std::string cli_server_interface::process_command(std::string cmd, user_record &
 	
 	if (cmd == "op")
 	{
-		if (group == user_record::ADMIN)
+		if (group >= user_record::ADMIN)
 		{
 			user_record_list::iterator itr = user_records.find(args);
 			if (itr != user_records.end())
@@ -292,7 +294,7 @@ std::string cli_server_interface::process_command(std::string cmd, user_record &
 	}
 	else if (cmd == "reg")
 	{
-		if (group == user_record::ADMIN)
+		if (group >= user_record::ADMIN)
 		{
 			pos = args.find(' ');
 			if (pos != std::string::npos)
@@ -318,7 +320,7 @@ std::string cli_server_interface::process_command(std::string cmd, user_record &
 	}
 	else if (cmd == "unreg")
 	{
-		if (group == user_record::ADMIN)
+		if (group >= user_record::ADMIN)
 		{
 			user_record_list::iterator itr = user_records.find(args);
 			if (itr != user_records.end())
@@ -342,7 +344,7 @@ std::string cli_server_interface::process_command(std::string cmd, user_record &
 	}
 	else if (cmd == "con")
 	{
-		if (group == user_record::ADMIN)
+		if (group >= user_record::ADMIN)
 		{
 			ret = "Connecting";
 			srv->connect(args, portConnect);
@@ -350,9 +352,11 @@ std::string cli_server_interface::process_command(std::string cmd, user_record &
 	}
 	else if (cmd == "stop")
 	{
-		if (group == user_record::ADMIN)
+		if (group >= user_record::CONSOLE)
 		{
 			server_on = false;
+			exit_promise.set_value();
+			ret = "Stopping server";
 		}
 	}
 	return ret;
@@ -502,16 +506,25 @@ int main(int argc, char *argv[])
 		user_exts[-1].name = user_exts[-1].addr = "Server";
 		user_record user_root;
 		user_root.name = "Server";
-		user_root.group = user_record::ADMIN;
+		user_root.group = user_record::CONSOLE;
 
-		msgr_proto::server *srv = new msgr_proto::server(main_io_service, misc_io_service, inter, asio::ip::tcp::endpoint((use_v6 ? asio::ip::tcp::v6() : asio::ip::tcp::v4()), portListener));
-		std::string command;
-		while (server_on)
-		{
-			std::getline(std::cin, command);
-			std::cout << inter.process_command(command, user_root) << std::endl;
-		}
+		std::unique_ptr<msgr_proto::server> srv = std::make_unique<msgr_proto::server>
+			(main_io_service, misc_io_service, inter, asio::ip::tcp::endpoint((use_v6 ? asio::ip::tcp::v6() : asio::ip::tcp::v4()), portListener));
+		std::thread input_thread([&user_root]() {
+			std::string command;
+			while (server_on)
+			{
+				std::getline(std::cin, command);
+				std::string ret = inter.process_command(command, user_root);
+				if (!ret.empty())
+					std::cout << ret << std::endl;
+			}
+		});
+		input_thread.detach();
 
+		std::future<void> future = exit_promise.get_future();
+		future.wait();
+		
 		write_config();
 
 		misc_iosrv_work.reset();

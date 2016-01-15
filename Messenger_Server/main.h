@@ -9,7 +9,7 @@ const port_type portConnect = 4826;
 
 struct user_record
 {
-	enum group_type{ GUEST, USER, ADMIN };
+	enum group_type{ GUEST, USER, ADMIN, CONSOLE };
 
 	user_record(){ group = GUEST; }
 	user_record(const std::string &_name, const std::string &_passwd, group_type _group) :
@@ -49,7 +49,7 @@ public:
 	virtual bool new_rand_port(port_type &port);
 	virtual void free_rand_port(port_type port) { ports.push_back(port); };
 
-	void broadcast_msg(user_id_type id, const std::string &msg);
+	void broadcast_msg(int id, const std::string &msg);
 	void broadcast_data(user_id_type id, const std::string &data, int priority);
 	std::string process_command(std::string cmd, user_record &user);
 
