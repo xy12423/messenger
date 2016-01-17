@@ -4,12 +4,11 @@
 #include "plugin.h"
 #include "main.h"
 
-extern server* srv;
 extern fileSendThread *threadFileSend;
 extern std::unordered_map<user_id_type, user_ext_type> user_ext;
 
 #define checkErr(x) if (dataItr + (x) > dataEnd) throw(0)
-#define read_uint(x)													\
+#define read_len(x)													\
 	checkErr(sizeof_data_length);										\
 	memcpy(reinterpret_cast<char*>(&(x)), dataItr, sizeof_data_length);	\
 	dataItr += sizeof_data_length
@@ -34,7 +33,7 @@ void wx_srv_interface::on_data(user_id_type id, const std::string &data)
 					throw(0);
 
 				data_length_type sizeMsg;
-				read_uint(sizeMsg);
+				read_len(sizeMsg);
 
 				checkErr(sizeMsg);
 				std::string msg_utf8(dataItr, sizeMsg);
@@ -66,10 +65,10 @@ void wx_srv_interface::on_data(user_id_type id, const std::string &data)
 			case pac_type_file_h:
 			{
 				data_length_type recvLE;
-				read_uint(recvLE);
+				read_len(recvLE);
 				data_length_type blockCountAll = wxUINT32_SWAP_ON_BE(static_cast<data_length_type>(recvLE));
 
-				read_uint(recvLE);
+				read_len(recvLE);
 				data_length_type fNameLen = wxUINT32_SWAP_ON_BE(static_cast<data_length_type>(recvLE));
 
 				std::wstring fName;
@@ -102,7 +101,7 @@ void wx_srv_interface::on_data(user_id_type id, const std::string &data)
 			case pac_type_file_b:
 			{
 				data_length_type recvLE;
-				read_uint(recvLE);
+				read_len(recvLE);
 				data_length_type dataSize = wxUINT32_SWAP_ON_BE(static_cast<data_length_type>(recvLE));
 
 				checkErr(dataSize);
@@ -192,11 +191,11 @@ void wx_srv_interface::on_unknown_key(user_id_type id, const std::string& key)
 		return;
 
 	wxThreadEvent *newEvent = new wxThreadEvent;
-	newEvent->SetPayload<gui_callback>([id, key]() {
-		int answer = wxMessageBox(wxT("The public key from " + user_ext.at(id).addr + " hasn't shown before.Trust it?"), wxT("Confirm"), wxYES_NO);
-		if (answer != wxYES)
+	newEvent->SetPayload<gui_callback>([this, id, key]() {
+		int answer = wxMessageBox(wxT("The public key from " + user_ext.at(id).addr + " hasn't shown before.Trust it?"), wxT("Confirm"), wxYES_NO | wxCANCEL);
+		if (answer == wxNO)
 			srv->disconnect(id);
-		else
+		else if (answer == wxYES)
 			srv->certify_key(key);
 	});
 	wxQueueEvent(frm, newEvent);
@@ -204,13 +203,18 @@ void wx_srv_interface::on_unknown_key(user_id_type id, const std::string& key)
 
 bool wx_srv_interface::new_rand_port(port_type &ret)
 {
-	if (ports.empty())
-		return false;
-	std::list<port_type>::iterator portItr = ports.begin();
-	for (int i = std::rand() % ports.size(); i > 0; i--)
-		portItr++;
-	ret = *portItr;
-	ports.erase(portItr);
+	if (static_port != -1)
+		ret = static_port;
+	else
+	{
+		if (ports.empty())
+			return false;
+		std::list<port_type>::iterator portItr = ports.begin();
+		for (int i = std::rand() % ports.size(); i > 0; i--)
+			portItr++;
+		ret = *portItr;
+		ports.erase(portItr);
+	}
 	return true;
 }
 
