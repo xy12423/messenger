@@ -5,26 +5,9 @@
 
 #include "threads.h"
 
-class textStream : public std::streambuf
-{
-public:
-	textStream(wxTextCtrl *_text) { text = _text; }
+typedef std::function<void()> gui_callback;
 
-protected:
-	int_type overflow(int_type c)
-	{
-		buf.push_back(c);
-		if (c == '\n')
-		{
-			text->AppendText(buf);
-			buf.clear();
-		}
-		return c;
-	}
-private:
-	wxTextCtrl *text;
-	std::string buf;
-};
+class textStream;
 
 class mainFrame : public wxFrame
 {
@@ -69,6 +52,32 @@ private:
 	wxDECLARE_EVENT_TABLE();
 };
 
+class textStream : public std::streambuf
+{
+public:
+	textStream(mainFrame *_frm, wxTextCtrl *_text) { frm = _frm; text = _text; }
+
+protected:
+	int_type overflow(int_type c)
+	{
+		buf.push_back(c);
+		if (c == '\n')
+		{
+			std::string _buf = std::move(buf);
+			buf.clear();
+
+			wxThreadEvent *newEvent = new wxThreadEvent;
+			newEvent->SetPayload<gui_callback>([this, _buf]() { text->AppendText(_buf); });
+			wxQueueEvent(frm, newEvent);
+		}
+		return c;
+	}
+private:
+	mainFrame *frm;
+	wxTextCtrl *text;
+	std::string buf;
+};
+
 class wx_srv_interface :public server_interface
 {
 public:
@@ -83,9 +92,11 @@ public:
 	virtual void free_rand_port(port_type port) { ports.push_back(port); };
 
 	void set_frame(mainFrame *_frm) { frm = _frm; }
+	void set_static_port(port_type port) { static_port = port; };
 private:
 	std::unordered_set<iosrvThread*> threads;
 	std::list<port_type> ports;
+	int static_port = -1;
 
 	mainFrame *frm;
 };
