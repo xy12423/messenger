@@ -50,7 +50,7 @@ public:
 	virtual void free_rand_port(port_type port) { ports.push_back(port); };
 
 	void broadcast_msg(int id, const std::string &msg);
-	void broadcast_data(user_id_type id, const std::string &data, int priority);
+	void broadcast_data(int id, const std::string &data, int priority);
 	std::string process_command(std::string cmd, user_record &user);
 
 	void set_static_port(port_type port) { static_port = port; };

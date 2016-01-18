@@ -249,15 +249,15 @@ void cli_server_interface::broadcast_msg(int src, const std::string &msg)
 	broadcast_data(src, msg_send, msgr_proto::session::priority_msg);
 }
 
-void cli_server_interface::broadcast_data(user_id_type src, const std::string &data, int priority)
+void cli_server_interface::broadcast_data(int src, const std::string &data, int priority)
 {
 	for (const std::pair<int, user_ext> &p : user_exts)
 	{
-		user_id_type target = p.first;
+		int target = p.first;
 		if (target != src && (mode != CENTER || p.second.current_stage == user_ext::LOGGED_IN))
 		{
 			misc_io_service.post([this, target, data, priority]() {
-				srv->send_data(target, data, priority);
+				srv->send_data(static_cast<user_id_type>(target), data, priority);
 			});
 		}
 	}
@@ -365,7 +365,7 @@ std::string cli_server_interface::process_command(std::string cmd, user_record &
 bool cli_server_interface::new_rand_port(port_type &ret)
 {
 	if (static_port != -1)
-		ret = static_port;
+		ret = static_cast<port_type>(static_port);
 	else
 	{
 		if (ports.empty())
@@ -415,7 +415,7 @@ int main(int argc, char *argv[])
 			{
 				try
 				{
-					portListener = std::stoi(arg.substr(5));
+					portListener = static_cast<port_type>(std::stoi(arg.substr(5)));
 				}
 				catch (std::invalid_argument &)
 				{
@@ -430,7 +430,7 @@ int main(int argc, char *argv[])
 				{
 					try
 					{
-						inter.set_static_port(std::stoi(arg.substr(6)));
+						inter.set_static_port(static_cast<port_type>(std::stoi(arg.substr(6))));
 					}
 					catch (std::invalid_argument &)
 					{
@@ -445,8 +445,8 @@ int main(int argc, char *argv[])
 					std::string ports_begin = arg.substr(6, pos - 6), ports_end = arg.substr(pos + 1);
 					try
 					{
-						portsBegin = std::stoi(ports_begin);
-						portsEnd = std::stoi(ports_end);
+						portsBegin = static_cast<port_type>(std::stoi(ports_begin));
+						portsEnd = static_cast<port_type>(std::stoi(ports_end));
 					}
 					catch (std::invalid_argument &)
 					{
