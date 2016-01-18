@@ -19,14 +19,13 @@ protected:
 
 struct fileSendTask
 {
-	fileSendTask() { uID = -1; }
-	fileSendTask(int _uID, const fs::path &path)
+	fileSendTask(user_id_type _uID, const fs::path &path)
 		:fileName(path.wstring()),
 		fin(path.string(), std::ios_base::in | std::ios_base::binary)
 	{
 		uID = _uID;
 	}
-	int uID;
+	user_id_type uID;
 	std::wstring fileName;
 	std::ifstream fin;
 	data_length_type blockCount = 1, blockCountAll;
@@ -38,8 +37,8 @@ public:
 	fileSendThread(msgr_proto::server &_srv) : wxThread(wxTHREAD_DETACHED), srv(_srv) {}
 	wxThreadError Delete(ExitCode *rc = NULL, wxThreadWait waitMode = wxTHREAD_WAIT_DEFAULT) { stop_thread(); return wxThread::Delete(); }
 	
-	void start(int uID, const fs::path &path);
-	void stop(int uID);
+	void start(user_id_type uID, const fs::path &path);
+	void stop(user_id_type uID);
 
 	void stop_thread() { iosrv_work.reset(); iosrv.stop(); }
 

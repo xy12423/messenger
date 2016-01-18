@@ -22,7 +22,7 @@ iosrvThread::ExitCode iosrvThread::Entry()
 	return NULL;
 }
 
-void fileSendThread::start(int uID, const fs::path &path)
+void fileSendThread::start(user_id_type uID, const fs::path &path)
 {
 	iosrv.post([this, uID, path]() {
 		bool write_not_in_progress = tasks.empty();
@@ -60,7 +60,7 @@ void fileSendThread::start(int uID, const fs::path &path)
 	});
 }
 
-void fileSendThread::stop(int uID)
+void fileSendThread::stop(user_id_type uID)
 {
 	iosrv.post([this, uID]() {
 		for (std::list<fileSendTask>::iterator itr = tasks.begin(), itrEnd = tasks.end(); itr != itrEnd;)

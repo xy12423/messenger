@@ -47,7 +47,7 @@ private:
 	textStream *textStrm;
 	std::streambuf *cout_orig, *cerr_orig;
 
-	std::vector<int> userIDs;
+	std::vector<user_id_type> userIDs;
 
 	wxDECLARE_EVENT_TABLE();
 };
@@ -60,7 +60,7 @@ public:
 protected:
 	int_type overflow(int_type c)
 	{
-		buf.push_back(c);
+		buf.push_back(static_cast<char>(c));
 		if (c == '\n')
 		{
 			std::string _buf = std::move(buf);

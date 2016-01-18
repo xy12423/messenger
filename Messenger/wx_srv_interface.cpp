@@ -66,10 +66,10 @@ void wx_srv_interface::on_data(user_id_type id, const std::string &data)
 			{
 				data_length_type recvLE;
 				read_len(recvLE);
-				data_length_type blockCountAll = wxUINT32_SWAP_ON_BE(static_cast<data_length_type>(recvLE));
+				data_length_type blockCountAll = boost::endian::little_to_native(static_cast<data_length_type>(recvLE));
 
 				read_len(recvLE);
-				data_length_type fNameLen = wxUINT32_SWAP_ON_BE(static_cast<data_length_type>(recvLE));
+				data_length_type fNameLen = boost::endian::little_to_native(static_cast<data_length_type>(recvLE));
 
 				std::wstring fName;
 				{
@@ -102,7 +102,7 @@ void wx_srv_interface::on_data(user_id_type id, const std::string &data)
 			{
 				data_length_type recvLE;
 				read_len(recvLE);
-				data_length_type dataSize = wxUINT32_SWAP_ON_BE(static_cast<data_length_type>(recvLE));
+				data_length_type dataSize = boost::endian::little_to_native(static_cast<data_length_type>(recvLE));
 
 				checkErr(dataSize);
 
@@ -174,7 +174,7 @@ void wx_srv_interface::on_leave(user_id_type id)
 	wxThreadEvent *newEvent = new wxThreadEvent;
 	newEvent->SetPayload<gui_callback>([this, id]() {
 		int i = 0;
-		std::vector<int>::iterator itr = frm->userIDs.begin(), itrEnd = frm->userIDs.end();
+		std::vector<user_id_type>::iterator itr = frm->userIDs.begin(), itrEnd = frm->userIDs.end();
 		for (; itr != itrEnd && *itr != id; itr++)i++;
 		if (frm->listUser->GetSelection() == i)
 			frm->textMsg->SetValue(wxEmptyString);
@@ -204,7 +204,7 @@ void wx_srv_interface::on_unknown_key(user_id_type id, const std::string& key)
 bool wx_srv_interface::new_rand_port(port_type &ret)
 {
 	if (static_port != -1)
-		ret = static_port;
+		ret = static_cast<port_type>(static_port);
 	else
 	{
 		if (ports.empty())

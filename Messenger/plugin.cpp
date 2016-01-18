@@ -95,7 +95,7 @@ bool new_plugin_id(std::list<plugin_id_type>::iterator &ret)
 
 void plugin_init()
 {
-	for (int i = 0; i <= (RAND_MAX < 0xFFF ? RAND_MAX : 0xFFF); i++)
+	for (plugin_id_type i = 0; i <= (RAND_MAX < 0xFFF ? RAND_MAX : 0xFFF); i++)
 		free_plugin_id.push_back(i);
 }
 

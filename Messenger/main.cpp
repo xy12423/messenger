@@ -63,10 +63,10 @@ void plugin_handler_SendData(plugin_id_type plugin_id, int to, const char* data,
 			});
 		};
 	}
-	else
+	else if (to >= 0 && to <= std::numeric_limits<plugin_id_type>::max())
 	{
 		misc_io_service.post([to, data_str]() {
-			srv->send_data(to, data_str, msgr_proto::session::priority_plugin);
+			srv->send_data(static_cast<user_id_type>(to), data_str, msgr_proto::session::priority_plugin);
 		});
 	}
 }
@@ -266,11 +266,15 @@ mainFrame::mainFrame(const wxString &title)
 			if (!plugin_path_utf8.empty())
 			{
 				std::wstring plugin_path(wxConvUTF8.cMB2WC(plugin_path_utf8.c_str()));
-				plugin_id_type plugin_id = load_plugin(plugin_path);
-				plugin_info_type &info = plugin_info.emplace(plugin_id, plugin_info_type()).first->second;
-				info.name = fs::path(plugin_path).filename().stem().string();
-				info.plugin_id = plugin_id;
-				info.virtual_msg_handler = reinterpret_cast<plugin_info_type::virtual_msg_handler_ptr>(get_callback(plugin_id, "OnUserMsg"));
+				int plugin_id_int = load_plugin(plugin_path);
+				if (plugin_id_int != -1)
+				{
+					plugin_id_type plugin_id = static_cast<plugin_id_type>(plugin_id_int);
+					plugin_info_type &info = plugin_info.emplace(plugin_id, plugin_info_type()).first->second;
+					info.name = fs::path(plugin_path).filename().stem().string();
+					info.plugin_id = plugin_id;
+					info.virtual_msg_handler = reinterpret_cast<plugin_info_type::virtual_msg_handler_ptr>(get_callback(plugin_id, "OnUserMsg"));
+				}
 			}
 		}
 	}
@@ -278,7 +282,7 @@ mainFrame::mainFrame(const wxString &title)
 
 void mainFrame::listUser_SelectedIndexChanged(wxCommandEvent& event)
 {
-	int uID = userIDs[listUser->GetSelection()];
+	user_id_type uID = userIDs[listUser->GetSelection()];
 	textMsg->SetValue(user_ext[uID].log);
 	textMsg->ShowPosition(user_ext[uID].log.size());
 }
@@ -290,7 +294,7 @@ void mainFrame::buttonAdd_Click(wxCommandEvent& event)
 		frmAddrInput inputDlg(wxT("Please input address"), portListen);
 		if (inputDlg.ShowModal() != wxID_OK || inputDlg.CheckInput() == false)
 			return;
-		srv->connect(inputDlg.GetAddress().ToStdString(), inputDlg.GetPort());
+		srv->connect(inputDlg.GetAddress().ToStdString(), static_cast<port_type>(inputDlg.GetPort()));
 	}
 	catch (std::exception &ex)
 	{
@@ -318,7 +322,7 @@ void mainFrame::buttonSend_Click(wxCommandEvent& event)
 		{
 			wxCharBuffer buf = wxConvUTF8.cWC2MB(msg.c_str());
 			std::string msgutf8(buf, buf.length());
-			int uID = userIDs[listUser->GetSelection()];
+			user_id_type uID = userIDs[listUser->GetSelection()];
 			insLen(msgutf8);
 			msgutf8.insert(0, 1, pac_type_msg);
 			misc_io_service.post([uID, msgutf8]() {
@@ -339,7 +343,7 @@ void mainFrame::buttonSendFile_Click(wxCommandEvent& event)
 	{
 		if (listUser->GetSelection() != -1)
 		{
-			int uID = userIDs[listUser->GetSelection()];
+			user_id_type uID = userIDs[listUser->GetSelection()];
 			threadFileSend->start(uID, fs::path(path));
 		}
 	}
@@ -349,7 +353,7 @@ void mainFrame::buttonCancelSend_Click(wxCommandEvent& event)
 {
 	if (listUser->GetSelection() != -1)
 	{
-		int uID = userIDs[listUser->GetSelection()];
+		user_id_type uID = userIDs[listUser->GetSelection()];
 		threadFileSend->stop(uID);
 	}
 }
@@ -438,22 +442,22 @@ bool MyApp::OnInit()
 			std::string arg(argv[i]);
 			if (arg.substr(0, 5) == "port=")
 			{
-				portListen = std::stoi(arg.substr(5));
+				portListen = static_cast<port_type>(std::stoi(arg.substr(5)));
 			}
 			else if (arg.substr(0, 6) == "ports=")
 			{
 				int pos = arg.find('-', 6);
 				if (pos == std::string::npos)
 				{
-					inter.set_static_port(std::stoi(arg.substr(6)));
+					inter.set_static_port(static_cast<port_type>(std::stoi(arg.substr(6))));
 					portsBegin = 1;
 					portsEnd = 0;
 				}
 				else
 				{
 					std::string ports_begin = arg.substr(6, pos - 6), ports_end = arg.substr(pos + 1);
-					portsBegin = std::stoi(ports_begin);
-					portsEnd = std::stoi(ports_end);
+					portsBegin = static_cast<port_type>(std::stoi(ports_begin));
+					portsEnd = static_cast<port_type>(std::stoi(ports_end));
 					inter.set_static_port(-1);
 				}
 			}
