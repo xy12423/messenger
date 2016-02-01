@@ -18,10 +18,9 @@ EVT_BUTTON(ID_BUTTONADD, mainFrame::buttonAdd_Click)
 EVT_BUTTON(ID_BUTTONDEL, mainFrame::buttonDel_Click)
 
 EVT_BUTTON(ID_BUTTONSEND, mainFrame::buttonSend_Click)
+EVT_BUTTON(ID_BUTTONSENDIMAGE, mainFrame::buttonSendImage_Click)
 EVT_BUTTON(ID_BUTTONSENDFILE, mainFrame::buttonSendFile_Click)
 EVT_BUTTON(ID_BUTTONCANCELSEND, mainFrame::buttonCancelSend_Click)
-EVT_BUTTON(ID_BUTTONIMPORTKEY, mainFrame::buttonImportKey_Click)
-EVT_BUTTON(ID_BUTTONEXPORTKEY, mainFrame::buttonExportKey_Click)
 
 EVT_THREAD(wxID_ANY, mainFrame::thread_Message)
 
@@ -187,7 +186,7 @@ mainFrame::mainFrame(const wxString &title)
 		wxSize(162, 42)
 		);
 
-	textMsg = new wxTextCtrl(panel, ID_TEXTMSG,
+	textMsg = new wxRichTextCtrl(panel, ID_TEXTMSG,
 		wxEmptyString,
 		wxPoint(180, 12),
 		wxSize(412, 303),
@@ -202,27 +201,22 @@ mainFrame::mainFrame(const wxString &title)
 	buttonSend = new wxButton(panel, ID_BUTTONSEND,
 		wxT("Send"),
 		wxPoint(180, 369),
-		wxSize(77, 42)
+		wxSize(98, 42)
+		);
+	buttonSendImage = new wxButton(panel, ID_BUTTONSENDIMAGE,
+		wxT("Image"),
+		wxPoint(284, 369),
+		wxSize(99, 42)
 		);
 	buttonSendFile = new wxButton(panel, ID_BUTTONSENDFILE,
-		wxT("Send File"),
-		wxPoint(263, 369),
-		wxSize(78, 42)
+		wxT("File"),
+		wxPoint(389, 369),
+		wxSize(99, 42)
 		);
 	buttonCancelSend = new wxButton(panel, ID_BUTTONCANCELSEND,
 		wxT("Cancel"),
-		wxPoint(347, 369),
-		wxSize(78, 42)
-		);
-	buttonImportKey = new wxButton(panel, ID_BUTTONIMPORTKEY,
-		wxT("Import key"),
-		wxPoint(431, 369),
-		wxSize(78, 42)
-		);
-	buttonExportKey = new wxButton(panel, ID_BUTTONEXPORTKEY,
-		wxT("Export key"),
-		wxPoint(515, 369),
-		wxSize(77, 42)
+		wxPoint(494, 369),
+		wxSize(98, 42)
 		);
 
 	textInfo = new wxTextCtrl(panel, ID_TEXTINFO,
@@ -283,8 +277,14 @@ mainFrame::mainFrame(const wxString &title)
 void mainFrame::listUser_SelectedIndexChanged(wxCommandEvent& event)
 {
 	user_id_type uID = userIDs[listUser->GetSelection()];
-	textMsg->SetValue(user_ext[uID].log);
-	textMsg->ShowPosition(user_ext[uID].log.size());
+	textMsg->Clear();
+	std::for_each(user_ext[uID].log.begin(), user_ext[uID].log.end(), [this](const user_ext_type::log_type &log_item) {
+		if (log_item.is_image)
+			textMsg->WriteImage(log_item.image);
+		else
+			textMsg->AppendText(log_item.msg);
+	});
+	textMsg->ShowPosition(textMsg->GetLastPosition());
 }
 
 void mainFrame::buttonAdd_Click(wxCommandEvent& event)
@@ -321,31 +321,64 @@ void mainFrame::buttonSend_Click(wxCommandEvent& event)
 		if (listUser->GetSelection() != -1)
 		{
 			wxCharBuffer buf = wxConvUTF8.cWC2MB(msg.c_str());
-			std::string msgutf8(buf, buf.length());
+			std::string msg_utf8(buf, buf.length());
 			user_id_type uID = userIDs[listUser->GetSelection()];
-			insLen(msgutf8);
-			msgutf8.insert(0, 1, pac_type_msg);
-			misc_io_service.post([uID, msgutf8]() {
-				srv->send_data(uID, msgutf8, msgr_proto::session::priority_msg);
+			insLen(msg_utf8);
+			msg_utf8.insert(0, 1, PAC_TYPE_MSG);
+			misc_io_service.post([uID, msg_utf8]() {
+				srv->send_data(uID, msg_utf8, msgr_proto::session::priority_msg);
 			});
 			textMsg->AppendText("Me:" + msg + '\n');
-			user_ext[uID].log.append("Me:" + msg + '\n');
+			user_ext[uID].log.push_back("Me:" + msg + '\n');
+		}
+	}
+}
+
+void mainFrame::buttonSendImage_Click(wxCommandEvent& event)
+{
+	if (listUser->GetSelection() != -1)
+	{
+		user_id_type uID = userIDs[listUser->GetSelection()];
+		wxFileDialog fileDlg(this);
+		fileDlg.ShowModal();
+		wxString path = fileDlg.GetPath();
+		if ((!path.empty()) && fs::exists(path.ToStdWstring()))
+		{
+			textMsg->AppendText("Me:\n");
+			textMsg->WriteImage(path, wxBITMAP_TYPE_ANY);
+			textMsg->ShowPosition(textMsg->GetLastPosition());
+			user_ext[uID].log.push_back("Me:[Image]\n");
+
+			std::string img_buf;
+
+			std::ifstream fin(path.ToStdString(), std::ios_base::in | std::ios_base::binary);
+			std::unique_ptr<char[]> read_buf = std::make_unique<char[]>(fileSendThread::fileBlockLen);
+			while (!fin.eof())
+			{
+				fin.read(read_buf.get(), fileSendThread::fileBlockLen);
+				img_buf.append(read_buf.get(), fin.gcount());
+			}
+			fin.close();
+			insLen(img_buf);
+			img_buf.insert(0, 1, PAC_TYPE_IMAGE);
+
+			misc_io_service.post([uID, img_buf]() {
+				srv->send_data(uID, img_buf, msgr_proto::session::priority_msg);
+			});
 		}
 	}
 }
 
 void mainFrame::buttonSendFile_Click(wxCommandEvent& event)
 {
-	wxFileDialog fileDlg(this);
-	fileDlg.ShowModal();
-	std::wstring path = fileDlg.GetPath().ToStdWstring();
-	if ((!path.empty()) && fs::exists(path))
+	if (listUser->GetSelection() != -1)
 	{
-		if (listUser->GetSelection() != -1)
-		{
-			user_id_type uID = userIDs[listUser->GetSelection()];
+		user_id_type uID = userIDs[listUser->GetSelection()];
+		wxFileDialog fileDlg(this);
+		fileDlg.ShowModal();
+		std::wstring path = fileDlg.GetPath().ToStdWstring();
+		if ((!path.empty()) && fs::exists(path))
 			threadFileSend->start(uID, fs::path(path));
-		}
 	}
 }
 
@@ -358,51 +391,13 @@ void mainFrame::buttonCancelSend_Click(wxCommandEvent& event)
 	}
 }
 
-void mainFrame::buttonImportKey_Click(wxCommandEvent& event)
-{
-	wxFileDialog fileDlg(this);
-	fileDlg.ShowModal();
-	std::string path = fileDlg.GetPath().ToStdString();
-	if ((!path.empty()) && fs::exists(path))
-	{
-		size_t pubCount = 0, keyLen = 0;
-		std::ifstream publicIn(path, std::ios_base::in | std::ios_base::binary);
-		publicIn.read(reinterpret_cast<char*>(&pubCount), sizeof(size_t));
-		std::vector<char> buf;
-
-		for (; pubCount > 0; pubCount--)
-		{
-			publicIn.read(reinterpret_cast<char*>(&keyLen), sizeof(size_t));
-			buf.resize(keyLen);
-			publicIn.read(buf.data(), keyLen);
-			srv->certify_key(std::string(buf.data(), keyLen));
-		}
-	}
-}
-
-void mainFrame::buttonExportKey_Click(wxCommandEvent& event)
-{
-	wxFileDialog fileDlg(this);
-	fileDlg.ShowModal();
-	std::string path = fileDlg.GetPath().ToStdString();
-	if (!path.empty())
-	{
-		std::ofstream publicOut(path, std::ios_base::out | std::ios_base::binary);
-		size_t pubCount = 1;
-		publicOut.write(reinterpret_cast<char*>(&pubCount), sizeof(size_t));
-
-		std::string key = getPublicKey();
-		size_t keySize = key.size();
-		publicOut.write(reinterpret_cast<char*>(&keySize), sizeof(size_t));
-		publicOut.write(key.data(), keySize);
-
-		publicOut.close();
-	}
-}
-
 void mainFrame::thread_Message(wxThreadEvent& event)
 {
-	event.GetPayload<gui_callback>()();
+	try
+	{
+		event.GetPayload<gui_callback>()();
+	}
+	catch (...) {}
 }
 
 void mainFrame::mainFrame_Close(wxCloseEvent& event)
@@ -429,6 +424,8 @@ bool MyApp::OnInit()
 	int stage = 0;
 	try
 	{
+		wxInitAllImageHandlers();
+
 		port_type portsBegin = 5000, portsEnd = 9999;
 		bool use_v6 = false;
 

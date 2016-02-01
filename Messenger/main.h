@@ -19,7 +19,7 @@ private:
 	enum itemID{
 		ID_FRAME,
 		ID_LISTUSER, ID_BUTTONADD, ID_BUTTONDEL,
-		ID_TEXTMSG, ID_TEXTINPUT, ID_BUTTONSEND, ID_BUTTONSENDFILE, ID_BUTTONCANCELSEND, ID_BUTTONIMPORTKEY, ID_BUTTONEXPORTKEY,
+		ID_TEXTMSG, ID_TEXTINPUT, ID_BUTTONSEND, ID_BUTTONSENDIMAGE, ID_BUTTONSENDFILE, ID_BUTTONCANCELSEND,
 		ID_TEXTINFO
 	};
 
@@ -31,13 +31,13 @@ private:
 	void buttonAdd_Click(wxCommandEvent& event);
 	void buttonDel_Click(wxCommandEvent& event);
 
-	wxTextCtrl *textMsg, *textInput;
-	wxButton *buttonSend, *buttonSendFile, *buttonCancelSend, *buttonImportKey, *buttonExportKey;
+	wxRichTextCtrl *textMsg;
+	wxTextCtrl *textInput;
+	wxButton *buttonSend, *buttonSendImage, *buttonSendFile, *buttonCancelSend;
 	void buttonSend_Click(wxCommandEvent& event);
+	void buttonSendImage_Click(wxCommandEvent& event);
 	void buttonSendFile_Click(wxCommandEvent& event);
 	void buttonCancelSend_Click(wxCommandEvent& event);
-	void buttonImportKey_Click(wxCommandEvent& event);
-	void buttonExportKey_Click(wxCommandEvent& event);
 
 	void thread_Message(wxThreadEvent& event);
 

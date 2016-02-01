@@ -27,24 +27,24 @@ void wx_srv_interface::on_data(user_id_type id, const std::string &data)
 		dataItr += 1;
 		switch (type)
 		{
-			case pac_type_msg:
+			case PAC_TYPE_MSG:
 			{
 				if (frm == nullptr)
 					throw(0);
 
-				data_length_type sizeMsg;
-				read_len(sizeMsg);
+				data_length_type msg_size;
+				read_len(msg_size);
 
-				checkErr(sizeMsg);
-				std::string msg_utf8(dataItr, sizeMsg);
-				dataItr += sizeMsg;
+				checkErr(msg_size);
+				std::string msg_utf8(dataItr, msg_size);
+				dataItr += msg_size;
 
 				wxString msg(usr.addr + ':' + wxConvUTF8.cMB2WC(msg_utf8.c_str()) + '\n');
 
 				wxThreadEvent *newEvent = new wxThreadEvent;
 				newEvent->SetPayload<gui_callback>([this, id, msg]() {
 					user_ext_type &usr = user_ext.at(id);
-					usr.log.append(msg);
+					usr.log.push_back(msg);
 					if (frm->listUser->GetSelection() != -1)
 					{
 						if (id == frm->userIDs[frm->listUser->GetSelection()])
@@ -62,7 +62,7 @@ void wx_srv_interface::on_data(user_id_type id, const std::string &data)
 
 				break;
 			}
-			case pac_type_file_h:
+			case PAC_TYPE_FILE_H:
 			{
 				data_length_type recvLE;
 				read_len(recvLE);
@@ -98,7 +98,7 @@ void wx_srv_interface::on_data(user_id_type id, const std::string &data)
 
 				break;
 			}
-			case pac_type_file_b:
+			case PAC_TYPE_FILE_B:
 			{
 				data_length_type recvLE;
 				read_len(recvLE);
@@ -119,6 +119,44 @@ void wx_srv_interface::on_data(user_id_type id, const std::string &data)
 					if (usr.blockLast == 0)
 						usr.recvFile.clear();
 				}
+
+				break;
+			}
+			case PAC_TYPE_IMAGE:
+			{
+				if (frm == nullptr)
+					throw(0);
+
+				data_length_type image_size;
+				read_len(image_size);
+
+				checkErr(image_size);
+				wxMemoryInputStream image_buf(dataItr, image_size);
+				dataItr += image_size;
+				wxImage image(image_buf);
+
+				wxThreadEvent *newEvent = new wxThreadEvent;
+				newEvent->SetPayload<gui_callback>([this, id, image]() {
+					user_ext_type &usr = user_ext.at(id);
+					//usr.log.append(msg);
+					if (frm->listUser->GetSelection() != -1)
+					{
+						if (id == frm->userIDs[frm->listUser->GetSelection()])
+						{
+							frm->textMsg->AppendText(usr.addr + ":\n");
+							frm->textMsg->WriteImage(image);
+							frm->textMsg->ShowPosition(frm->textMsg->GetLastPosition());
+						}
+						else
+							frm->textInfo->AppendText("Received message from " + usr.addr + "\n");
+					}
+					else
+						frm->textInfo->AppendText("Received message from " + usr.addr + "\n");
+
+					if (!frm->IsActive())
+						frm->RequestUserAttention();
+				});
+				wxQueueEvent(frm, newEvent);
 
 				break;
 			}
