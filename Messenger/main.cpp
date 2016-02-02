@@ -18,10 +18,9 @@ EVT_BUTTON(ID_BUTTONADD, mainFrame::buttonAdd_Click)
 EVT_BUTTON(ID_BUTTONDEL, mainFrame::buttonDel_Click)
 
 EVT_BUTTON(ID_BUTTONSEND, mainFrame::buttonSend_Click)
+EVT_BUTTON(ID_BUTTONSENDIMAGE, mainFrame::buttonSendImage_Click)
 EVT_BUTTON(ID_BUTTONSENDFILE, mainFrame::buttonSendFile_Click)
 EVT_BUTTON(ID_BUTTONCANCELSEND, mainFrame::buttonCancelSend_Click)
-EVT_BUTTON(ID_BUTTONIMPORTKEY, mainFrame::buttonImportKey_Click)
-EVT_BUTTON(ID_BUTTONEXPORTKEY, mainFrame::buttonExportKey_Click)
 
 EVT_THREAD(wxID_ANY, mainFrame::thread_Message)
 
@@ -63,10 +62,10 @@ void plugin_handler_SendData(plugin_id_type plugin_id, int to, const char* data,
 			});
 		};
 	}
-	else
+	else if (to >= 0 && to <= std::numeric_limits<plugin_id_type>::max())
 	{
 		misc_io_service.post([to, data_str]() {
-			srv->send_data(to, data_str, msgr_proto::session::priority_plugin);
+			srv->send_data(static_cast<user_id_type>(to), data_str, msgr_proto::session::priority_plugin);
 		});
 	}
 }
@@ -187,7 +186,7 @@ mainFrame::mainFrame(const wxString &title)
 		wxSize(162, 42)
 		);
 
-	textMsg = new wxTextCtrl(panel, ID_TEXTMSG,
+	textMsg = new wxRichTextCtrl(panel, ID_TEXTMSG,
 		wxEmptyString,
 		wxPoint(180, 12),
 		wxSize(412, 303),
@@ -202,27 +201,22 @@ mainFrame::mainFrame(const wxString &title)
 	buttonSend = new wxButton(panel, ID_BUTTONSEND,
 		wxT("Send"),
 		wxPoint(180, 369),
-		wxSize(77, 42)
+		wxSize(98, 42)
+		);
+	buttonSendImage = new wxButton(panel, ID_BUTTONSENDIMAGE,
+		wxT("Image"),
+		wxPoint(284, 369),
+		wxSize(99, 42)
 		);
 	buttonSendFile = new wxButton(panel, ID_BUTTONSENDFILE,
-		wxT("Send File"),
-		wxPoint(263, 369),
-		wxSize(78, 42)
+		wxT("File"),
+		wxPoint(389, 369),
+		wxSize(99, 42)
 		);
 	buttonCancelSend = new wxButton(panel, ID_BUTTONCANCELSEND,
 		wxT("Cancel"),
-		wxPoint(347, 369),
-		wxSize(78, 42)
-		);
-	buttonImportKey = new wxButton(panel, ID_BUTTONIMPORTKEY,
-		wxT("Import key"),
-		wxPoint(431, 369),
-		wxSize(78, 42)
-		);
-	buttonExportKey = new wxButton(panel, ID_BUTTONEXPORTKEY,
-		wxT("Export key"),
-		wxPoint(515, 369),
-		wxSize(77, 42)
+		wxPoint(494, 369),
+		wxSize(98, 42)
 		);
 
 	textInfo = new wxTextCtrl(panel, ID_TEXTINFO,
@@ -266,11 +260,15 @@ mainFrame::mainFrame(const wxString &title)
 			if (!plugin_path_utf8.empty())
 			{
 				std::wstring plugin_path(wxConvUTF8.cMB2WC(plugin_path_utf8.c_str()));
-				plugin_id_type plugin_id = load_plugin(plugin_path);
-				plugin_info_type &info = plugin_info.emplace(plugin_id, plugin_info_type()).first->second;
-				info.name = fs::path(plugin_path).filename().stem().string();
-				info.plugin_id = plugin_id;
-				info.virtual_msg_handler = reinterpret_cast<plugin_info_type::virtual_msg_handler_ptr>(get_callback(plugin_id, "OnUserMsg"));
+				int plugin_id_int = load_plugin(plugin_path);
+				if (plugin_id_int != -1)
+				{
+					plugin_id_type plugin_id = static_cast<plugin_id_type>(plugin_id_int);
+					plugin_info_type &info = plugin_info.emplace(plugin_id, plugin_info_type()).first->second;
+					info.name = fs::path(plugin_path).filename().stem().string();
+					info.plugin_id = plugin_id;
+					info.virtual_msg_handler = reinterpret_cast<plugin_info_type::virtual_msg_handler_ptr>(get_callback(plugin_id, "OnUserMsg"));
+				}
 			}
 		}
 	}
@@ -278,9 +276,15 @@ mainFrame::mainFrame(const wxString &title)
 
 void mainFrame::listUser_SelectedIndexChanged(wxCommandEvent& event)
 {
-	int uID = userIDs[listUser->GetSelection()];
-	textMsg->SetValue(user_ext[uID].log);
-	textMsg->ShowPosition(user_ext[uID].log.size());
+	user_id_type uID = userIDs[listUser->GetSelection()];
+	textMsg->Clear();
+	std::for_each(user_ext[uID].log.begin(), user_ext[uID].log.end(), [this](const user_ext_type::log_type &log_item) {
+		if (log_item.is_image)
+			textMsg->WriteImage(log_item.image.native(), wxBITMAP_TYPE_ANY);
+		else
+			textMsg->AppendText(log_item.msg);
+	});
+	textMsg->ShowPosition(textMsg->GetLastPosition());
 }
 
 void mainFrame::buttonAdd_Click(wxCommandEvent& event)
@@ -290,7 +294,7 @@ void mainFrame::buttonAdd_Click(wxCommandEvent& event)
 		frmAddrInput inputDlg(wxT("Please input address"), portListen);
 		if (inputDlg.ShowModal() != wxID_OK || inputDlg.CheckInput() == false)
 			return;
-		srv->connect(inputDlg.GetAddress().ToStdString(), inputDlg.GetPort());
+		srv->connect(inputDlg.GetAddress().ToStdString(), static_cast<port_type>(inputDlg.GetPort()));
 	}
 	catch (std::exception &ex)
 	{
@@ -317,31 +321,79 @@ void mainFrame::buttonSend_Click(wxCommandEvent& event)
 		if (listUser->GetSelection() != -1)
 		{
 			wxCharBuffer buf = wxConvUTF8.cWC2MB(msg.c_str());
-			std::string msgutf8(buf, buf.length());
-			int uID = userIDs[listUser->GetSelection()];
-			insLen(msgutf8);
-			msgutf8.insert(0, 1, pac_type_msg);
-			misc_io_service.post([uID, msgutf8]() {
-				srv->send_data(uID, msgutf8, msgr_proto::session::priority_msg);
+			std::string msg_utf8(buf, buf.length());
+			user_id_type uID = userIDs[listUser->GetSelection()];
+			insLen(msg_utf8);
+			msg_utf8.insert(0, 1, PAC_TYPE_MSG);
+			misc_io_service.post([uID, msg_utf8]() {
+				srv->send_data(uID, msg_utf8, msgr_proto::session::priority_msg);
 			});
 			textMsg->AppendText("Me:" + msg + '\n');
-			user_ext[uID].log.append("Me:" + msg + '\n');
+			user_ext[uID].log.push_back("Me:" + msg + '\n');
+		}
+	}
+}
+
+void mainFrame::buttonSendImage_Click(wxCommandEvent& event)
+{
+	if (listUser->GetSelection() != -1)
+	{
+		user_id_type uID = userIDs[listUser->GetSelection()];
+		wxFileDialog fileDlg(this, wxT("Image"), wxEmptyString, wxEmptyString, "Image files (*.bmp;*.jpg;*.jpeg;*.gif;*.png)|*.bmp;*.jpg;*.jpeg;*.gif;*.png");
+		fileDlg.ShowModal();
+		wxString path = fileDlg.GetPath();
+		if ((!path.empty()) && fs::is_regular_file(path.ToStdWstring()))
+		{
+			if (fs::file_size(path.ToStdWstring()) > IMAGE_SIZE_LIMIT)
+			{
+				wxMessageBox(wxT("Image file is too big"), wxT("Error"), wxOK | wxICON_ERROR);
+				return;
+			}
+			int next_image_id;
+			inter.new_image_id(next_image_id);
+			fs::path image_path = IMG_TMP_PATH_NAME;
+			image_path /= ".messenger_temp_" + std::to_string(next_image_id);
+			fs::copy_file(path.ToStdWstring(), image_path);
+
+			textMsg->AppendText("Me:\n");
+			textMsg->WriteImage(image_path.native(), wxBITMAP_TYPE_ANY);
+			textMsg->AppendText("\n");
+			textMsg->ShowPosition(textMsg->GetLastPosition());
+
+			user_ext[uID].log.push_back("Me:\n");
+			user_ext[uID].log.push_back(image_path);
+			user_ext[uID].log.push_back("\n");
+
+			std::string img_buf;
+
+			std::ifstream fin(path.ToStdString(), std::ios_base::in | std::ios_base::binary);
+			std::unique_ptr<char[]> read_buf = std::make_unique<char[]>(fileSendThread::fileBlockLen);
+			while (!fin.eof())
+			{
+				fin.read(read_buf.get(), fileSendThread::fileBlockLen);
+				img_buf.append(read_buf.get(), fin.gcount());
+			}
+			fin.close();
+			insLen(img_buf);
+			img_buf.insert(0, 1, PAC_TYPE_IMAGE);
+
+			misc_io_service.post([uID, img_buf]() {
+				srv->send_data(uID, img_buf, msgr_proto::session::priority_msg);
+			});
 		}
 	}
 }
 
 void mainFrame::buttonSendFile_Click(wxCommandEvent& event)
 {
-	wxFileDialog fileDlg(this);
-	fileDlg.ShowModal();
-	std::wstring path = fileDlg.GetPath().ToStdWstring();
-	if ((!path.empty()) && fs::exists(path))
+	if (listUser->GetSelection() != -1)
 	{
-		if (listUser->GetSelection() != -1)
-		{
-			int uID = userIDs[listUser->GetSelection()];
+		user_id_type uID = userIDs[listUser->GetSelection()];
+		wxFileDialog fileDlg(this);
+		fileDlg.ShowModal();
+		std::wstring path = fileDlg.GetPath().ToStdWstring();
+		if ((!path.empty()) && fs::exists(path))
 			threadFileSend->start(uID, fs::path(path));
-		}
 	}
 }
 
@@ -349,56 +401,18 @@ void mainFrame::buttonCancelSend_Click(wxCommandEvent& event)
 {
 	if (listUser->GetSelection() != -1)
 	{
-		int uID = userIDs[listUser->GetSelection()];
+		user_id_type uID = userIDs[listUser->GetSelection()];
 		threadFileSend->stop(uID);
-	}
-}
-
-void mainFrame::buttonImportKey_Click(wxCommandEvent& event)
-{
-	wxFileDialog fileDlg(this);
-	fileDlg.ShowModal();
-	std::string path = fileDlg.GetPath().ToStdString();
-	if ((!path.empty()) && fs::exists(path))
-	{
-		size_t pubCount = 0, keyLen = 0;
-		std::ifstream publicIn(path, std::ios_base::in | std::ios_base::binary);
-		publicIn.read(reinterpret_cast<char*>(&pubCount), sizeof(size_t));
-		std::vector<char> buf;
-
-		for (; pubCount > 0; pubCount--)
-		{
-			publicIn.read(reinterpret_cast<char*>(&keyLen), sizeof(size_t));
-			buf.resize(keyLen);
-			publicIn.read(buf.data(), keyLen);
-			srv->certify_key(std::string(buf.data(), keyLen));
-		}
-	}
-}
-
-void mainFrame::buttonExportKey_Click(wxCommandEvent& event)
-{
-	wxFileDialog fileDlg(this);
-	fileDlg.ShowModal();
-	std::string path = fileDlg.GetPath().ToStdString();
-	if (!path.empty())
-	{
-		std::ofstream publicOut(path, std::ios_base::out | std::ios_base::binary);
-		size_t pubCount = 1;
-		publicOut.write(reinterpret_cast<char*>(&pubCount), sizeof(size_t));
-
-		std::string key = getPublicKey();
-		size_t keySize = key.size();
-		publicOut.write(reinterpret_cast<char*>(&keySize), sizeof(size_t));
-		publicOut.write(key.data(), keySize);
-
-		publicOut.close();
 	}
 }
 
 void mainFrame::thread_Message(wxThreadEvent& event)
 {
-	event.GetPayload<gui_callback>()();
+	try
+	{
+		event.GetPayload<gui_callback>()();
+	}
+	catch (...) {}
 }
 
 void mainFrame::mainFrame_Close(wxCloseEvent& event)
@@ -425,6 +439,9 @@ bool MyApp::OnInit()
 	int stage = 0;
 	try
 	{
+		wxInitAllImageHandlers();
+		fs::create_directory(IMG_TMP_PATH_NAME);
+
 		port_type portsBegin = 5000, portsEnd = 9999;
 		bool use_v6 = false;
 
@@ -438,22 +455,22 @@ bool MyApp::OnInit()
 			std::string arg(argv[i]);
 			if (arg.substr(0, 5) == "port=")
 			{
-				portListen = std::stoi(arg.substr(5));
+				portListen = static_cast<port_type>(std::stoi(arg.substr(5)));
 			}
 			else if (arg.substr(0, 6) == "ports=")
 			{
 				int pos = arg.find('-', 6);
 				if (pos == std::string::npos)
 				{
-					inter.set_static_port(std::stoi(arg.substr(6)));
+					inter.set_static_port(static_cast<port_type>(std::stoi(arg.substr(6))));
 					portsBegin = 1;
 					portsEnd = 0;
 				}
 				else
 				{
 					std::string ports_begin = arg.substr(6, pos - 6), ports_end = arg.substr(pos + 1);
-					portsBegin = std::stoi(ports_begin);
-					portsEnd = std::stoi(ports_end);
+					portsBegin = static_cast<port_type>(std::stoi(ports_begin));
+					portsEnd = static_cast<port_type>(std::stoi(ports_end));
 					inter.set_static_port(-1);
 				}
 			}
@@ -525,6 +542,8 @@ int MyApp::OnExit()
 		threadNetwork->Delete();
 
 		srv.reset();
+
+		fs::remove_all(IMG_TMP_PATH_NAME);
 	}
 	catch (...)
 	{
