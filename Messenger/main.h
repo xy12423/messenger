@@ -78,6 +78,9 @@ private:
 	std::string buf;
 };
 
+extern const char* IMG_TMP_PATH_NAME;
+const size_t IMAGE_SIZE_LIMIT = 0x400000;
+
 class wx_srv_interface :public server_interface
 {
 public:
@@ -93,10 +96,13 @@ public:
 
 	void set_frame(mainFrame *_frm) { frm = _frm; }
 	void set_static_port(port_type port) { static_port = port; };
+	void new_image_id(int &id) { id = image_id; image_id++; }
 private:
 	std::unordered_set<iosrvThread*> threads;
 	std::list<port_type> ports;
 	int static_port = -1;
+
+	int image_id = 0;
 
 	mainFrame *frm;
 };

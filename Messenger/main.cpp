@@ -280,7 +280,7 @@ void mainFrame::listUser_SelectedIndexChanged(wxCommandEvent& event)
 	textMsg->Clear();
 	std::for_each(user_ext[uID].log.begin(), user_ext[uID].log.end(), [this](const user_ext_type::log_type &log_item) {
 		if (log_item.is_image)
-			textMsg->WriteImage(log_item.image);
+			textMsg->WriteImage(log_item.image.native(), wxBITMAP_TYPE_ANY);
 		else
 			textMsg->AppendText(log_item.msg);
 	});
@@ -339,15 +339,30 @@ void mainFrame::buttonSendImage_Click(wxCommandEvent& event)
 	if (listUser->GetSelection() != -1)
 	{
 		user_id_type uID = userIDs[listUser->GetSelection()];
-		wxFileDialog fileDlg(this);
+		wxFileDialog fileDlg(this, wxT("Image"), wxEmptyString, wxEmptyString, "Image files (*.bmp;*.jpg;*.jpeg;*.gif;*.png)|*.bmp;*.jpg;*.jpeg;*.gif;*.png");
 		fileDlg.ShowModal();
 		wxString path = fileDlg.GetPath();
-		if ((!path.empty()) && fs::exists(path.ToStdWstring()))
+		if ((!path.empty()) && fs::is_regular_file(path.ToStdWstring()))
 		{
+			if (fs::file_size(path.ToStdWstring()) > IMAGE_SIZE_LIMIT)
+			{
+				wxMessageBox(wxT("Image file is too big"), wxT("Error"), wxOK | wxICON_ERROR);
+				return;
+			}
+			int next_image_id;
+			inter.new_image_id(next_image_id);
+			fs::path image_path = IMG_TMP_PATH_NAME;
+			image_path /= ".messenger_temp_" + std::to_string(next_image_id);
+			fs::copy_file(path.ToStdWstring(), image_path);
+
 			textMsg->AppendText("Me:\n");
-			textMsg->WriteImage(path, wxBITMAP_TYPE_ANY);
+			textMsg->WriteImage(image_path.native(), wxBITMAP_TYPE_ANY);
+			textMsg->AppendText("\n");
 			textMsg->ShowPosition(textMsg->GetLastPosition());
-			user_ext[uID].log.push_back("Me:[Image]\n");
+
+			user_ext[uID].log.push_back("Me:\n");
+			user_ext[uID].log.push_back(image_path);
+			user_ext[uID].log.push_back("\n");
 
 			std::string img_buf;
 
@@ -425,6 +440,7 @@ bool MyApp::OnInit()
 	try
 	{
 		wxInitAllImageHandlers();
+		fs::create_directory(IMG_TMP_PATH_NAME);
 
 		port_type portsBegin = 5000, portsEnd = 9999;
 		bool use_v6 = false;
@@ -526,6 +542,8 @@ int MyApp::OnExit()
 		threadNetwork->Delete();
 
 		srv.reset();
+
+		fs::remove_all(IMG_TMP_PATH_NAME);
 	}
 	catch (...)
 	{

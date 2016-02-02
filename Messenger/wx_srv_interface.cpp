@@ -6,6 +6,7 @@
 
 extern fileSendThread *threadFileSend;
 extern std::unordered_map<user_id_type, user_ext_type> user_ext;
+const char* IMG_TMP_PATH_NAME = "tmp";
 
 #define checkErr(x) if (dataItr + (x) > dataEnd) throw(0)
 #define read_len(x)													\
@@ -130,21 +131,31 @@ void wx_srv_interface::on_data(user_id_type id, const std::string &data)
 				data_length_type image_size;
 				read_len(image_size);
 
+				int next_image_id;
+				new_image_id(next_image_id);
+				fs::path image_path = IMG_TMP_PATH_NAME;
+				image_path /= ".messenger_temp_" + std::to_string(next_image_id);
+
 				checkErr(image_size);
-				wxMemoryInputStream image_buf(dataItr, image_size);
+				std::ofstream fout(image_path.string(), std::ios_base::out | std::ios_base::binary);
+				fout.write(dataItr, image_size);
+				fout.close();
 				dataItr += image_size;
-				wxImage image(image_buf);
 
 				wxThreadEvent *newEvent = new wxThreadEvent;
-				newEvent->SetPayload<gui_callback>([this, id, image]() {
+				newEvent->SetPayload<gui_callback>([this, id, image_path]() {
 					user_ext_type &usr = user_ext.at(id);
-					//usr.log.append(msg);
+					usr.log.push_back(usr.addr + ":\n");
+					usr.log.push_back(image_path);
+					usr.log.push_back("\n");
+
 					if (frm->listUser->GetSelection() != -1)
 					{
 						if (id == frm->userIDs[frm->listUser->GetSelection()])
 						{
 							frm->textMsg->AppendText(usr.addr + ":\n");
-							frm->textMsg->WriteImage(image);
+							frm->textMsg->WriteImage(image_path.native(), wxBITMAP_TYPE_ANY);
+							frm->textMsg->AppendText("\n");
 							frm->textMsg->ShowPosition(frm->textMsg->GetLastPosition());
 						}
 						else

@@ -63,11 +63,11 @@ struct user_ext_type
 		log_type(const char* _msg) :is_image(false), msg(_msg) {}
 		log_type(const std::string &_msg) :is_image(false), msg(_msg) {}
 		log_type(const wxString &_msg) :is_image(false), msg(_msg) {}
-		log_type(wxImage &&_image) :is_image(true), image(_image) {}
+		log_type(const fs::path &_image) :is_image(true), image(_image) {}
 
 		bool is_image;
 		wxString msg;
-		wxImage image;
+		fs::path image;
 	};
 	std::list<log_type> log;
 
