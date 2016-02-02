@@ -352,7 +352,8 @@ void mainFrame::buttonSendImage_Click(wxCommandEvent& event)
 			int next_image_id;
 			inter.new_image_id(next_image_id);
 			fs::path image_path = IMG_TMP_PATH_NAME;
-			image_path /= ".messenger_temp_" + std::to_string(next_image_id);
+			image_path /= std::to_string(uID);
+			image_path /= ".messenger_tmp_" + std::to_string(next_image_id);
 			fs::copy_file(path.ToStdWstring(), image_path);
 
 			textMsg->AppendText("Me:\n");
@@ -440,7 +441,7 @@ bool MyApp::OnInit()
 	try
 	{
 		wxInitAllImageHandlers();
-		fs::create_directory(IMG_TMP_PATH_NAME);
+		fs::create_directories(IMG_TMP_PATH_NAME);
 
 		port_type portsBegin = 5000, portsEnd = 9999;
 		bool use_v6 = false;
