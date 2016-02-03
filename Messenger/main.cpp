@@ -356,31 +356,35 @@ void mainFrame::buttonSendImage_Click(wxCommandEvent& event)
 			image_path /= ".messenger_tmp_" + std::to_string(next_image_id);
 			fs::copy_file(path.ToStdWstring(), image_path);
 
-			textMsg->AppendText("Me:\n");
-			textMsg->WriteImage(image_path.native(), wxBITMAP_TYPE_ANY);
-			textMsg->AppendText("\n");
-			textMsg->ShowPosition(textMsg->GetLastPosition());
-
-			user_ext[uID].log.push_back("Me:\n");
-			user_ext[uID].log.push_back(image_path);
-			user_ext[uID].log.push_back("\n");
-
-			std::string img_buf;
-
-			std::ifstream fin(path.ToStdString(), std::ios_base::in | std::ios_base::binary);
-			std::unique_ptr<char[]> read_buf = std::make_unique<char[]>(fileSendThread::fileBlockLen);
-			while (!fin.eof())
+			wxImage image(path, wxBITMAP_TYPE_ANY);
+			if (image.IsOk())
 			{
-				fin.read(read_buf.get(), fileSendThread::fileBlockLen);
-				img_buf.append(read_buf.get(), fin.gcount());
-			}
-			fin.close();
-			insLen(img_buf);
-			img_buf.insert(0, 1, PAC_TYPE_IMAGE);
+				textMsg->AppendText("Me:\n");
+				textMsg->WriteImage(image_path.native(), wxBITMAP_TYPE_ANY);
+				textMsg->AppendText("\n");
+				textMsg->ShowPosition(textMsg->GetLastPosition());
 
-			misc_io_service.post([uID, img_buf]() {
-				srv->send_data(uID, img_buf, msgr_proto::session::priority_msg);
-			});
+				user_ext[uID].log.push_back("Me:\n");
+				user_ext[uID].log.push_back(image_path);
+				user_ext[uID].log.push_back("\n");
+
+				std::string img_buf;
+
+				std::ifstream fin(path.ToStdString(), std::ios_base::in | std::ios_base::binary);
+				std::unique_ptr<char[]> read_buf = std::make_unique<char[]>(fileSendThread::fileBlockLen);
+				while (!fin.eof())
+				{
+					fin.read(read_buf.get(), fileSendThread::fileBlockLen);
+					img_buf.append(read_buf.get(), fin.gcount());
+				}
+				fin.close();
+				insLen(img_buf);
+				img_buf.insert(0, 1, PAC_TYPE_IMAGE);
+
+				misc_io_service.post([uID, img_buf]() {
+					srv->send_data(uID, img_buf, msgr_proto::session::priority_msg);
+				});
+			}
 		}
 	}
 }
@@ -440,7 +444,12 @@ bool MyApp::OnInit()
 	int stage = 0;
 	try
 	{
-		wxInitAllImageHandlers();
+		wxImage::AddHandler(new wxPNGHandler);
+		wxImage::AddHandler(new wxJPEGHandler);
+		wxImage::AddHandler(new wxGIFHandler);
+		wxImage::AddHandler(new wxBMPHandler);
+		if (fs::exists(IMG_TMP_PATH_NAME))
+			fs::remove_all(IMG_TMP_PATH_NAME);
 		fs::create_directories(IMG_TMP_PATH_NAME);
 
 		port_type portsBegin = 5000, portsEnd = 9999;

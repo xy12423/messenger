@@ -144,32 +144,36 @@ void wx_srv_interface::on_data(user_id_type id, const std::string &data)
 				fout.close();
 				dataItr += image_size;
 
-				wxThreadEvent *newEvent = new wxThreadEvent;
-				newEvent->SetPayload<gui_callback>([this, id, image_path]() {
-					user_ext_type &usr = user_ext.at(id);
-					usr.log.push_back(usr.addr + ":\n");
-					usr.log.push_back(image_path);
-					usr.log.push_back("\n");
+				wxImage image(image_path.native(), wxBITMAP_TYPE_ANY);
+				if (image.IsOk())
+				{
+					wxThreadEvent *newEvent = new wxThreadEvent;
+					newEvent->SetPayload<gui_callback>([this, id, image_path]() {
+						user_ext_type &usr = user_ext.at(id);
+						usr.log.push_back(usr.addr + ":\n");
+						usr.log.push_back(image_path);
+						usr.log.push_back("\n");
 
-					if (frm->listUser->GetSelection() != -1)
-					{
-						if (id == frm->userIDs[frm->listUser->GetSelection()])
+						if (frm->listUser->GetSelection() != -1)
 						{
-							frm->textMsg->AppendText(usr.addr + ":\n");
-							frm->textMsg->WriteImage(image_path.native(), wxBITMAP_TYPE_ANY);
-							frm->textMsg->AppendText("\n");
-							frm->textMsg->ShowPosition(frm->textMsg->GetLastPosition());
+							if (id == frm->userIDs[frm->listUser->GetSelection()])
+							{
+								frm->textMsg->AppendText(usr.addr + ":\n");
+								frm->textMsg->WriteImage(image_path.native(), wxBITMAP_TYPE_ANY);
+								frm->textMsg->AppendText("\n");
+								frm->textMsg->ShowPosition(frm->textMsg->GetLastPosition());
+							}
+							else
+								frm->textInfo->AppendText("Received message from " + usr.addr + "\n");
 						}
 						else
 							frm->textInfo->AppendText("Received message from " + usr.addr + "\n");
-					}
-					else
-						frm->textInfo->AppendText("Received message from " + usr.addr + "\n");
 
-					if (!frm->IsActive())
-						frm->RequestUserAttention();
-				});
-				wxQueueEvent(frm, newEvent);
+						if (!frm->IsActive())
+							frm->RequestUserAttention();
+					});
+					wxQueueEvent(frm, newEvent);
+				}
 
 				break;
 			}
