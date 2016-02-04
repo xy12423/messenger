@@ -6,7 +6,8 @@
 
 extern fileSendThread *threadFileSend;
 extern std::unordered_map<user_id_type, user_ext_type> user_ext;
-const char* IMG_TMP_PATH_NAME = "tmp";
+const char* IMG_TMP_PATH_NAME = ".messenger_tmp";
+const char* IMG_TMP_FILE_NAME = ".messenger_tmp_";
 
 #define checkErr(x) if (dataItr + (x) > dataEnd) throw(0)
 #define read_len(x)													\
@@ -134,7 +135,8 @@ void wx_srv_interface::on_data(user_id_type id, const std::string &data)
 				int next_image_id;
 				new_image_id(next_image_id);
 				fs::path image_path = IMG_TMP_PATH_NAME;
-				image_path /= ".messenger_temp_" + std::to_string(next_image_id);
+				image_path /= std::to_string(id);
+				image_path /= ".messenger_tmp_" + std::to_string(next_image_id);
 
 				checkErr(image_size);
 				std::ofstream fout(image_path.string(), std::ios_base::out | std::ios_base::binary);
@@ -142,32 +144,36 @@ void wx_srv_interface::on_data(user_id_type id, const std::string &data)
 				fout.close();
 				dataItr += image_size;
 
-				wxThreadEvent *newEvent = new wxThreadEvent;
-				newEvent->SetPayload<gui_callback>([this, id, image_path]() {
-					user_ext_type &usr = user_ext.at(id);
-					usr.log.push_back(usr.addr + ":\n");
-					usr.log.push_back(image_path);
-					usr.log.push_back("\n");
+				wxImage image(image_path.native(), wxBITMAP_TYPE_ANY);
+				if (image.IsOk())
+				{
+					wxThreadEvent *newEvent = new wxThreadEvent;
+					newEvent->SetPayload<gui_callback>([this, id, image_path]() {
+						user_ext_type &usr = user_ext.at(id);
+						usr.log.push_back(usr.addr + ":\n");
+						usr.log.push_back(image_path);
+						usr.log.push_back("\n");
 
-					if (frm->listUser->GetSelection() != -1)
-					{
-						if (id == frm->userIDs[frm->listUser->GetSelection()])
+						if (frm->listUser->GetSelection() != -1)
 						{
-							frm->textMsg->AppendText(usr.addr + ":\n");
-							frm->textMsg->WriteImage(image_path.native(), wxBITMAP_TYPE_ANY);
-							frm->textMsg->AppendText("\n");
-							frm->textMsg->ShowPosition(frm->textMsg->GetLastPosition());
+							if (id == frm->userIDs[frm->listUser->GetSelection()])
+							{
+								frm->textMsg->AppendText(usr.addr + ":\n");
+								frm->textMsg->WriteImage(image_path.native(), wxBITMAP_TYPE_ANY);
+								frm->textMsg->AppendText("\n");
+								frm->textMsg->ShowPosition(frm->textMsg->GetLastPosition());
+							}
+							else
+								frm->textInfo->AppendText("Received message from " + usr.addr + "\n");
 						}
 						else
 							frm->textInfo->AppendText("Received message from " + usr.addr + "\n");
-					}
-					else
-						frm->textInfo->AppendText("Received message from " + usr.addr + "\n");
 
-					if (!frm->IsActive())
-						frm->RequestUserAttention();
-				});
-				wxQueueEvent(frm, newEvent);
+						if (!frm->IsActive())
+							frm->RequestUserAttention();
+					});
+					wxQueueEvent(frm, newEvent);
+				}
 
 				break;
 			}
@@ -210,6 +216,10 @@ void wx_srv_interface::on_join(user_id_type id)
 		if (frm->listUser->GetSelection() == -1)
 			frm->listUser->SetSelection(frm->listUser->GetCount() - 1);
 		frm->userIDs.push_back(id);
+
+		fs::path tmp_path = IMG_TMP_PATH_NAME;
+		tmp_path /= std::to_string(id);
+		fs::create_directories(tmp_path);
 	});
 	wxQueueEvent(frm, newEvent);
 }
@@ -230,6 +240,10 @@ void wx_srv_interface::on_leave(user_id_type id)
 		frm->listUser->Delete(i);
 		frm->userIDs.erase(itr);
 		user_ext.erase(id);
+
+		fs::path tmp_path = IMG_TMP_PATH_NAME;
+		tmp_path /= std::to_string(id);
+		fs::remove_all(tmp_path);
 	});
 	wxQueueEvent(frm, newEvent);
 }
