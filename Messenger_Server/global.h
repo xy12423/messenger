@@ -3,14 +3,13 @@
 #ifndef _H_GLOB
 #define _H_GLOB
 
-static const uint8_t pac_type_msg = 0x00;
-static const uint8_t pac_type_file_h = 0x01;
-static const uint8_t pac_type_file_b = 0x02;
+enum pac_type {
+	PAC_TYPE_MSG,
+	PAC_TYPE_FILE_H,
+	PAC_TYPE_FILE_B,
+	PAC_TYPE_IMAGE,
+};
 
-typedef uint16_t key_length_type;
-typedef uint32_t data_length_type;
-
-void insLen(std::string &data);
 void ltrim(std::string &str);
 void rtrim(std::string &str);
 void trim(std::string &str);

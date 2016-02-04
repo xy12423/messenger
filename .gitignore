@@ -196,3 +196,10 @@ MessengerGUI/
 .privatekey
 .publickey
 
+# Object files
+*.o
+
+# Built binary
+Messenger/messenger
+
+*.opendb

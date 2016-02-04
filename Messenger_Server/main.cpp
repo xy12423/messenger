@@ -4,13 +4,14 @@
 #include "session.h"
 #include "main.h"
 
-net::io_service main_io_service, misc_io_service;
-server *srv;
+std::promise<void> exit_promise;
+
+asio::io_service main_io_service, misc_io_service;
 cli_server_interface inter;
 volatile bool server_on = true;
 
-user_log_list user_logs;
-user_ext_list user_ext;
+user_record_list user_records;
+user_ext_list user_exts;
 
 const char *config_file = ".config";
 const char *msg_new_user = "New user:", *msg_del_user = "Leaving user:";
@@ -23,17 +24,18 @@ void write_config()
 	std::ofstream fout(config_file, std::ios_base::out | std::ios_base::binary);
 	if (!fout.is_open())
 		return;
-	size_t size = user_logs.size();
+	size_t size = user_records.size();
 	fout.write(reinterpret_cast<char*>(&size), sizeof(size_t));
-	std::for_each(user_logs.begin(), user_logs.end(), [&size, &fout](const std::pair<std::string, user_log> &pair) {
-		const user_log &usr = pair.second;
+	for (const std::pair<std::string, user_record> &pair : user_records)
+	{
+		const user_record &usr = pair.second;
 		size = usr.name.size();
 		fout.write(reinterpret_cast<char*>(&size), sizeof(size_t));
 		fout.write(usr.name.data(), size);
-		fout.write(usr.passwd.data(), sha256_size);
+		fout.write(usr.passwd.data(), hash_size);
 		size = static_cast<size_t>(usr.group);
 		fout.write(reinterpret_cast<char*>(&size), sizeof(size_t));
-	});
+	}
 }
 
 void read_config()
@@ -47,20 +49,20 @@ void read_config()
 
 	size_t userCount, size;
 	fin.read(reinterpret_cast<char*>(&userCount), sizeof(size_t));
-	char passwd_buf[sha256_size];
+	char passwd_buf[hash_size];
 	for (; userCount > 0; userCount--)
 	{
-		user_log usr;
+		user_record usr;
 		fin.read(reinterpret_cast<char*>(&size), sizeof(size_t));
 		char* buf = new char[size];
 		fin.read(buf, size);
 		usr.name = std::string(buf, size);
 		delete[] buf;
-		fin.read(passwd_buf, sha256_size);
-		usr.passwd = std::string(passwd_buf, sha256_size);
+		fin.read(passwd_buf, hash_size);
+		usr.passwd = std::string(passwd_buf, hash_size);
 		fin.read(reinterpret_cast<char*>(&size), sizeof(size_t));
-		usr.group = static_cast<user_log::group_type>(size);
-		user_logs.emplace(usr.name, usr);
+		usr.group = static_cast<user_record::group_type>(size);
+		user_records.emplace(usr.name, usr);
 	}
 }
 
@@ -70,13 +72,13 @@ void read_config()
 	memcpy(reinterpret_cast<char*>(&(x)), dataItr, size_length);	\
 	dataItr += size_length
 
-void cli_server_interface::on_data(id_type id, const std::string &data)
+void cli_server_interface::on_data(user_id_type id, const std::string &data)
 {
 	try
 	{
 		const size_t size_length = sizeof(data_length_type);
 		const char *dataItr = data.data(), *dataEnd = data.data() + data.size();
-		user_ext_data &usr = user_ext.at(id);
+		user_ext &usr = user_exts.at(id);
 
 		byte type;
 		checkErr(1);
@@ -84,7 +86,7 @@ void cli_server_interface::on_data(id_type id, const std::string &data)
 		dataItr += 1;
 		switch (type)
 		{
-			case pac_type_msg:
+			case PAC_TYPE_MSG:
 			{
 				data_length_type sizeRecv;
 				read_uint(sizeRecv);
@@ -93,61 +95,70 @@ void cli_server_interface::on_data(id_type id, const std::string &data)
 				std::string msg(dataItr, sizeRecv);
 				dataItr += sizeRecv;
 
-				if (mode == CENTER)
+				if (mode != CENTER)
+					broadcast_msg(id, msg);
+				else
 				{
 					switch (usr.current_stage)
 					{
-						case user_ext_data::LOGIN_NAME:
+						case user_ext::LOGIN_NAME:
 						{
 							trim(msg);
 							usr.name = std::move(msg);
-							usr.current_stage = user_ext_data::LOGIN_PASS;
+							usr.current_stage = user_ext::LOGIN_PASS;
 							
 							std::string msg_send(msg_input_pass);
 							insLen(msg_send);
-							msg_send.insert(0, 1, pac_type_msg);
-							srv->send_data(id, msg_send, session::priority_msg);
+							msg_send.insert(0, 1, PAC_TYPE_MSG);
+							srv->send_data(id, msg_send, msgr_proto::session::priority_msg);
 							break;
 						}
-						case user_ext_data::LOGIN_PASS:
+						case user_ext::LOGIN_PASS:
 						{
-							usr.current_stage = user_ext_data::LOGIN_NAME;
-							user_log_list::iterator itr = user_logs.find(usr.name);
-							if (itr != user_logs.end())
+							usr.current_stage = user_ext::LOGIN_NAME;
+							user_record_list::iterator itr = user_records.find(usr.name);
+							if (itr != user_records.end())
 							{
 								trim(msg);
 								std::string tmp;
-								calcSHA256(msg, tmp);
+								hash(msg, tmp);
 								if (itr->second.passwd == tmp)
 								{
 									broadcast_msg(-1, msg_new_user + usr.name + '(' + usr.addr + ')');
 
 									std::string msg_send(msg_welcome);
 									insLen(msg_send);
-									msg_send.insert(0, 1, pac_type_msg);
-									srv->send_data(id, msg_send, session::priority_msg);
+									msg_send.insert(0, 1, PAC_TYPE_MSG);
+									srv->send_data(id, msg_send, msgr_proto::session::priority_msg);
 
-									usr.current_stage = user_ext_data::LOGGED_IN;
+									usr.current_stage = user_ext::LOGGED_IN;
 								}
 							}
 
-							if (usr.current_stage == user_ext_data::LOGIN_NAME)
+							if (usr.current_stage == user_ext::LOGIN_NAME)
 							{
 								std::string msg_send(msg_input_name);
 								insLen(msg_send);
-								msg_send.insert(0, 1, pac_type_msg);
-								srv->send_data(id, msg_send, session::priority_msg);
+								msg_send.insert(0, 1, PAC_TYPE_MSG);
+								srv->send_data(id, msg_send, msgr_proto::session::priority_msg);
 							}
 							break;
 						}
-						case user_ext_data::LOGGED_IN:
+						case user_ext::LOGGED_IN:
 						{
 							std::string tmp(msg);
 							trim(tmp);
 							if (tmp.front() == '/')
 							{
 								tmp.erase(0, 1);
-								process_command(tmp, user_logs[usr.name].group);
+
+								std::string msg_send = process_command(tmp, user_records[usr.name]);
+								if (!msg_send.empty())
+								{
+									insLen(msg_send);
+									msg_send.insert(0, 1, PAC_TYPE_MSG);
+									srv->send_data(id, msg_send, msgr_proto::session::priority_msg);
+								}
 							}
 							else
 								broadcast_msg(id, msg);
@@ -156,15 +167,22 @@ void cli_server_interface::on_data(id_type id, const std::string &data)
 						}
 					}
 				}
-				else
-					broadcast_msg(id, msg);
 
+				break;
+			}
+			case PAC_TYPE_IMAGE:
+			{
+				if (mode != CENTER || usr.current_stage == user_ext::LOGGED_IN)
+				{
+					broadcast_msg(id, "");
+					broadcast_data(id, data, msgr_proto::session::priority_msg);
+				}
 				break;
 			}
 			default:
 			{
-				if (mode != CENTER || usr.current_stage == user_ext_data::LOGGED_IN)
-					broadcast_data(id, data, session::priority_file);
+				if (mode != CENTER || usr.current_stage == user_ext::LOGGED_IN)
+					broadcast_data(id, data, msgr_proto::session::priority_file);
 				break;
 			}
 		}
@@ -185,38 +203,49 @@ void cli_server_interface::on_data(id_type id, const std::string &data)
 #undef checkErr
 #undef read_uint
 
-void cli_server_interface::on_join(id_type id)
+void cli_server_interface::on_join(user_id_type id)
 {
-	user_ext_data &ext = user_ext.emplace(id, user_ext_data()).first->second;
+	user_ext &ext = user_exts.emplace(id, user_ext()).first->second;
 	ext.addr = srv->get_session(id)->get_address();
 
 	if (mode == CENTER)
 	{
 		std::string msg_send(msg_input_name);
 		insLen(msg_send);
-		msg_send.insert(0, 1, pac_type_msg);
-		srv->send_data(id, msg_send, session::priority_msg);
+		msg_send.insert(0, 1, PAC_TYPE_MSG);
+		srv->send_data(id, msg_send, msgr_proto::session::priority_msg);
 	}
 	else
 		broadcast_msg(-1, msg_new_user + ext.addr);
 }
 
-void cli_server_interface::on_leave(id_type id)
+void cli_server_interface::on_leave(user_id_type id)
 {
-	user_ext_list::iterator itr = user_ext.find(id);
+	user_ext_list::iterator itr = user_exts.find(id);
+	user_ext &user = itr->second;
+
 	std::string msg_send(msg_del_user);
 	if (mode == CENTER)
-		msg_send.append(itr->second.name + '(' + itr->second.addr + ')');
+	{
+		if (user.current_stage == user_ext::LOGGED_IN)
+		{
+			msg_send.append(user.name + '(' + user.addr + ')');
+			broadcast_msg(-1, msg_send);
+		}
+	}
 	else
-		msg_send.append(itr->second.addr);
-	user_ext.erase(itr);
-	broadcast_msg(-1, msg_send);
+	{
+		msg_send.append(user.addr);
+		broadcast_msg(-1, msg_send);
+	}
+
+	user_exts.erase(itr);
 }
 
-void cli_server_interface::broadcast_msg(id_type src, const std::string &msg)
+void cli_server_interface::broadcast_msg(int src, const std::string &msg)
 {
 	std::string msg_send;
-	user_ext_data &usr = user_ext[src];
+	user_ext &usr = user_exts[src];
 	if (mode == CENTER)
 		msg_send = usr.name + '(' + usr.addr + ')';
 	else
@@ -225,102 +254,144 @@ void cli_server_interface::broadcast_msg(id_type src, const std::string &msg)
 	msg_send.append(msg);
 
 	insLen(msg_send);
-	msg_send.insert(0, 1, pac_type_msg);
-	broadcast_data(src, msg_send, session::priority_msg);
+	msg_send.insert(0, 1, PAC_TYPE_MSG);
+	broadcast_data(src, msg_send, msgr_proto::session::priority_msg);
 }
 
-void cli_server_interface::broadcast_data(id_type src, const std::string &data, int priority)
+void cli_server_interface::broadcast_data(int src, const std::string &data, int priority)
 {
-	std::for_each(user_ext.begin(), user_ext.end(), [src, &data, priority](const std::pair<int, user_ext_data> &p) {
-		id_type target = p.first;
-		if (target != src && (mode != CENTER || p.second.current_stage == user_ext_data::LOGGED_IN))
-		{
-			misc_io_service.post([target, data, priority]() {
-				srv->send_data(target, data, priority);
-			});
-		}
-	});
-}
-
-void cli_server_interface::process_command(std::string cmd, user_log::group_type group)
-{
-	std::string section;
-	while (!(cmd.empty() || isspace(cmd.front())))
+	for (const std::pair<int, user_ext> &p : user_exts)
 	{
-		section.push_back(cmd.front());
-		cmd.erase(0, 1);
-	}
-	cmd.erase(0, 1);
-	if (section == "op")
-	{
-		if (group == user_log::ADMIN)
+		int target = p.first;
+		if (target != src && (mode != CENTER || p.second.current_stage == user_ext::LOGGED_IN))
 		{
-			user_log_list::iterator itr = user_logs.find(cmd);
-			if (itr != user_logs.end())
-				itr->second.group = user_log::ADMIN;
-			main_io_service.post([this]() {
-				write_config();
+			misc_io_service.post([this, target, data, priority]() {
+				srv->send_data(static_cast<user_id_type>(target), data, priority);
 			});
 		}
 	}
-	else if (section == "reg")
-	{
-		if (group == user_log::ADMIN)
-		{
-			section.clear();
-			while (!(cmd.empty() || isspace(cmd.front())))
-			{
-				section.push_back(cmd.front());
-				cmd.erase(0, 1);
-			}
-			cmd.erase(0, 1);
-			std::string hashed_passwd;
-			calcSHA256(cmd, hashed_passwd);
+}
 
-			user_log_list::iterator itr = user_logs.find(section);
-			if (itr == user_logs.end())
+std::string cli_server_interface::process_command(std::string cmd, user_record &user)
+{
+	user_record::group_type group = user.group;
+	std::string ret;
+
+	int pos = cmd.find(' ');
+	std::string args;
+	if (pos != std::string::npos)
+	{
+		args.assign(cmd, pos + 1, std::string::npos);
+		cmd.erase(pos);
+	}
+	trim(args);
+	
+	if (cmd == "op")
+	{
+		if (group >= user_record::ADMIN)
+		{
+			user_record_list::iterator itr = user_records.find(args);
+			if (itr != user_records.end())
 			{
-				user_logs.emplace(section, user_log(section, hashed_passwd, user_log::USER));
+				itr->second.group = user_record::ADMIN;
 				main_io_service.post([this]() {
 					write_config();
 				});
+				ret = "Opped " + itr->second.name;
 			}
 		}
 	}
-	else if (section == "unreg")
+	else if (cmd == "reg")
 	{
-		if (group == user_log::ADMIN)
+		if (group >= user_record::ADMIN)
 		{
-			user_log_list::iterator itr = user_logs.find(cmd);
-			if (itr != user_logs.end())
+			pos = args.find(' ');
+			if (pos != std::string::npos)
 			{
-				user_logs.erase(itr);
+				cmd = args.substr(0, pos);
+				args.erase(0, pos);
+				trim(cmd);
+				trim(args);
+				std::string hashed_passwd;
+				hash(args, hashed_passwd);
+
+				user_record_list::iterator itr = user_records.find(cmd);
+				if (itr == user_records.end())
+				{
+					user_records.emplace(cmd, user_record(cmd, hashed_passwd, user_record::USER));
+					main_io_service.post([this]() {
+						write_config();
+					});
+					ret = "Registered " + cmd;
+				}
+			}
+		}
+	}
+	else if (cmd == "unreg")
+	{
+		if (group >= user_record::ADMIN)
+		{
+			user_record_list::iterator itr = user_records.find(args);
+			if (itr != user_records.end())
+			{
+				user_records.erase(itr);
 				main_io_service.post([this]() {
 					write_config();
 				});
+				ret = "Unregistered " + args;
 			}
 		}
 	}
-	else if (section == "con")
+	else if (cmd == "changepass")
 	{
-		if (group == user_log::ADMIN)
+		user.passwd.clear();
+		hash(args, user.passwd);
+		main_io_service.post([this]() {
+			write_config();
+		});
+		ret = "Password changed";
+	}
+	else if (cmd == "con")
+	{
+		if (group >= user_record::ADMIN)
 		{
-			srv->connect(cmd);
+			ret = "Connecting";
+			srv->connect(args, portConnect);
 		}
 	}
-	else if (section == "stop")
+	else if (cmd == "stop")
 	{
-		if (group == user_log::ADMIN)
+		if (group >= user_record::CONSOLE)
 		{
 			server_on = false;
+			exit_promise.set_value();
+			ret = "Stopping server";
 		}
 	}
+	return ret;
+}
+
+bool cli_server_interface::new_rand_port(port_type &ret)
+{
+	if (static_port != -1)
+		ret = static_cast<port_type>(static_port);
+	else
+	{
+		if (ports.empty())
+			return false;
+		std::list<port_type>::iterator portItr = ports.begin();
+		for (int i = std::rand() % ports.size(); i > 0; i--)
+			portItr++;
+		ret = *portItr;
+		ports.erase(portItr);
+	}
+	return true;
 }
 
 void print_usage()
 {
 	std::cout << "Usage:" << std::endl;
-	std::cout << "\tmessenger_server [mode=relay|center]" << std::endl;
+	std::cout << "\tmessenger_server [mode=relay|center] [port=****] [ports=****[-****]]" << std::endl;
 }
 
 int main(int argc, char *argv[])
@@ -329,6 +400,10 @@ int main(int argc, char *argv[])
 	try
 	{
 #endif
+		port_type portListener = 4826;
+		port_type portsBegin = 5000, portsEnd = 9999;
+		bool use_v6 = false;
+
 		for (int i = 1; i < argc; i++)
 		{
 			std::string arg(argv[i]);
@@ -345,6 +420,55 @@ int main(int argc, char *argv[])
 					return 0;
 				}
 			}
+			else if (arg.substr(0, 5) == "port=")
+			{
+				try
+				{
+					portListener = static_cast<port_type>(std::stoi(arg.substr(5)));
+				}
+				catch (std::invalid_argument &)
+				{
+					print_usage();
+					return 0;
+				}
+			}
+			else if (arg.substr(0, 6) == "ports=")
+			{
+				int pos = arg.find('-', 6);
+				if (pos == std::string::npos)
+				{
+					try
+					{
+						inter.set_static_port(static_cast<port_type>(std::stoi(arg.substr(6))));
+					}
+					catch (std::invalid_argument &)
+					{
+						print_usage();
+						return 0;
+					}
+					portsBegin = 1;
+					portsEnd = 0;
+				}
+				else
+				{
+					std::string ports_begin = arg.substr(6, pos - 6), ports_end = arg.substr(pos + 1);
+					try
+					{
+						portsBegin = static_cast<port_type>(std::stoi(ports_begin));
+						portsEnd = static_cast<port_type>(std::stoi(ports_end));
+					}
+					catch (std::invalid_argument &)
+					{
+						print_usage();
+						return 0;
+					}
+					inter.set_static_port(-1);
+				}
+			}
+			else if (arg == "usev6")
+			{
+				use_v6 = true;
+			}
 			else
 			{
 				print_usage();
@@ -355,7 +479,7 @@ int main(int argc, char *argv[])
 
 		read_config();
 
-		std::shared_ptr<net::io_service::work> main_iosrv_work = std::make_shared<net::io_service::work>(main_io_service);
+		std::shared_ptr<asio::io_service::work> main_iosrv_work = std::make_shared<asio::io_service::work>(main_io_service);
 		std::thread main_iosrv_thread([]() {
 			bool abnormally_exit;
 			do
@@ -370,7 +494,7 @@ int main(int argc, char *argv[])
 		});
 		main_iosrv_thread.detach();
 
-		std::shared_ptr<net::io_service::work> misc_iosrv_work = std::make_shared<net::io_service::work>(misc_io_service);
+		std::shared_ptr<asio::io_service::work> misc_iosrv_work = std::make_shared<asio::io_service::work>(misc_io_service);
 		std::thread misc_iosrv_thread([]() {
 			bool abnormally_exit;
 			do
@@ -385,15 +509,31 @@ int main(int argc, char *argv[])
 		});
 		misc_iosrv_thread.detach();
 
-		user_ext[-1].name = user_ext[-1].addr = "Server";
-		srv = new server(main_io_service, misc_io_service, &inter, net::ip::tcp::endpoint(net::ip::tcp::v4(), portListener));
-		std::string command;
-		while (server_on)
-		{
-			std::getline(std::cin, command);
-			inter.process_command(command, user_log::ADMIN);
-		}
+		for (; portsBegin <= portsEnd; portsBegin++)
+			inter.free_rand_port(portsBegin);
 
+		user_exts[-1].name = user_exts[-1].addr = "Server";
+		user_record user_root;
+		user_root.name = "Server";
+		user_root.group = user_record::CONSOLE;
+
+		std::unique_ptr<msgr_proto::server> srv = std::make_unique<msgr_proto::server>
+			(main_io_service, misc_io_service, inter, asio::ip::tcp::endpoint((use_v6 ? asio::ip::tcp::v6() : asio::ip::tcp::v4()), portListener));
+		std::thread input_thread([&user_root]() {
+			std::string command;
+			while (server_on)
+			{
+				std::getline(std::cin, command);
+				std::string ret = inter.process_command(command, user_root);
+				if (!ret.empty())
+					std::cout << ret << std::endl;
+			}
+		});
+		input_thread.detach();
+
+		std::future<void> future = exit_promise.get_future();
+		future.wait();
+		
 		write_config();
 
 		misc_iosrv_work.reset();

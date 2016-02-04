@@ -1,9 +1,14 @@
 #include "stdafx.h"
-#include "global.h"
 #include "crypto.h"
 #include "session.h"
 #include "threads.h"
+#include "plugin.h"
 #include "main.h"
+#include "frmAddrInput.h"
+
+const port_type portListenDefault = 4826;
+port_type portListen = portListenDefault;
+const char* plugin_file_name = "plugins.txt";
 
 wxBEGIN_EVENT_TABLE(mainFrame, wxFrame)
 
@@ -13,10 +18,9 @@ EVT_BUTTON(ID_BUTTONADD, mainFrame::buttonAdd_Click)
 EVT_BUTTON(ID_BUTTONDEL, mainFrame::buttonDel_Click)
 
 EVT_BUTTON(ID_BUTTONSEND, mainFrame::buttonSend_Click)
+EVT_BUTTON(ID_BUTTONSENDIMAGE, mainFrame::buttonSendImage_Click)
 EVT_BUTTON(ID_BUTTONSENDFILE, mainFrame::buttonSendFile_Click)
 EVT_BUTTON(ID_BUTTONCANCELSEND, mainFrame::buttonCancelSend_Click)
-EVT_BUTTON(ID_BUTTONIMPORTKEY, mainFrame::buttonImportKey_Click)
-EVT_BUTTON(ID_BUTTONEXPORTKEY, mainFrame::buttonExportKey_Click)
 
 EVT_THREAD(wxID_ANY, mainFrame::thread_Message)
 
@@ -25,187 +29,135 @@ EVT_CLOSE(mainFrame::mainFrame_Close)
 wxEND_EVENT_TABLE()
 
 #ifdef __WXMSW__
-#define _GUI_SIZE_X 620
-#define _GUI_SIZE_Y 560
+const int _GUI_SIZE_X = 620;
+const int _GUI_SIZE_Y = 560;
 #else
-#define _GUI_SIZE_X 600
-#define _GUI_SIZE_Y 540
+const int _GUI_SIZE_X = 600;
+const int _GUI_SIZE_Y = 540;
 #endif
 
 fileSendThread *threadFileSend;
-
-server* srv;
-std::unordered_map<int, user_ext_data> user_ext;
-wx_srv_interface inter;
-net::io_service main_io_service, misc_io_service;
 iosrvThread *threadNetwork, *threadMisc;
 
-#define checkErr(x) if (dataItr + (x) > dataEnd) throw(0)
-#define read_uint(x)												\
-	checkErr(sizeof_data_length);											\
-	memcpy(reinterpret_cast<char*>(&(x)), dataItr, sizeof_data_length);	\
-	dataItr += sizeof_data_length
+asio::io_service main_io_service, misc_io_service;
+std::unique_ptr<msgr_proto::server> srv;
+wx_srv_interface inter;
 
-void wx_srv_interface::on_data(id_type id, const std::string &data)
+std::unordered_map<user_id_type, user_ext_type> user_ext;
+std::unordered_map<plugin_id_type, plugin_info_type> plugin_info;
+std::unordered_set<user_id_type> virtual_users;
+
+void plugin_handler_SendData(plugin_id_type plugin_id, int to, const char* data, size_t size)
+{
+	if (!plugin_check_id_type(plugin_id, *data))
+		return;
+	std::string data_str(data, size);
+	if (to == -1)
+	{
+		for (const std::pair<user_id_type, user_ext_type> &p : user_ext)
+		{
+			user_id_type id = p.first;
+			misc_io_service.post([id, data_str]() {
+				srv->send_data(id, data_str, msgr_proto::session::priority_plugin);
+			});
+		};
+	}
+	else if (to >= 0 && to <= std::numeric_limits<plugin_id_type>::max())
+	{
+		misc_io_service.post([to, data_str]() {
+			srv->send_data(static_cast<user_id_type>(to), data_str, msgr_proto::session::priority_plugin);
+		});
+	}
+}
+
+void plugin_handler_ConnectTo(uint32_t addr, uint16_t port)
+{
+	srv->connect(addr, port);
+}
+
+int plugin_handler_NewVirtualUser(plugin_id_type plugin_id, const char* name)
 {
 	try
 	{
-		const size_t sizeof_data_length = sizeof(data_length_type);
-		const char *dataItr = data.data(), *dataEnd = data.data() + data.size();
-		user_ext_data &usr = user_ext.at(id);
-
-		byte type;
-		checkErr(1);
-		type = *dataItr;
-		dataItr += 1;
-		switch (type)
+		plugin_info_type &info = plugin_info.at(plugin_id);
+		plugin_info_type::virtual_msg_handler_ptr virtual_msg_handler = info.virtual_msg_handler;
+		std::string name_str = info.name;
+		if (name[0] != '\0')
 		{
-			case pac_type_msg:
-			{
-				if (frm == nullptr)
-					throw(0);
+			name_str.push_back(':');
+			name_str.append(name);
+		}
 
-				data_length_type sizeMsg;
-				read_uint(sizeMsg);
+		std::shared_ptr<msgr_proto::virtual_session> new_session = std::make_shared<msgr_proto::virtual_session>(*srv, name_str);
+		if (virtual_msg_handler == nullptr)
+			new_session->set_callback([](const std::string &) {});
+		else
+		{
+			new_session->set_callback([new_session, virtual_msg_handler](const std::string &data) {
+				virtual_msg_handler(new_session->get_id(), data.data(), data.size());
+			});
+		}
 
-				checkErr(sizeMsg);
-				std::string msg_utf8(dataItr, sizeMsg);
-				dataItr += sizeMsg;
+		srv->join(new_session);
+		new_session->start();
+		user_id_type new_user_id = new_session->get_id();
+		info.virtual_user_list.emplace(new_user_id);
+		virtual_users.emplace(new_user_id);
+		return new_user_id;
+	}
+	catch (...) {}
+	return -1;
+}
 
-				wxString msg(usr.addr + ':' + wxConvUTF8.cMB2WC(msg_utf8.c_str()) + '\n');
-				usr.log.append(msg);
-				if (frm->listUser->GetSelection() != -1)
-				{
-					std::list<int>::iterator itr = frm->userIDs.begin();
-					for (int i = frm->listUser->GetSelection(); i > 0; itr++)i--;
-					if (id == *itr)
-						frm->textMsg->AppendText(msg);
-					else
-						frm->textInfo->AppendText("Received message from " + usr.addr + "\n");
-				}
-				else
-					frm->textInfo->AppendText("Received message from " + usr.addr + "\n");
-
-				break;
-			}
-			case pac_type_file_h:
-			{
-				data_length_type recvLE;
-				read_uint(recvLE);
-				data_length_type blockCountAll = wxUINT32_SWAP_ON_BE(static_cast<data_length_type>(recvLE));
-
-				read_uint(recvLE);
-				data_length_type fNameLen = wxUINT32_SWAP_ON_BE(static_cast<data_length_type>(recvLE));
-
-				std::wstring fName;
-				{
-					size_t tmp;
-					checkErr(fNameLen);
-					wxWCharBuffer wbuf = wxConvUTF8.cMB2WC(dataItr, fNameLen, &tmp);
-					dataItr += fNameLen;
-					fName = std::wstring(wbuf, tmp);
-				}
-
-				if (fs::exists(fName))
-				{
-					int i;
-					for (i = 0; i < INT_MAX; i++)
-					{
-						if (!fs::exists(fs::path(fName + "_" + std::to_string(i))))
-							break;
-					}
-					if (i == INT_MAX)
-						throw(std::runtime_error("Failed to open file"));
-					fName = fName + "_" + std::to_string(i);
-				}
-				usr.recvFile = wxConvLocal.cWC2MB(fName.c_str());
-				usr.blockLast = blockCountAll;
-				std::cout << "Receiving file " << fName << " from " << usr.addr << std::endl;
-
-				break;
-			}
-			case pac_type_file_b:
-			{
-				data_length_type recvLE;
-				read_uint(recvLE);
-				data_length_type dataSize = wxUINT32_SWAP_ON_BE(static_cast<data_length_type>(recvLE));
-
-				checkErr(dataSize);
-
-				if (usr.blockLast > 0)
-				{
-					std::ofstream fout(usr.recvFile, std::ios::out | std::ios::binary | std::ios::app);
-					fout.write(dataItr, dataSize);
-					dataItr += dataSize;
-					fout.close();
-					usr.blockLast--;
-					
-					std::cout << usr.recvFile << ":" << usr.blockLast << " block(s) last" << std::endl;
-					
-					if (usr.blockLast == 0)
-						usr.recvFile.clear();
-				}
-
-				break;
-			}
+bool plugin_handler_DelVirtualUser(plugin_id_type plugin_id, uint16_t virtual_user_id)
+{
+	try
+	{
+		std::unordered_set<uint16_t> &virtual_user_list = plugin_info.at(plugin_id).virtual_user_list;
+		std::unordered_set<uint16_t>::iterator itr = virtual_user_list.find(virtual_user_id);
+		if (itr != virtual_user_list.end())
+		{
+			srv->leave(virtual_user_id);
+			virtual_user_list.erase(itr);
+			return true;
 		}
 	}
-	catch (std::exception ex)
-	{
-		std::cerr << ex.what() << std::endl;
-	}
-	catch (int)
-	{
-	}
-	catch (...)
-	{
-		throw;
-	}
+	catch (...) {}
+	return false;
 }
 
-#undef checkErr
-#undef read_uint
-
-void wx_srv_interface::on_join(id_type id)
+bool plugin_handler_VirtualUserMsg(plugin_id_type plugin_id, uint16_t virtual_user_id, const char* message, uint32_t length)
 {
-	if (frm == nullptr)
-		return;
-	user_ext_data &ext = user_ext.emplace(id, user_ext_data()).first->second;
-	std::string addr = srv->get_session(id)->get_address();
-	ext.addr = wxConvLocal.cMB2WC(addr.c_str());
-
-	frm->listUser->Append(ext.addr);
-	if (frm->listUser->GetSelection() == -1)
-		frm->listUser->SetSelection(frm->listUser->GetCount() - 1);
-	frm->userIDs.push_back(id);
+	try
+	{
+		plugin_info_type &info = plugin_info.at(plugin_id);
+		if (info.virtual_user_list.find(virtual_user_id) != info.virtual_user_list.end())
+		{
+			std::dynamic_pointer_cast<msgr_proto::virtual_session>(srv->get_session(virtual_user_id))->push(std::string(message, length));
+			return true;
+		}
+	}
+	catch (...) {}
+	return false;
 }
 
-void wx_srv_interface::on_leave(id_type id)
+std::string uid_global;
+const char* plugin_method_GetUserID()
 {
-	if (frm == nullptr)
-		return;
-	int i = 0;
-	std::list<int>::iterator itr = frm->userIDs.begin(), itrEnd = frm->userIDs.end();
-	for (; itr != itrEnd && *itr != id; itr++)i++;
-	if (frm->listUser->GetSelection() == i)
-		frm->textMsg->SetValue(wxEmptyString);
-	frm->listUser->Delete(i);
-	frm->userIDs.erase(itr);
-	user_ext.erase(id);
+	return uid_global.c_str();
 }
 
-void wx_srv_interface::on_unknown_key(id_type id, const std::string& key)
+void plugin_method_Print(plugin_id_type plugin_id, const char* msg)
 {
-	if (frm == nullptr)
-		return;
-
-	wxThreadEvent *newEvent = new wxThreadEvent;
-	newEvent->SetInt(id);
-	newEvent->SetPayload<std::string>(key);
-	wxQueueEvent(frm, newEvent);
+	try
+	{
+		plugin_info_type &info = plugin_info.at(plugin_id);
+		std::cout << "Plugin:" << info.name << ':' << msg << std::endl;
+	}
+	catch (...) {}
 }
 
-mainFrame::mainFrame(const wxString& title)
+mainFrame::mainFrame(const wxString &title)
 	: wxFrame(NULL, ID_FRAME, title, wxDefaultPosition, wxSize(_GUI_SIZE_X, _GUI_SIZE_Y))
 {
 	Center();
@@ -234,7 +186,7 @@ mainFrame::mainFrame(const wxString& title)
 		wxSize(162, 42)
 		);
 
-	textMsg = new wxTextCtrl(panel, ID_TEXTMSG,
+	textMsg = new wxRichTextCtrl(panel, ID_TEXTMSG,
 		wxEmptyString,
 		wxPoint(180, 12),
 		wxSize(412, 303),
@@ -249,27 +201,22 @@ mainFrame::mainFrame(const wxString& title)
 	buttonSend = new wxButton(panel, ID_BUTTONSEND,
 		wxT("Send"),
 		wxPoint(180, 369),
-		wxSize(77, 42)
+		wxSize(98, 42)
+		);
+	buttonSendImage = new wxButton(panel, ID_BUTTONSENDIMAGE,
+		wxT("Image"),
+		wxPoint(284, 369),
+		wxSize(99, 42)
 		);
 	buttonSendFile = new wxButton(panel, ID_BUTTONSENDFILE,
-		wxT("Send File"),
-		wxPoint(263, 369),
-		wxSize(78, 42)
+		wxT("File"),
+		wxPoint(389, 369),
+		wxSize(99, 42)
 		);
 	buttonCancelSend = new wxButton(panel, ID_BUTTONCANCELSEND,
 		wxT("Cancel"),
-		wxPoint(347, 369),
-		wxSize(78, 42)
-		);
-	buttonImportKey = new wxButton(panel, ID_BUTTONIMPORTKEY,
-		wxT("Import key"),
-		wxPoint(431, 369),
-		wxSize(78, 42)
-		);
-	buttonExportKey = new wxButton(panel, ID_BUTTONEXPORTKEY,
-		wxT("Export key"),
-		wxPoint(515, 369),
-		wxSize(77, 42)
+		wxPoint(494, 369),
+		wxSize(98, 42)
 		);
 
 	textInfo = new wxTextCtrl(panel, ID_TEXTINFO,
@@ -285,42 +232,71 @@ mainFrame::mainFrame(const wxString& title)
 	wxAcceleratorTable accel(entry_count, entries);
 	SetAcceleratorTable(accel);
 
-	threadFileSend = new fileSendThread();
-	if (threadFileSend->Run() != wxTHREAD_NO_ERROR)
-	{
-		delete threadFileSend;
-		throw(std::runtime_error("Can't create fileSendThread"));
-	}
-
-	textStrm = new textStream(textInfo);
+	textStrm = new textStream(this, textInfo);
 	cout_orig = std::cout.rdbuf();
 	std::cout.rdbuf(textStrm);
 	cerr_orig = std::cerr.rdbuf();
 	std::cerr.rdbuf(textStrm);
+
+	if (fs::exists(plugin_file_name))
+	{
+		plugin_init();
+		uid_global.assign(getUserIDGlobal());
+		set_method("GetUserID", reinterpret_cast<void*>(plugin_method_GetUserID));
+		set_method("Print", reinterpret_cast<void*>(plugin_method_Print));
+
+		set_handler(ExportHandlerID::SendDataHandler, reinterpret_cast<void*>(plugin_handler_SendData));
+		set_handler(ExportHandlerID::ConnectToHandler, reinterpret_cast<void*>(plugin_handler_ConnectTo));
+
+		set_method("NewUser", reinterpret_cast<void*>(plugin_handler_NewVirtualUser));
+		set_method("DelUser", reinterpret_cast<void*>(plugin_handler_DelVirtualUser));
+		set_method("UserMsg", reinterpret_cast<void*>(plugin_handler_VirtualUserMsg));
+
+		std::ifstream fin(plugin_file_name);
+		std::string plugin_path_utf8;
+		while (!fin.eof())
+		{
+			std::getline(fin, plugin_path_utf8);
+			if (!plugin_path_utf8.empty())
+			{
+				std::wstring plugin_path(wxConvUTF8.cMB2WC(plugin_path_utf8.c_str()));
+				int plugin_id_int = load_plugin(plugin_path);
+				if (plugin_id_int != -1)
+				{
+					plugin_id_type plugin_id = static_cast<plugin_id_type>(plugin_id_int);
+					plugin_info_type &info = plugin_info.emplace(plugin_id, plugin_info_type()).first->second;
+					info.name = fs::path(plugin_path).filename().stem().string();
+					info.plugin_id = plugin_id;
+					info.virtual_msg_handler = reinterpret_cast<plugin_info_type::virtual_msg_handler_ptr>(get_callback(plugin_id, "OnUserMsg"));
+				}
+			}
+		}
+	}
 }
 
 void mainFrame::listUser_SelectedIndexChanged(wxCommandEvent& event)
 {
-	std::list<int>::iterator itr = userIDs.begin();
-	for (int i = listUser->GetSelection(); i > 0; i--)itr++;
-	int uID = *itr;
-	textMsg->SetValue(user_ext[uID].log);
-	textMsg->ShowPosition(user_ext[uID].log.size());
+	user_id_type uID = userIDs[listUser->GetSelection()];
+	textMsg->Clear();
+	std::for_each(user_ext[uID].log.begin(), user_ext[uID].log.end(), [this](const user_ext_type::log_type &log_item) {
+		if (log_item.is_image)
+			textMsg->WriteImage(log_item.image.native(), wxBITMAP_TYPE_ANY);
+		else
+			textMsg->AppendText(log_item.msg);
+	});
+	textMsg->ShowPosition(textMsg->GetLastPosition());
 }
 
 void mainFrame::buttonAdd_Click(wxCommandEvent& event)
 {
 	try
 	{
-		wxTextEntryDialog inputDlg(this, wxT("Please input address"));
-		inputDlg.ShowModal();
-		wxString addrStr = inputDlg.GetValue();
-		if (addrStr != wxEmptyString)
-		{
-			srv->connect(addrStr.ToStdString());
-		}
+		frmAddrInput inputDlg(wxT("Please input address"), portListen);
+		if (inputDlg.ShowModal() != wxID_OK || inputDlg.CheckInput() == false)
+			return;
+		srv->connect(inputDlg.GetAddress().ToStdString(), static_cast<port_type>(inputDlg.GetPort()));
 	}
-	catch (std::exception ex)
+	catch (std::exception &ex)
 	{
 		textInfo->AppendText(ex.what() + std::string("\n"));
 	}
@@ -331,10 +307,8 @@ void mainFrame::buttonDel_Click(wxCommandEvent& event)
 	int selection = listUser->GetSelection();
 	if (selection != -1)
 	{
-		std::list<int>::iterator itr = userIDs.begin();
-		for (int i = selection; i > 0; itr++)i--;
-
-		srv->disconnect(*itr);
+		if (virtual_users.find(userIDs[selection]) == virtual_users.end())
+			srv->disconnect(userIDs[selection]);
 	}
 }
 
@@ -347,35 +321,79 @@ void mainFrame::buttonSend_Click(wxCommandEvent& event)
 		if (listUser->GetSelection() != -1)
 		{
 			wxCharBuffer buf = wxConvUTF8.cWC2MB(msg.c_str());
-			std::string msgutf8(buf, buf.length());
-			std::list<int>::iterator itr = userIDs.begin();
-			for (int i = listUser->GetSelection(); i > 0; itr++)i--;
-			int uID = *itr;
-			insLen(msgutf8);
-			msgutf8.insert(0, 1, pac_type_msg);
-			misc_io_service.post([uID, msgutf8]() {
-				srv->send_data(uID, msgutf8, session::priority_msg);
+			std::string msg_utf8(buf, buf.length());
+			user_id_type uID = userIDs[listUser->GetSelection()];
+			insLen(msg_utf8);
+			msg_utf8.insert(0, 1, PAC_TYPE_MSG);
+			misc_io_service.post([uID, msg_utf8]() {
+				srv->send_data(uID, msg_utf8, msgr_proto::session::priority_msg);
 			});
 			textMsg->AppendText("Me:" + msg + '\n');
-			user_ext[uID].log.append("Me:" + msg + '\n');
+			user_ext[uID].log.push_back("Me:" + msg + '\n');
+		}
+	}
+}
+
+void mainFrame::buttonSendImage_Click(wxCommandEvent& event)
+{
+	if (listUser->GetSelection() != -1)
+	{
+		user_id_type uID = userIDs[listUser->GetSelection()];
+		wxFileDialog fileDlg(this, wxT("Image"), wxEmptyString, wxEmptyString, "Image files (*.bmp;*.jpg;*.jpeg;*.gif;*.png)|*.bmp;*.jpg;*.jpeg;*.gif;*.png");
+		fileDlg.ShowModal();
+		wxString path = fileDlg.GetPath();
+		if ((!path.empty()) && fs::is_regular_file(path.ToStdWstring()))
+		{
+			if (fs::file_size(path.ToStdWstring()) > IMAGE_SIZE_LIMIT)
+			{
+				wxMessageBox(wxT("Image file is too big"), wxT("Error"), wxOK | wxICON_ERROR);
+				return;
+			}
+			int next_image_id;
+			inter.new_image_id(next_image_id);
+			fs::path image_path = IMG_TMP_PATH_NAME;
+			image_path /= ".messenger_temp_" + std::to_string(next_image_id);
+			fs::copy_file(path.ToStdWstring(), image_path);
+
+			textMsg->AppendText("Me:\n");
+			textMsg->WriteImage(image_path.native(), wxBITMAP_TYPE_ANY);
+			textMsg->AppendText("\n");
+			textMsg->ShowPosition(textMsg->GetLastPosition());
+
+			user_ext[uID].log.push_back("Me:\n");
+			user_ext[uID].log.push_back(image_path);
+			user_ext[uID].log.push_back("\n");
+
+			std::string img_buf;
+
+			std::ifstream fin(path.ToStdString(), std::ios_base::in | std::ios_base::binary);
+			std::unique_ptr<char[]> read_buf = std::make_unique<char[]>(fileSendThread::fileBlockLen);
+			while (!fin.eof())
+			{
+				fin.read(read_buf.get(), fileSendThread::fileBlockLen);
+				img_buf.append(read_buf.get(), fin.gcount());
+			}
+			fin.close();
+			insLen(img_buf);
+			img_buf.insert(0, 1, PAC_TYPE_IMAGE);
+
+			misc_io_service.post([uID, img_buf]() {
+				srv->send_data(uID, img_buf, msgr_proto::session::priority_msg);
+			});
 		}
 	}
 }
 
 void mainFrame::buttonSendFile_Click(wxCommandEvent& event)
 {
-	wxFileDialog fileDlg(this);
-	fileDlg.ShowModal();
-	std::wstring path = fileDlg.GetPath().ToStdWstring();
-	if ((!path.empty()) && fs::exists(path))
+	if (listUser->GetSelection() != -1)
 	{
-		if (listUser->GetSelection() != -1)
-		{
-			std::list<int>::iterator itr = userIDs.begin();
-			for (int i = listUser->GetSelection(); i > 0; itr++)i--;
-			int uID = *itr;
+		user_id_type uID = userIDs[listUser->GetSelection()];
+		wxFileDialog fileDlg(this);
+		fileDlg.ShowModal();
+		std::wstring path = fileDlg.GetPath().ToStdWstring();
+		if ((!path.empty()) && fs::exists(path))
 			threadFileSend->start(uID, fs::path(path));
-		}
 	}
 }
 
@@ -383,63 +401,18 @@ void mainFrame::buttonCancelSend_Click(wxCommandEvent& event)
 {
 	if (listUser->GetSelection() != -1)
 	{
-		std::list<int>::iterator itr = userIDs.begin();
-		for (int i = listUser->GetSelection(); i > 0; itr++)i--;
-		int uID = *itr;
+		user_id_type uID = userIDs[listUser->GetSelection()];
 		threadFileSend->stop(uID);
-		srv->get_session(uID)->stop_file_transfer();
-	}
-}
-
-void mainFrame::buttonImportKey_Click(wxCommandEvent& event)
-{
-	wxFileDialog fileDlg(this);
-	fileDlg.ShowModal();
-	std::wstring path = fileDlg.GetPath().ToStdWstring();
-	if ((!path.empty()) && fs::exists(path))
-	{
-		size_t pubCount = 0, keyLen = 0;
-		std::ifstream publicIn(path, std::ios_base::in | std::ios_base::binary);
-		publicIn.read(reinterpret_cast<char*>(&pubCount), sizeof(size_t));
-		for (; pubCount > 0; pubCount--)
-		{
-			publicIn.read(reinterpret_cast<char*>(&keyLen), sizeof(size_t));
-			char *buf = new char[keyLen];
-			publicIn.read(buf, keyLen);
-			srv->certify_key(std::string(buf, keyLen));
-			delete[] buf;
-		}
-	}
-}
-
-void mainFrame::buttonExportKey_Click(wxCommandEvent& event)
-{
-	wxFileDialog fileDlg(this);
-	fileDlg.ShowModal();
-	std::wstring path = fileDlg.GetPath().ToStdWstring();
-	if (!path.empty())
-	{
-		std::ofstream publicOut(path, std::ios_base::out | std::ios_base::binary);
-		size_t pubCount = 1;
-		publicOut.write(reinterpret_cast<char*>(&pubCount), sizeof(size_t));
-
-		std::string key = getPublicKey();
-		size_t keySize = key.size();
-		publicOut.write(reinterpret_cast<char*>(&keySize), sizeof(size_t));
-		publicOut.write(key.data(), keySize);
-
-		publicOut.close();
 	}
 }
 
 void mainFrame::thread_Message(wxThreadEvent& event)
 {
-	id_type id = event.GetInt();
-	int answer = wxMessageBox(wxT("The public key from " + user_ext.at(id).addr + " hasn't shown before.Trust it?"), wxT("Confirm"), wxYES_NO);
-	if (answer != wxYES)
-		srv->disconnect(id);
-	else
-		srv->certify_key(event.GetPayload<std::string>());
+	try
+	{
+		event.GetPayload<gui_callback>()();
+	}
+	catch (...) {}
 }
 
 void mainFrame::mainFrame_Close(wxCloseEvent& event)
@@ -450,12 +423,9 @@ void mainFrame::mainFrame_Close(wxCloseEvent& event)
 		std::cerr.rdbuf(cerr_orig);
 		delete textStrm;
 
-		threadFileSend->stop_thread();
-		threadFileSend->Delete();
-
 		inter.set_frame(nullptr);
 	}
-	catch (std::exception ex)
+	catch (std::exception &ex)
 	{
 		wxMessageBox(ex.what(), wxT("Error"), wxOK | wxICON_ERROR);
 	}
@@ -466,28 +436,96 @@ IMPLEMENT_APP(MyApp)
 
 bool MyApp::OnInit()
 {
+	int stage = 0;
 	try
 	{
+		wxInitAllImageHandlers();
+		fs::create_directory(IMG_TMP_PATH_NAME);
+
+		port_type portsBegin = 5000, portsEnd = 9999;
+		bool use_v6 = false;
+
 		threadNetwork = new iosrvThread(main_io_service);
-		if (threadNetwork->Run() != wxTHREAD_NO_ERROR)
-		{
-			delete threadNetwork;
-			throw(std::runtime_error("Can't create iosrvThread"));
-		}
+		stage = 1;
 		threadMisc = new iosrvThread(misc_io_service);
-		if (threadMisc->Run() != wxTHREAD_NO_ERROR)
+		stage = 2;
+
+		for (int i = 1; i < argc; i++)
 		{
-			delete threadMisc;
-			throw(std::runtime_error("Can't create iosrvThread"));
+			std::string arg(argv[i]);
+			if (arg.substr(0, 5) == "port=")
+			{
+				portListen = static_cast<port_type>(std::stoi(arg.substr(5)));
+			}
+			else if (arg.substr(0, 6) == "ports=")
+			{
+				int pos = arg.find('-', 6);
+				if (pos == std::string::npos)
+				{
+					inter.set_static_port(static_cast<port_type>(std::stoi(arg.substr(6))));
+					portsBegin = 1;
+					portsEnd = 0;
+				}
+				else
+				{
+					std::string ports_begin = arg.substr(6, pos - 6), ports_end = arg.substr(pos + 1);
+					portsBegin = static_cast<port_type>(std::stoi(ports_begin));
+					portsEnd = static_cast<port_type>(std::stoi(ports_end));
+					inter.set_static_port(-1);
+				}
+			}
+			else if (arg == "usev6")
+			{
+				use_v6 = true;
+			}
+			else
+			{
+				throw(std::invalid_argument("Invalid argument:" + arg));
+			}
 		}
-		srv = new server(main_io_service, misc_io_service, &inter, net::ip::tcp::endpoint(net::ip::tcp::v4(), portListener));
+		
+		for (; portsBegin <= portsEnd; portsBegin++)
+			inter.free_rand_port(portsBegin);
+		srv = std::make_unique<msgr_proto::server>(main_io_service, misc_io_service, inter,
+			asio::ip::tcp::endpoint((use_v6 ? asio::ip::tcp::v6() : asio::ip::tcp::v4()), portListen));
+
+		threadFileSend = new fileSendThread(*srv);
+		stage = 3;
 
 		form = new mainFrame(wxT("Messenger"));
 		form->Show();
 		inter.set_frame(form);
+
+		if (threadNetwork->Run() != wxTHREAD_NO_ERROR)
+		{
+			delete threadNetwork;
+			throw(std::runtime_error("Can't run iosrvThread"));
+		}
+		if (threadMisc->Run() != wxTHREAD_NO_ERROR)
+		{
+			delete threadMisc;
+			throw(std::runtime_error("Can't run iosrvThread"));
+		}
+		if (threadFileSend->Run() != wxTHREAD_NO_ERROR)
+		{
+			delete threadFileSend;
+			throw(std::runtime_error("Can't run fileSendThread"));
+		}
 	}
-	catch (std::exception ex)
+	catch (std::exception &ex)
 	{
+		switch (stage)
+		{
+			case 3:
+				threadFileSend->Delete();
+			case 2:
+				threadMisc->Delete();
+			case 1:
+				threadNetwork->Delete();
+			default:
+				break;
+		}
+
 		wxMessageBox(ex.what(), wxT("Error"), wxOK | wxICON_ERROR);
 		return false;
 	}
@@ -499,13 +537,13 @@ int MyApp::OnExit()
 {
 	try
 	{
-		threadMisc->stop();
+		threadFileSend->Delete();
 		threadMisc->Delete();
-
-		threadNetwork->stop();
 		threadNetwork->Delete();
 
-		delete srv;
+		srv.reset();
+
+		fs::remove_all(IMG_TMP_PATH_NAME);
 	}
 	catch (...)
 	{

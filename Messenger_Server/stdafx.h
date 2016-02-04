@@ -1,29 +1,37 @@
 #pragma once
 
-#include <iostream>
-#include <fstream>
-#include <sstream>
 #include <cstdint>
 #include <cstring>
 #include <cctype>
 #include <climits>
 #include <cstdlib>
 #include <ctime>
-#include <string>
+
+#include <iostream>
+#include <fstream>
+#include <sstream>
+
 #include <list>
 #include <vector>
+#include <string>
 #include <set>
 #include <map>
 #include <unordered_set>
 #include <unordered_map>
+
 #include <algorithm>
+#include <functional>
+#include <future>
+#include <memory>
 #include <mutex>
+#include <thread>
+#include <utility>
 
 #include <boost/filesystem.hpp>
 #include <boost/asio.hpp>
 #include <boost/endian/conversion.hpp>
 namespace fs = boost::filesystem;
-namespace net = boost::asio;
+namespace asio = boost::asio;
 
 #include <cryptopp/cryptlib.h>
 #include <cryptopp/osrng.h>
@@ -34,11 +42,11 @@ namespace net = boost::asio;
 
 #ifdef _MSC_VER
 #ifdef _DEBUG
-#pragma comment (lib, "zlibd-mt.lib")
-#pragma comment (lib, "cryptlibd-mt.lib")
+#pragma comment (lib, "zlibd.lib")
+#pragma comment (lib, "cryptlibd.lib")
 #else
-#pragma comment (lib, "zlib-mt.lib")
-#pragma comment (lib, "cryptlib-mt.lib")
+#pragma comment (lib, "zlib.lib")
+#pragma comment (lib, "cryptlib.lib")
 #endif
 #pragma comment (lib, "ws2_32.lib")
 #pragma comment (lib, "winmm.lib")

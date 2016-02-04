@@ -1,153 +1,102 @@
 #include "stdafx.h"
-#include "global.h"
 #include "crypto.h"
 #include "session.h"
 
-using boost::system::error_code;
+using namespace msgr_proto;
 
 const char* privatekeyFile = ".privatekey";
 const char* publickeysFile = ".publickey";
 
-int newPort(std::list<int> &ports)
+void insLen(std::string &data)
 {
-	if (ports.empty())
-		return -1;
-	std::list<int>::iterator portItr = ports.begin();
-	for (int i = std::rand() % ports.size(); i > 0; i--)
-		portItr++;
-	int port = *portItr;
-	ports.erase(portItr);
-	return port;
-}
-
-void freePort(std::list<int> &ports, port_type port)
-{
-	ports.push_back(port);
+	data_length_type len = boost::endian::native_to_little(static_cast<data_length_type>(data.size()));
+	data.insert(0, std::string(reinterpret_cast<const char*>(&len), sizeof(data_length_type)));
 }
 
 void server::start()
 {
 	if (closing)
 		return;
-	accepting = std::make_shared<net::ip::tcp::socket>(main_io_service);
-	acceptor.async_accept(*accepting,
-		[this](boost::system::error_code ec) {
-		accept(ec);
-	}
-	);
-}
-
-void server::accept(error_code ec)
-{
-	if (closing)
-		return;
-	if (!ec)
-	{
-		int port = newPort(ports);
-		if (port == -1)
-			std::cerr << "Socket:No port available" << std::endl;
-		else
+	socket_ptr socket = std::make_shared<asio::ip::tcp::socket>(main_io_service);
+	acceptor.async_accept(*socket,
+		[this, socket](boost::system::error_code ec) {
+		if (closing)
+			return;
+		if (!ec)
 		{
-			net::ip::tcp::endpoint localAddr(net::ip::tcp::v4(), port);
-			std::shared_ptr<pre_session_s> pre_session_s_ptr(std::make_shared<pre_session_s>(port, localAddr, this, main_io_service, misc_io_service));
-			pre_session_s_ptr->start();
+			std::shared_ptr<pre_session_s> pre_session_s_ptr(std::make_shared<pre_session_s>(port_null, socket, *this, main_io_service, misc_io_service));
 			pre_sessions.emplace(pre_session_s_ptr);
-
-			socket_ptr accepted(accepting);
-			port_type port_send = static_cast<port_type>(port);
-			const int send_size = sizeof(port_type);
-			char* send_buf = new char[send_size];
-			memcpy(send_buf, reinterpret_cast<char*>(&port_send), send_size);
-			net::async_write(*accepted,
-				net::buffer(send_buf, send_size),
-				[accepted, send_buf](boost::system::error_code ec, std::size_t length)
-			{
-				delete[] send_buf;
-				accepted->close();
-			}
-			);
 		}
-	}
 
-	start();
+		start();
+	});
 }
 
-void server::pre_session_over(std::shared_ptr<pre_session> _pre)
+void server::pre_session_over(const std::shared_ptr<pre_session> &_pre, bool successful)
 {
-	freePort(ports, _pre->get_port());
+	if (!successful)
+	{
+		if (_pre->get_port() != port_null)
+			inter.free_rand_port(static_cast<port_type>(_pre->get_port()));
+		connectedKeys.erase(_pre->get_key());
+	}
 	pre_sessions.erase(_pre);
 }
 
-id_type server::join(const session_ptr &_user)
+void server::join(const session_ptr &_user)
 {
-	id_type newID = nextID;
+	user_id_type newID = nextID;
 	nextID++;
 	sessions.emplace(newID, _user);
 
-	try{ inter->on_join(newID); }
-	catch (std::exception ex) { std::cerr << ex.what() << std::endl; }
+	try{ inter.on_join(newID); }
+	catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
 	catch (...) {}
 
-	return newID;
+	_user->uid = newID;
 }
 
-void server::leave(id_type _user)
+void server::leave(user_id_type _user)
 {
-	sessionList::iterator itr(sessions.find(_user));
+	session_list_type::iterator itr(sessions.find(_user));
 	if (itr == sessions.end())
 		return;
+	session_ptr this_session = itr->second;
 
-	try { inter->on_leave(_user); }
-	catch (std::exception ex) { std::cerr << ex.what() << std::endl; }
+	try { inter.on_leave(_user); }
+	catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
 	catch (...) {}
 
-	freePort(ports, itr->second->get_port());
-	sessions.erase(_user);
+	this_session->shutdown();
+	if (this_session->get_port() != port_null)
+		inter.free_rand_port(static_cast<port_type>(this_session->get_port()));
+	connectedKeys.erase(this_session->get_key());
+	sessions.erase(itr);
 }
 
-void server::on_data(id_type id, std::shared_ptr<std::string> data)
+void server::on_data(user_id_type id, std::shared_ptr<std::string> data)
 {
-	misc_io_service.post([this, id, data]() {
-		std::string decrypted_data;
-		decrypt(*data, decrypted_data);
-		
-		std::string sha256_buf(decrypted_data, 0, sha256_size), sha256_result;
-		calcSHA256(decrypted_data, sha256_result, sha256_size);
-		if (sha256_result != sha256_buf)
-		{
-			std::cerr << "Error:Hashing failed" << std::endl;
-			leave(id);
-			return;
-		}
-
-		session_id_type sid = sessions[id]->get_session_id();
-		if (*reinterpret_cast<const session_id_type*>(decrypted_data.data() + sha256_size) != boost::endian::little_to_native<session_id_type>(sid))
-		{
-			std::cerr << "Error:Checking failed" << std::endl;
-			leave(id);
-			return;
-		}
-		decrypted_data.erase(0, sizeof(session_id_type) + sha256_size);
-
-		try { inter->on_data(id, decrypted_data); }
-		catch (std::exception ex) { std::cerr << ex.what() << std::endl; }
+	session_ptr this_session = sessions[id];
+	misc_io_service.post([this, id, data, this_session]() {
+		try { inter.on_data(id, *data); }
+		catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
 		catch (...) {}
 	});
 }
 
-bool server::send_data(id_type id, const std::string& data, int priority)
+bool server::send_data(user_id_type id, const std::string& data, int priority)
 {
 	return send_data(id, data, priority, []() {});
 }
 
-bool server::send_data(id_type id, const std::string& data, int priority, const std::string& message)
+bool server::send_data(user_id_type id, const std::string& data, int priority, const std::string& message)
 {
 	return send_data(id, data, priority, [message]() {std::cout << message << std::endl; });
 }
 
-bool server::send_data(id_type id, const std::string& data, int priority, session::write_callback &&callback)
+bool server::send_data(user_id_type id, const std::string& data, int priority, session::write_callback &&callback)
 {
-	sessionList::iterator itr(sessions.find(id));
+	session_list_type::iterator itr(sessions.find(id));
 	if (itr == sessions.end())
 		return false;
 	session_ptr sptr = itr->second;
@@ -155,56 +104,90 @@ bool server::send_data(id_type id, const std::string& data, int priority, sessio
 	return true;
 }
 
-void server::connect(const std::string &addr_str)
+void server::connect(const std::string &addr_str, port_type remote_port)
 {
-	int local_port = newPort(ports);
-	if (local_port == -1)
+	connect({ addr_str, std::to_string(remote_port) });
+}
+
+void server::connect(unsigned long addr_ulong, port_type remote_port)
+{
+	connect(asio::ip::tcp::endpoint(asio::ip::address_v4(addr_ulong), remote_port));
+}
+
+void server::connect(const asio::ip::tcp::endpoint &remote_endpoint)
+{
+	port_type local_port;
+	if (!inter.new_rand_port(local_port))
 		std::cerr << "Socket:No port available" << std::endl;
 	else
 	{
-		socket_ptr new_socket(std::make_shared<net::ip::tcp::socket>(main_io_service));
-		net::ip::address addr(net::ip::address::from_string(addr_str));
-		net::ip::tcp::endpoint local_endpoint(net::ip::tcp::v4(), portConnect), remote_endpoint(addr, portListener);
+		socket_ptr socket = std::make_shared<asio::ip::tcp::socket>(main_io_service);
 
-		new_socket->open(net::ip::tcp::v4());
-		new_socket->bind(local_endpoint);
-		new_socket->async_connect(remote_endpoint, [this, new_socket, addr, local_port](const boost::system::error_code& ec) {
+		asio::ip::tcp::endpoint::protocol_type ip_protocol = remote_endpoint.protocol();
+		socket->open(ip_protocol);
+		socket->bind(asio::ip::tcp::endpoint(ip_protocol, local_port));
+		socket->async_connect(remote_endpoint,
+			[this, local_port, socket](boost::system::error_code ec)
+		{
 			if (!ec)
 			{
-				const int port_size = sizeof(port_type);
-				char* remote_port_buf = new char[port_size];
-				net::async_read(*new_socket,
-					net::buffer(remote_port_buf, port_size),
-					net::transfer_exactly(port_size),
-					[this, new_socket, addr, remote_port_buf, local_port](boost::system::error_code ec, std::size_t length)
-				{
-					if (!ec)
-					{
-						net::ip::tcp::endpoint remote_endpoint_new(addr, *reinterpret_cast<port_type*>(remote_port_buf));
-						std::shared_ptr<pre_session_c> pre_session_c_ptr(std::make_shared<pre_session_c>(local_port, remote_endpoint_new, this, main_io_service, misc_io_service));
-						pre_session_c_ptr->start();
-						pre_sessions.emplace(pre_session_c_ptr);
-
-						new_socket->close();
-					}
-					else
-					{
-						std::cerr << "Socket Error:" << ec.message() << std::endl;
-						freePort(ports, local_port);
-					}
-					delete[] remote_port_buf;
-				});
+				std::shared_ptr<pre_session_c> pre_session_c_ptr(std::make_shared<pre_session_c>(local_port, socket, *this, main_io_service, misc_io_service));
+				pre_sessions.emplace(pre_session_c_ptr);
 			}
 			else
 			{
 				std::cerr << "Socket Error:" << ec.message() << std::endl;
-				freePort(ports, local_port);
+				inter.free_rand_port(local_port);
 			}
 		});
 	}
 }
 
-void server::disconnect(id_type id)
+void server::connect(const asio::ip::tcp::resolver::query &query)
+{
+	port_type local_port;
+	if (!inter.new_rand_port(local_port))
+		std::cerr << "Socket:No port available" << std::endl;
+	else
+	{
+		resolver.async_resolve(query,
+			[this, local_port](const boost::system::error_code& ec, asio::ip::tcp::resolver::iterator itr)
+		{
+			if (ec)
+			{
+				std::cerr << "Socket Error:" << ec.message() << std::endl;
+				inter.free_rand_port(local_port);
+				return;
+			}
+			socket_ptr socket = std::make_shared<asio::ip::tcp::socket>(main_io_service);
+
+			asio::async_connect(*socket, itr, asio::ip::tcp::resolver::iterator(),
+				[this, local_port, socket](const boost::system::error_code& ec, asio::ip::tcp::resolver::iterator next)->asio::ip::tcp::resolver::iterator
+			{
+				asio::ip::tcp::endpoint::protocol_type ip_protocol = next->endpoint().protocol();
+				socket->close();
+				socket->open(ip_protocol);
+				socket->bind(asio::ip::tcp::endpoint(ip_protocol, local_port));
+				return next;
+			},
+				[this, local_port, socket](boost::system::error_code ec, asio::ip::tcp::resolver::iterator itr)
+			{
+				if (!ec)
+				{
+					std::shared_ptr<pre_session_c> pre_session_c_ptr(std::make_shared<pre_session_c>(local_port, socket, *this, main_io_service, misc_io_service));
+					pre_sessions.emplace(pre_session_c_ptr);
+				}
+				else
+				{
+					std::cerr << "Socket Error:" << ec.message() << std::endl;
+					inter.free_rand_port(local_port);
+				}
+			});
+		});
+	}
+}
+
+void server::disconnect(user_id_type id)
 {
 	leave(id);
 }
@@ -224,17 +207,16 @@ void server::read_data()
 		for (; pubCount > 0; pubCount--)
 		{
 			publicIn.read(reinterpret_cast<char*>(&keyLen), sizeof(size_t));
-			char *buf = new char[keyLen];
-			publicIn.read(buf, keyLen);
-			certifiedKeys.emplace(std::string(buf, keyLen));
-			delete[] buf;
+			std::unique_ptr<char[]> buf = std::make_unique<char[]>(keyLen);
+			publicIn.read(buf.get(), keyLen);
+			certifiedKeys.emplace(std::string(buf.get(), keyLen));
 		}
 
 		publicIn.close();
 	}
 
 	e0str = getPublicKey();
-	key_length_type e0len = boost::endian::native_to_little<key_length_type>(static_cast<key_length_type>(e0str.size()));
+	key_length_type e0len = boost::endian::native_to_little(static_cast<key_length_type>(e0str.size()));
 	e0str = std::string(reinterpret_cast<const char*>(&e0len), sizeof(key_length_type)) + e0str;
 }
 
@@ -247,7 +229,7 @@ void server::write_data()
 	std::unordered_set<std::string>::iterator itr = certifiedKeys.begin(), itrEnd = certifiedKeys.end();
 	for (; itr != itrEnd; itr++)
 	{
-		keySize = static_cast<size_t>(itr->size());
+		keySize = itr->size();
 		publicOut.write(reinterpret_cast<char*>(&keySize), sizeof(size_t));
 		publicOut.write(itr->data(), keySize);
 	}
