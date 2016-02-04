@@ -86,7 +86,7 @@ void cli_server_interface::on_data(user_id_type id, const std::string &data)
 		dataItr += 1;
 		switch (type)
 		{
-			case pac_type_msg:
+			case PAC_TYPE_MSG:
 			{
 				data_length_type sizeRecv;
 				read_uint(sizeRecv);
@@ -109,7 +109,7 @@ void cli_server_interface::on_data(user_id_type id, const std::string &data)
 							
 							std::string msg_send(msg_input_pass);
 							insLen(msg_send);
-							msg_send.insert(0, 1, pac_type_msg);
+							msg_send.insert(0, 1, PAC_TYPE_MSG);
 							srv->send_data(id, msg_send, msgr_proto::session::priority_msg);
 							break;
 						}
@@ -128,7 +128,7 @@ void cli_server_interface::on_data(user_id_type id, const std::string &data)
 
 									std::string msg_send(msg_welcome);
 									insLen(msg_send);
-									msg_send.insert(0, 1, pac_type_msg);
+									msg_send.insert(0, 1, PAC_TYPE_MSG);
 									srv->send_data(id, msg_send, msgr_proto::session::priority_msg);
 
 									usr.current_stage = user_ext::LOGGED_IN;
@@ -139,7 +139,7 @@ void cli_server_interface::on_data(user_id_type id, const std::string &data)
 							{
 								std::string msg_send(msg_input_name);
 								insLen(msg_send);
-								msg_send.insert(0, 1, pac_type_msg);
+								msg_send.insert(0, 1, PAC_TYPE_MSG);
 								srv->send_data(id, msg_send, msgr_proto::session::priority_msg);
 							}
 							break;
@@ -156,7 +156,7 @@ void cli_server_interface::on_data(user_id_type id, const std::string &data)
 								if (!msg_send.empty())
 								{
 									insLen(msg_send);
-									msg_send.insert(0, 1, pac_type_msg);
+									msg_send.insert(0, 1, PAC_TYPE_MSG);
 									srv->send_data(id, msg_send, msgr_proto::session::priority_msg);
 								}
 							}
@@ -168,6 +168,15 @@ void cli_server_interface::on_data(user_id_type id, const std::string &data)
 					}
 				}
 
+				break;
+			}
+			case PAC_TYPE_IMAGE:
+			{
+				if (mode != CENTER || usr.current_stage == user_ext::LOGGED_IN)
+				{
+					broadcast_msg(id, "");
+					broadcast_data(id, data, msgr_proto::session::priority_msg);
+				}
 				break;
 			}
 			default:
@@ -203,7 +212,7 @@ void cli_server_interface::on_join(user_id_type id)
 	{
 		std::string msg_send(msg_input_name);
 		insLen(msg_send);
-		msg_send.insert(0, 1, pac_type_msg);
+		msg_send.insert(0, 1, PAC_TYPE_MSG);
 		srv->send_data(id, msg_send, msgr_proto::session::priority_msg);
 	}
 	else
@@ -245,7 +254,7 @@ void cli_server_interface::broadcast_msg(int src, const std::string &msg)
 	msg_send.append(msg);
 
 	insLen(msg_send);
-	msg_send.insert(0, 1, pac_type_msg);
+	msg_send.insert(0, 1, PAC_TYPE_MSG);
 	broadcast_data(src, msg_send, msgr_proto::session::priority_msg);
 }
 
