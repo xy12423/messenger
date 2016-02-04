@@ -37,7 +37,7 @@ void server::pre_session_over(const std::shared_ptr<pre_session> &_pre, bool suc
 	if (!successful)
 	{
 		if (_pre->get_port() != port_null)
-			inter.free_rand_port(_pre->get_port());
+			inter.free_rand_port(static_cast<port_type>(_pre->get_port()));
 		connectedKeys.erase(_pre->get_key());
 	}
 	pre_sessions.erase(_pre);
@@ -69,7 +69,7 @@ void server::leave(user_id_type _user)
 
 	this_session->shutdown();
 	if (this_session->get_port() != port_null)
-		inter.free_rand_port(this_session->get_port());
+		inter.free_rand_port(static_cast<port_type>(this_session->get_port()));
 	connectedKeys.erase(this_session->get_key());
 	sessions.erase(itr);
 }
@@ -229,7 +229,7 @@ void server::write_data()
 	std::unordered_set<std::string>::iterator itr = certifiedKeys.begin(), itrEnd = certifiedKeys.end();
 	for (; itr != itrEnd; itr++)
 	{
-		keySize = static_cast<size_t>(itr->size());
+		keySize = itr->size();
 		publicOut.write(reinterpret_cast<char*>(&keySize), sizeof(size_t));
 		publicOut.write(itr->data(), keySize);
 	}

@@ -19,7 +19,7 @@ private:
 	enum itemID{
 		ID_FRAME,
 		ID_LISTUSER, ID_BUTTONADD, ID_BUTTONDEL,
-		ID_TEXTMSG, ID_TEXTINPUT, ID_BUTTONSEND, ID_BUTTONSENDFILE, ID_BUTTONCANCELSEND, ID_BUTTONIMPORTKEY, ID_BUTTONEXPORTKEY,
+		ID_TEXTMSG, ID_TEXTINPUT, ID_BUTTONSEND, ID_BUTTONSENDIMAGE, ID_BUTTONSENDFILE, ID_BUTTONCANCELSEND,
 		ID_TEXTINFO
 	};
 
@@ -31,13 +31,13 @@ private:
 	void buttonAdd_Click(wxCommandEvent& event);
 	void buttonDel_Click(wxCommandEvent& event);
 
-	wxTextCtrl *textMsg, *textInput;
-	wxButton *buttonSend, *buttonSendFile, *buttonCancelSend, *buttonImportKey, *buttonExportKey;
+	wxRichTextCtrl *textMsg;
+	wxTextCtrl *textInput;
+	wxButton *buttonSend, *buttonSendImage, *buttonSendFile, *buttonCancelSend;
 	void buttonSend_Click(wxCommandEvent& event);
+	void buttonSendImage_Click(wxCommandEvent& event);
 	void buttonSendFile_Click(wxCommandEvent& event);
 	void buttonCancelSend_Click(wxCommandEvent& event);
-	void buttonImportKey_Click(wxCommandEvent& event);
-	void buttonExportKey_Click(wxCommandEvent& event);
 
 	void thread_Message(wxThreadEvent& event);
 
@@ -47,7 +47,7 @@ private:
 	textStream *textStrm;
 	std::streambuf *cout_orig, *cerr_orig;
 
-	std::vector<int> userIDs;
+	std::vector<user_id_type> userIDs;
 
 	wxDECLARE_EVENT_TABLE();
 };
@@ -60,7 +60,7 @@ public:
 protected:
 	int_type overflow(int_type c)
 	{
-		buf.push_back(c);
+		buf.push_back(static_cast<char>(c));
 		if (c == '\n')
 		{
 			std::string _buf = std::move(buf);
@@ -78,6 +78,9 @@ private:
 	std::string buf;
 };
 
+extern const char* IMG_TMP_PATH_NAME;
+const size_t IMAGE_SIZE_LIMIT = 0x400000;
+
 class wx_srv_interface :public server_interface
 {
 public:
@@ -93,10 +96,13 @@ public:
 
 	void set_frame(mainFrame *_frm) { frm = _frm; }
 	void set_static_port(port_type port) { static_port = port; };
+	void new_image_id(int &id) { id = image_id; image_id++; }
 private:
 	std::unordered_set<iosrvThread*> threads;
 	std::list<port_type> ports;
 	int static_port = -1;
+
+	int image_id = 0;
 
 	mainFrame *frm;
 };

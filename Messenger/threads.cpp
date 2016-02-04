@@ -22,7 +22,7 @@ iosrvThread::ExitCode iosrvThread::Entry()
 	return NULL;
 }
 
-void fileSendThread::start(int uID, const fs::path &path)
+void fileSendThread::start(user_id_type uID, const fs::path &path)
 {
 	iosrv.post([this, uID, path]() {
 		bool write_not_in_progress = tasks.empty();
@@ -42,7 +42,7 @@ void fileSendThread::start(int uID, const fs::path &path)
 
 			std::wstring fileName = path.leaf().wstring();
 			data_length_type blockCountAll_LE = wxUINT32_SWAP_ON_BE(blockCountAll);
-			std::string head(1, pac_type_file_h);
+			std::string head(1, PAC_TYPE_FILE_H);
 			head.append(reinterpret_cast<const char*>(&blockCountAll_LE), sizeof(data_length_type));
 			wxCharBuffer nameBuf = wxConvUTF8.cWC2MB(fileName.c_str());
 			std::string name(nameBuf, nameBuf.length());
@@ -60,7 +60,7 @@ void fileSendThread::start(int uID, const fs::path &path)
 	});
 }
 
-void fileSendThread::stop(int uID)
+void fileSendThread::stop(user_id_type uID)
 {
 	iosrv.post([this, uID]() {
 		for (std::list<fileSendTask>::iterator itr = tasks.begin(), itrEnd = tasks.end(); itr != itrEnd;)
@@ -82,7 +82,7 @@ void fileSendThread::write()
 	std::streamsize sizeRead = task.fin.gcount();
 	sendBuf.assign(block.get(), sizeRead);
 	insLen(sendBuf);
-	sendBuf.insert(0, 1, pac_type_file_b);
+	sendBuf.insert(0, 1, PAC_TYPE_FILE_B);
 	wxCharBuffer msgBuf = wxConvLocal.cWC2MB(
 		(task.fileName + wxT(":Sended block ") + std::to_wstring(task.blockCount) + wxT("/") + std::to_wstring(task.blockCountAll) + wxT(" To ") + user_ext[task.uID].addr).c_str()
 		);

@@ -44,7 +44,8 @@ namespace asio = boost::asio;
 #ifndef WX_PRECOMP
 #	include <wx/wx.h>
 #endif
-#include <wx/msgqueue.h>
+#include <wx/mstream.h>
+#include <wx/richtext/richtextctrl.h>
 #include <wx/dynlib.h>
 #ifdef _MSC_VER
 #	ifdef _DEBUG
@@ -62,12 +63,15 @@ namespace asio = boost::asio;
 #		pragma comment (lib, "wxmsw30ud_ribbon.lib")
 #		pragma comment (lib, "wxmsw30ud_richtext.lib")
 #		pragma comment (lib, "wxmsw30ud_stc.lib")
+#		pragma comment (lib, "wxmsw30ud_webview.lib")
 #		pragma comment (lib, "wxmsw30ud_xrc.lib")
-#		pragma comment (lib, "wxscintillad.lib")
-#		pragma comment (lib, "wxbase30ud.lib")
-#		pragma comment (lib, "wxtiffd.lib")
+#		pragma comment (lib, "wxexpatd.lib")
 #		pragma comment (lib, "wxjpegd.lib")
 #		pragma comment (lib, "wxpngd.lib")
+#		pragma comment (lib, "wxregexud.lib")
+#		pragma comment (lib, "wxscintillad.lib")
+#		pragma comment (lib, "wxtiffd.lib")
+#		pragma comment (lib, "wxzlibd.lib")
 #	else
 #		pragma comment (lib, "wxbase30u.lib")
 #		pragma comment (lib, "wxbase30u_net.lib")
@@ -83,12 +87,15 @@ namespace asio = boost::asio;
 #		pragma comment (lib, "wxmsw30u_ribbon.lib")
 #		pragma comment (lib, "wxmsw30u_richtext.lib")
 #		pragma comment (lib, "wxmsw30u_stc.lib")
+#		pragma comment (lib, "wxmsw30u_webview.lib")
 #		pragma comment (lib, "wxmsw30u_xrc.lib")
-#		pragma comment (lib, "wxscintilla.lib")
-#		pragma comment (lib, "wxbase30u.lib")
-#		pragma comment (lib, "wxtiff.lib")
+#		pragma comment (lib, "wxexpat.lib")
 #		pragma comment (lib, "wxjpeg.lib")
 #		pragma comment (lib, "wxpng.lib")
+#		pragma comment (lib, "wxregexu.lib")
+#		pragma comment (lib, "wxscintilla.lib")
+#		pragma comment (lib, "wxtiff.lib")
+#		pragma comment (lib, "wxzlib.lib")
 #	endif
 #endif
 
