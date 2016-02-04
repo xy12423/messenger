@@ -86,7 +86,7 @@ void cli_server_interface::on_data(user_id_type id, const std::string &data)
 		dataItr += 1;
 		switch (type)
 		{
-			case pac_type_msg:
+			case PAC_TYPE_MSG:
 			{
 				data_length_type sizeRecv;
 				read_uint(sizeRecv);
@@ -109,7 +109,7 @@ void cli_server_interface::on_data(user_id_type id, const std::string &data)
 							
 							std::string msg_send(msg_input_pass);
 							insLen(msg_send);
-							msg_send.insert(0, 1, pac_type_msg);
+							msg_send.insert(0, 1, PAC_TYPE_MSG);
 							srv->send_data(id, msg_send, msgr_proto::session::priority_msg);
 							break;
 						}
@@ -128,7 +128,7 @@ void cli_server_interface::on_data(user_id_type id, const std::string &data)
 
 									std::string msg_send(msg_welcome);
 									insLen(msg_send);
-									msg_send.insert(0, 1, pac_type_msg);
+									msg_send.insert(0, 1, PAC_TYPE_MSG);
 									srv->send_data(id, msg_send, msgr_proto::session::priority_msg);
 
 									usr.current_stage = user_ext::LOGGED_IN;
@@ -139,7 +139,7 @@ void cli_server_interface::on_data(user_id_type id, const std::string &data)
 							{
 								std::string msg_send(msg_input_name);
 								insLen(msg_send);
-								msg_send.insert(0, 1, pac_type_msg);
+								msg_send.insert(0, 1, PAC_TYPE_MSG);
 								srv->send_data(id, msg_send, msgr_proto::session::priority_msg);
 							}
 							break;
@@ -156,7 +156,7 @@ void cli_server_interface::on_data(user_id_type id, const std::string &data)
 								if (!msg_send.empty())
 								{
 									insLen(msg_send);
-									msg_send.insert(0, 1, pac_type_msg);
+									msg_send.insert(0, 1, PAC_TYPE_MSG);
 									srv->send_data(id, msg_send, msgr_proto::session::priority_msg);
 								}
 							}
@@ -168,6 +168,15 @@ void cli_server_interface::on_data(user_id_type id, const std::string &data)
 					}
 				}
 
+				break;
+			}
+			case PAC_TYPE_IMAGE:
+			{
+				if (mode != CENTER || usr.current_stage == user_ext::LOGGED_IN)
+				{
+					broadcast_msg(id, "");
+					broadcast_data(id, data, msgr_proto::session::priority_msg);
+				}
 				break;
 			}
 			default:
@@ -203,7 +212,7 @@ void cli_server_interface::on_join(user_id_type id)
 	{
 		std::string msg_send(msg_input_name);
 		insLen(msg_send);
-		msg_send.insert(0, 1, pac_type_msg);
+		msg_send.insert(0, 1, PAC_TYPE_MSG);
 		srv->send_data(id, msg_send, msgr_proto::session::priority_msg);
 	}
 	else
@@ -245,19 +254,19 @@ void cli_server_interface::broadcast_msg(int src, const std::string &msg)
 	msg_send.append(msg);
 
 	insLen(msg_send);
-	msg_send.insert(0, 1, pac_type_msg);
+	msg_send.insert(0, 1, PAC_TYPE_MSG);
 	broadcast_data(src, msg_send, msgr_proto::session::priority_msg);
 }
 
-void cli_server_interface::broadcast_data(user_id_type src, const std::string &data, int priority)
+void cli_server_interface::broadcast_data(int src, const std::string &data, int priority)
 {
 	for (const std::pair<int, user_ext> &p : user_exts)
 	{
-		user_id_type target = p.first;
+		int target = p.first;
 		if (target != src && (mode != CENTER || p.second.current_stage == user_ext::LOGGED_IN))
 		{
 			misc_io_service.post([this, target, data, priority]() {
-				srv->send_data(target, data, priority);
+				srv->send_data(static_cast<user_id_type>(target), data, priority);
 			});
 		}
 	}
@@ -365,7 +374,7 @@ std::string cli_server_interface::process_command(std::string cmd, user_record &
 bool cli_server_interface::new_rand_port(port_type &ret)
 {
 	if (static_port != -1)
-		ret = static_port;
+		ret = static_cast<port_type>(static_port);
 	else
 	{
 		if (ports.empty())
@@ -415,7 +424,7 @@ int main(int argc, char *argv[])
 			{
 				try
 				{
-					portListener = std::stoi(arg.substr(5));
+					portListener = static_cast<port_type>(std::stoi(arg.substr(5)));
 				}
 				catch (std::invalid_argument &)
 				{
@@ -430,7 +439,7 @@ int main(int argc, char *argv[])
 				{
 					try
 					{
-						inter.set_static_port(std::stoi(arg.substr(6)));
+						inter.set_static_port(static_cast<port_type>(std::stoi(arg.substr(6))));
 					}
 					catch (std::invalid_argument &)
 					{
@@ -445,8 +454,8 @@ int main(int argc, char *argv[])
 					std::string ports_begin = arg.substr(6, pos - 6), ports_end = arg.substr(pos + 1);
 					try
 					{
-						portsBegin = std::stoi(ports_begin);
-						portsEnd = std::stoi(ports_end);
+						portsBegin = static_cast<port_type>(std::stoi(ports_begin));
+						portsEnd = static_cast<port_type>(std::stoi(ports_end));
 					}
 					catch (std::invalid_argument &)
 					{
