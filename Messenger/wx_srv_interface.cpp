@@ -50,7 +50,10 @@ void wx_srv_interface::on_data(user_id_type id, const std::string &data)
 					if (frm->listUser->GetSelection() != -1)
 					{
 						if (id == frm->userIDs[frm->listUser->GetSelection()])
+						{
 							frm->textMsg->AppendText(msg);
+							frm->textMsg->ShowPosition(frm->textMsg->GetLastPosition());
+						}
 						else
 							frm->textInfo->AppendText("Received message from " + usr.addr + "\n");
 					}

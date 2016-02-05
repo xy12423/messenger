@@ -330,6 +330,7 @@ void mainFrame::buttonSend_Click(wxCommandEvent& event)
 			});
 			textMsg->AppendText("Me:" + msg + '\n');
 			user_ext[uID].log.push_back("Me:" + msg + '\n');
+			textMsg->ShowPosition(textMsg->GetLastPosition());
 		}
 	}
 }
