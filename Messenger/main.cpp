@@ -495,6 +495,7 @@ bool MyApp::OnInit()
 			}
 		}
 		
+		std::srand(static_cast<unsigned int>(std::time(NULL)));
 		for (; portsBegin <= portsEnd; portsBegin++)
 			inter.free_rand_port(portsBegin);
 		srv = std::make_unique<msgr_proto::server>(main_io_service, misc_io_service, inter,
