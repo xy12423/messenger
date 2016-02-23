@@ -264,7 +264,6 @@ namespace msgr_proto
 			resolver(main_io_service),
 			inter(_inter)
 		{
-			std::srand(static_cast<unsigned int>(std::time(NULL)));
 			read_data();
 			inter.set_server(this);
 			start();
@@ -280,7 +279,6 @@ namespace msgr_proto
 			resolver(main_io_service),
 			inter(_inter)
 		{
-			std::srand(static_cast<unsigned int>(std::time(NULL)));
 			read_data();
 		}
 

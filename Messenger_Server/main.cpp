@@ -4,6 +4,8 @@
 #include "session.h"
 #include "main.h"
 
+std::string empty_string;
+
 std::promise<void> exit_promise;
 
 asio::io_service main_io_service, misc_io_service;
@@ -14,16 +16,20 @@ user_record_list user_records;
 user_ext_list user_exts;
 
 const char *config_file = ".config";
+std::unordered_map<std::string, std::string> config_items;
+const char *data_file = ".data";
+const uint32_t data_ver = 0x00;
 const char *msg_new_user = "New user:", *msg_del_user = "Leaving user:";
 const char *msg_input_name = "Username:", *msg_input_pass = "Password:", *msg_welcome = "Welcome";
 
 modes mode = RELAY;
 
-void write_config()
+void write_data()
 {
-	std::ofstream fout(config_file, std::ios_base::out | std::ios_base::binary);
+	std::ofstream fout(data_file, std::ios_base::out | std::ios_base::binary);
 	if (!fout.is_open())
 		return;
+	fout.write(reinterpret_cast<const char*>(&data_ver), sizeof(uint32_t));
 	size_t size = user_records.size();
 	fout.write(reinterpret_cast<char*>(&size), sizeof(size_t));
 	for (const std::pair<std::string, user_record> &pair : user_records)
@@ -38,15 +44,22 @@ void write_config()
 	}
 }
 
-void read_config()
+void read_data()
 {
-	if (!fs::exists(config_file))
+	if (!fs::exists(data_file))
 	{
-		write_config();
+		write_data();
 		return;
 	}
-	std::ifstream fin(config_file, std::ios_base::in | std::ios_base::binary);
+	std::ifstream fin(data_file, std::ios_base::in | std::ios_base::binary);
 
+	uint32_t data_file_ver;
+	fin.read(reinterpret_cast<char*>(&data_file_ver), sizeof(uint32_t));
+	if (data_file_ver != data_ver)
+	{
+		std::cout << "Incompatible data file.Will not read." << std::endl;
+		return;
+	}
 	size_t userCount, size;
 	fin.read(reinterpret_cast<char*>(&userCount), sizeof(size_t));
 	char passwd_buf[hash_size];
@@ -63,6 +76,37 @@ void read_config()
 		fin.read(reinterpret_cast<char*>(&size), sizeof(size_t));
 		usr.group = static_cast<user_record::group_type>(size);
 		user_records.emplace(usr.name, usr);
+	}
+}
+
+void set_default_config()
+{
+
+}
+
+void read_config()
+{
+	if (!fs::exists(config_file))
+	{
+		set_default_config();
+		return;
+	}
+	std::ifstream fin(config_file);
+
+	std::string line;
+	std::getline(fin, line);
+	while (!fin.eof())
+	{
+		trim(line);
+		if (!line.empty() && line.front() != '#')
+		{
+			size_t pos = line.find('=');
+			if (pos == std::string::npos)
+				config_items.emplace(std::move(line), empty_string);
+			else
+				config_items.emplace(line.substr(0, pos), line.substr(pos + 1));
+		}
+		std::getline(fin, line);
 	}
 }
 
@@ -295,7 +339,7 @@ std::string cli_server_interface::process_command(std::string cmd, user_record &
 			{
 				itr->second.group = user_record::ADMIN;
 				main_io_service.post([this]() {
-					write_config();
+					write_data();
 				});
 				ret = "Opped " + itr->second.name;
 			}
@@ -320,7 +364,7 @@ std::string cli_server_interface::process_command(std::string cmd, user_record &
 				{
 					user_records.emplace(cmd, user_record(cmd, hashed_passwd, user_record::USER));
 					main_io_service.post([this]() {
-						write_config();
+						write_data();
 					});
 					ret = "Registered " + cmd;
 				}
@@ -336,7 +380,7 @@ std::string cli_server_interface::process_command(std::string cmd, user_record &
 			{
 				user_records.erase(itr);
 				main_io_service.post([this]() {
-					write_config();
+					write_data();
 				});
 				ret = "Unregistered " + args;
 			}
@@ -347,7 +391,7 @@ std::string cli_server_interface::process_command(std::string cmd, user_record &
 		user.passwd.clear();
 		hash(args, user.passwd);
 		main_io_service.post([this]() {
-			write_config();
+			write_data();
 		});
 		ret = "Password changed";
 	}
@@ -400,84 +444,67 @@ int main(int argc, char *argv[])
 	try
 	{
 #endif
-		port_type portListener = 4826;
-		port_type portsBegin = 5000, portsEnd = 9999;
-		bool use_v6 = false;
+		read_config();
+		read_data();
 
 		for (int i = 1; i < argc; i++)
 		{
 			std::string arg(argv[i]);
-			if (arg.substr(0, 5) == "mode=")
+			size_t pos = arg.find('=');
+			if (pos == std::string::npos)
+				config_items[std::move(arg)] = empty_string;
+			else
+				config_items[arg.substr(0, pos)] = arg.substr(pos + 1);
+		}
+
+		port_type portListener = 4826;
+		port_type portsBegin = 5000, portsEnd = 9999;
+		bool use_v6 = false;
+
+		try
+		{
+			std::string &arg = config_items.at("mode");
+			if (arg == "center" || arg == "centre")
+				mode = CENTER;
+			else if (arg == "relay")
+				mode = RELAY;
+		}
+		catch (std::out_of_range &) {}
+		try
+		{
+			std::string &arg = config_items.at("port");
+			portListener = static_cast<port_type>(std::stoi(arg));
+		}
+		catch (std::out_of_range &) {}
+		catch (std::invalid_argument &) {}
+		try
+		{
+			std::string &arg = config_items.at("ports");
+			size_t pos = arg.find('-');
+			if (pos == std::string::npos)
 			{
-				arg.erase(0, 5);
-				if (arg == "center" || arg == "centre")
-					mode = CENTER;
-				else if (arg == "relay")
-					mode = RELAY;
-				else
-				{
-					print_usage();
-					return 0;
-				}
-			}
-			else if (arg.substr(0, 5) == "port=")
-			{
-				try
-				{
-					portListener = static_cast<port_type>(std::stoi(arg.substr(5)));
-				}
-				catch (std::invalid_argument &)
-				{
-					print_usage();
-					return 0;
-				}
-			}
-			else if (arg.substr(0, 6) == "ports=")
-			{
-				int pos = arg.find('-', 6);
-				if (pos == std::string::npos)
-				{
-					try
-					{
-						inter.set_static_port(static_cast<port_type>(std::stoi(arg.substr(6))));
-					}
-					catch (std::invalid_argument &)
-					{
-						print_usage();
-						return 0;
-					}
-					portsBegin = 1;
-					portsEnd = 0;
-				}
-				else
-				{
-					std::string ports_begin = arg.substr(6, pos - 6), ports_end = arg.substr(pos + 1);
-					try
-					{
-						portsBegin = static_cast<port_type>(std::stoi(ports_begin));
-						portsEnd = static_cast<port_type>(std::stoi(ports_end));
-					}
-					catch (std::invalid_argument &)
-					{
-						print_usage();
-						return 0;
-					}
-					inter.set_static_port(-1);
-				}
-			}
-			else if (arg == "usev6")
-			{
-				use_v6 = true;
+				inter.set_static_port(static_cast<port_type>(std::stoi(arg)));
+				portsBegin = 1;
+				portsEnd = 0;
 			}
 			else
 			{
-				print_usage();
-				return 0;
+				std::string ports_begin = arg.substr(0, pos), ports_end = arg.substr(pos + 1);
+				portsBegin = static_cast<port_type>(std::stoi(ports_begin));
+				portsEnd = static_cast<port_type>(std::stoi(ports_end));
+				inter.set_static_port(-1);
 			}
 		}
-		std::srand(static_cast<unsigned int>(std::time(NULL)));
+		catch (std::out_of_range &) {}
+		catch (std::invalid_argument &) { portsBegin = 5000, portsEnd = 9999; }
+		try
+		{
+			config_items.at("usev6");
+			use_v6 = true;
+		}
+		catch (std::out_of_range &) {}
 
-		read_config();
+		std::srand(static_cast<unsigned int>(std::time(NULL)));
 
 		std::shared_ptr<asio::io_service::work> main_iosrv_work = std::make_shared<asio::io_service::work>(main_io_service);
 		std::thread main_iosrv_thread([]() {
@@ -534,7 +561,7 @@ int main(int argc, char *argv[])
 		std::future<void> future = exit_promise.get_future();
 		future.wait();
 		
-		write_config();
+		write_data();
 
 		misc_iosrv_work.reset();
 		misc_io_service.stop();
