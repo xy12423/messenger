@@ -34,11 +34,12 @@ namespace fs = boost::filesystem;
 namespace asio = boost::asio;
 
 #include <cryptopp/cryptlib.h>
+#include <cryptopp/eccrypto.h>
+#include <cryptopp/aes.h>
+#include <cryptopp/files.h>
 #include <cryptopp/osrng.h>
 #include <cryptopp/oids.h>
-#include <cryptopp/asn.h>
-#include <cryptopp/eccrypto.h>
-#include <cryptopp/files.h>
+#include <cryptopp/modes.h>
 
 #ifdef _MSC_VER
 #ifdef _DEBUG

@@ -42,19 +42,29 @@ protected:
 
 namespace msgr_proto
 {
+	struct proto_kit
+	{
+		CryptoPP::CBC_Mode<CryptoPP::AES>::Encryption e;
+		CryptoPP::CBC_Mode<CryptoPP::AES>::Decryption d;
+		CryptoPP::ECIES<CryptoPP::ECP>::Encryptor e1;
+		session_id_type session_id;
+		rand_num_type rand_num_send, rand_num_recv;
+	};
+
 	class pre_session : public std::enable_shared_from_this<pre_session>
 	{
 	public:
 		pre_session(server &_srv, port_type_l _local_port, asio::io_service &main_io_srv, asio::io_service &misc_io_srv, const socket_ptr &_socket)
-			:srv(_srv),
-			main_io_service(main_io_srv),
-			misc_io_service(misc_io_srv),
-			socket(_socket)
+			:srv(_srv), main_io_service(main_io_srv), misc_io_service(misc_io_srv), socket(_socket),
+			priv(dh_priv_block_size), pubA(dh_pub_block_size), pubB(dh_pub_block_size), key(sym_key_length),
+			proto_data(std::make_shared<proto_kit>()),
+			session_id(proto_data->session_id), rand_num_send(proto_data->rand_num_send), rand_num_recv(proto_data->rand_num_recv),
+			e(proto_data->e), d(proto_data->d), e1(proto_data->e1)
 		{
 			local_port = _local_port;
 		}
 
-		~pre_session() { if (!passed) { exiting = true; socket->close(); } }
+		~pre_session() { exiting = true; if (!passed) { socket->close(); } }
 
 		port_type_l get_port() const { return local_port; }
 		const std::string& get_key() const { return key_string; }
@@ -65,12 +75,22 @@ namespace msgr_proto
 		virtual void stage2() = 0;
 		virtual void sid_packet_done() = 0;
 	protected:
-		void read_key_header(bool ignore_error = false);
+		void write_secret();
+		void read_secret();
+
+		void write_iv();
+		void read_iv();
+
+		void read_key_header();
 		void read_key();
 
 		void read_session_id(int check_level, bool ignore_error = false);
 		void read_session_id_body(int check_level);
 		void write_session_id();
+
+		CryptoPP::SecByteBlock priv, pubA, pubB, key;
+
+		byte iv_buffer[sym_key_length];
 
 		key_length_type key_length;
 		std::unique_ptr<char[]> key_buffer;
@@ -80,10 +100,13 @@ namespace msgr_proto
 		std::unique_ptr<char[]> sid_packet_buffer;
 		int stage = 0;
 
-		CryptoPP::ECIES<CryptoPP::ECP>::Encryptor e1;
-		session_id_type session_id;
+		std::shared_ptr<proto_kit> proto_data;
+		CryptoPP::CBC_Mode<CryptoPP::AES>::Encryption &e;
+		CryptoPP::CBC_Mode<CryptoPP::AES>::Decryption &d;
+		CryptoPP::ECIES<CryptoPP::ECP>::Encryptor &e1;
+		session_id_type &session_id;
+		rand_num_type &rand_num_send, &rand_num_recv;
 		rand_num_type rand_num;
-		rand_num_type rand_num_send, rand_num_recv;
 
 		asio::io_service &main_io_service, &misc_io_service;
 		socket_ptr socket;
@@ -138,6 +161,7 @@ namespace msgr_proto
 		session_base(server &_srv, port_type_l _local_port, const std::string &_key_string)
 			:srv(_srv), local_port(_local_port), key_string(_key_string)
 		{}
+		session_base(const session_base &) = delete;
 
 		virtual void start() = 0;
 		virtual void shutdown() = 0;
@@ -188,16 +212,15 @@ namespace msgr_proto
 	class session : public session_base
 	{
 	public:
-		session(server &_srv, port_type_l _local_port, const std::string &_key_string,
-			asio::io_service& _main_iosrv, asio::io_service& _misc_iosrv, socket_ptr &&_socket,
-			session_id_type _session_id, rand_num_type _rand_num_send, rand_num_type _rand_num_recv)
+		session(server &_srv, port_type_l _local_port, const std::string &_key_string, std::shared_ptr<proto_kit> _proto_data,
+			asio::io_service& _main_iosrv, asio::io_service& _misc_iosrv, socket_ptr &&_socket)
 			:session_base(_srv, _local_port, _key_string),
 			main_iosrv(_main_iosrv), misc_iosrv(_misc_iosrv), socket(_socket),
-			session_id(_session_id), rand_num_send(_rand_num_send), rand_num_recv(_rand_num_recv),
-			read_msg_buffer(std::make_unique<char[]>(msg_buffer_size))
+			proto_data(_proto_data),
+			e(_proto_data->e), d(_proto_data->d), e1(_proto_data->e1),
+			session_id(_proto_data->session_id), rand_num_send(_proto_data->rand_num_send), rand_num_recv(_proto_data->rand_num_recv),
+			read_buffer(std::make_unique<char[]>(read_buffer_size))
 		{
-			CryptoPP::StringSource keySource(key_string, true);
-			e1.AccessPublicKey().Load(keySource);
 		}
 
 		~session()
@@ -227,15 +250,18 @@ namespace msgr_proto
 		inline rand_num_type get_rand_num_send() { if (rand_num_send == std::numeric_limits<rand_num_type>::max()) rand_num_send = 0; else rand_num_send++; return rand_num_send; };
 		inline rand_num_type get_rand_num_recv() { if (rand_num_recv == std::numeric_limits<rand_num_type>::max()) rand_num_recv = 0; else rand_num_recv++; return rand_num_recv; };
 
-		CryptoPP::ECIES<CryptoPP::ECP>::Encryptor e1;
-		session_id_type session_id;
-		rand_num_type rand_num_send, rand_num_recv;
+		std::shared_ptr<proto_kit> proto_data;
+		CryptoPP::CBC_Mode<CryptoPP::AES>::Encryption &e;
+		CryptoPP::CBC_Mode<CryptoPP::AES>::Decryption &d;
+		CryptoPP::ECIES<CryptoPP::ECP>::Encryptor &e1;
+		session_id_type &session_id;
+		rand_num_type &rand_num_send, &rand_num_recv;
 
 		asio::io_service &main_iosrv, &misc_iosrv;
 		socket_ptr socket;
 
-		std::unique_ptr<char[]> read_msg_buffer;
-		static const size_t msg_buffer_size = 0x4000;
+		std::unique_ptr<char[]> read_buffer;
+		static const size_t read_buffer_size = 0x4000;
 
 		struct write_task {
 			write_task() {};
