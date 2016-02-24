@@ -4,8 +4,15 @@ ifdef CLANG
 endif
 
 objects = global.o crypto.o session.o session_server.o main.o
-cppflag = -g -c -o2 -pthread -I ~/boost -Wno-deprecated-declarations -std=c++14
-lflag = -pthread -L ~/boost/stage/lib -lboost_filesystem-mt-s -lboost_system-mt-s -lcryptopp -lz -ldl -lm
+cppflag = -c -pthread -I ~/boost -Wno-deprecated-declarations -std=c++14
+lflag = -pthread -L ~/boost/stage/lib -lboost_filesystem-mt-s -lboost_system-mt-s -lcryptopp
+
+ifdef RELEASE
+  cppflag += -g0 -O2 -DNDEBUG
+else
+  cppflag += -g3 -O0 -D_DEBUG
+endif
+
 messenger_server : $(objects)
 	$(CXX) $(objects) $(lflag) -o messenger_server
 global.o : stdafx.h global.h global.cpp
@@ -21,4 +28,3 @@ main.o : stdafx.h global.h crypto.h session.h main.h main.cpp
 
 clean:
 	rm -rf *.o messenger_server
-
