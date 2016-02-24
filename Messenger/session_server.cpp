@@ -216,8 +216,6 @@ void server::read_data()
 	}
 
 	e0str = getPublicKey();
-	key_length_type e0len = boost::endian::native_to_little(static_cast<key_length_type>(e0str.size()));
-	e0str = std::string(reinterpret_cast<const char*>(&e0len), sizeof(key_length_type)) + e0str;
 }
 
 void server::write_data()

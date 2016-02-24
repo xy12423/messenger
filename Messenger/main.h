@@ -79,6 +79,7 @@ private:
 };
 
 extern const char* IMG_TMP_PATH_NAME;
+extern const char* IMG_TMP_FILE_NAME;
 const size_t IMAGE_SIZE_LIMIT = 0x400000;
 
 class wx_srv_interface :public server_interface

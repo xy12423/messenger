@@ -4,13 +4,13 @@ ifdef CLANG
 endif
 
 objects = crypto.o session.o session_server.o threads.o plugin.o wx_srv_interface.o frmAddrInput.o main.o
-wx_cppflag = `wx-config --cppflags`
+wx_cppflag = `wx-config --cppflags std,richtext`
 cppflag = -c -o2 $(wx_cppflag) -pthread -I ~/boost -Wno-deprecated-declarations -std=c++14
-wx_lflag = `wx-config --libs`
+wx_lflag = `wx-config --libs std,richtext`
 lflag = -pthread -L ~/boost/stage/lib $(wx_lflag) -lboost_filesystem-mt-s -lboost_system-mt-s -lcryptopp
 
 ifdef RELEASE
-  cppflag += -O2 -march=native -mtune=native
+  cppflag += -g0 -O2 -march=native -mtune=native
 else
   cppflag += -g3 -O0
 endif

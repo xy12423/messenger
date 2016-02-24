@@ -330,6 +330,7 @@ void mainFrame::buttonSend_Click(wxCommandEvent& event)
 			});
 			textMsg->AppendText("Me:" + msg + '\n');
 			user_ext[uID].log.push_back("Me:" + msg + '\n');
+			textMsg->ShowPosition(textMsg->GetLastPosition());
 		}
 	}
 }
@@ -352,34 +353,39 @@ void mainFrame::buttonSendImage_Click(wxCommandEvent& event)
 			int next_image_id;
 			inter.new_image_id(next_image_id);
 			fs::path image_path = IMG_TMP_PATH_NAME;
-			image_path /= ".messenger_temp_" + std::to_string(next_image_id);
+			image_path /= std::to_string(uID);
+			image_path /= ".messenger_tmp_" + std::to_string(next_image_id);
 			fs::copy_file(path.ToStdWstring(), image_path);
 
-			textMsg->AppendText("Me:\n");
-			textMsg->WriteImage(image_path.native(), wxBITMAP_TYPE_ANY);
-			textMsg->AppendText("\n");
-			textMsg->ShowPosition(textMsg->GetLastPosition());
-
-			user_ext[uID].log.push_back("Me:\n");
-			user_ext[uID].log.push_back(image_path);
-			user_ext[uID].log.push_back("\n");
-
-			std::string img_buf;
-
-			std::ifstream fin(path.ToStdString(), std::ios_base::in | std::ios_base::binary);
-			std::unique_ptr<char[]> read_buf = std::make_unique<char[]>(fileSendThread::fileBlockLen);
-			while (!fin.eof())
+			wxImage image(path, wxBITMAP_TYPE_ANY);
+			if (image.IsOk())
 			{
-				fin.read(read_buf.get(), fileSendThread::fileBlockLen);
-				img_buf.append(read_buf.get(), fin.gcount());
-			}
-			fin.close();
-			insLen(img_buf);
-			img_buf.insert(0, 1, PAC_TYPE_IMAGE);
+				textMsg->AppendText("Me:\n");
+				textMsg->WriteImage(image_path.native(), wxBITMAP_TYPE_ANY);
+				textMsg->AppendText("\n");
+				textMsg->ShowPosition(textMsg->GetLastPosition());
 
-			misc_io_service.post([uID, img_buf]() {
-				srv->send_data(uID, img_buf, msgr_proto::session::priority_msg);
-			});
+				user_ext[uID].log.push_back("Me:\n");
+				user_ext[uID].log.push_back(image_path);
+				user_ext[uID].log.push_back("\n");
+
+				std::string img_buf;
+
+				std::ifstream fin(path.ToStdString(), std::ios_base::in | std::ios_base::binary);
+				std::unique_ptr<char[]> read_buf = std::make_unique<char[]>(fileSendThread::fileBlockLen);
+				while (!fin.eof())
+				{
+					fin.read(read_buf.get(), fileSendThread::fileBlockLen);
+					img_buf.append(read_buf.get(), fin.gcount());
+				}
+				fin.close();
+				insLen(img_buf);
+				img_buf.insert(0, 1, PAC_TYPE_IMAGE);
+
+				misc_io_service.post([uID, img_buf]() {
+					srv->send_data(uID, img_buf, msgr_proto::session::priority_msg);
+				});
+			}
 		}
 	}
 }
@@ -439,8 +445,13 @@ bool MyApp::OnInit()
 	int stage = 0;
 	try
 	{
-		wxInitAllImageHandlers();
-		fs::create_directory(IMG_TMP_PATH_NAME);
+		wxImage::AddHandler(new wxPNGHandler);
+		wxImage::AddHandler(new wxJPEGHandler);
+		wxImage::AddHandler(new wxGIFHandler);
+		wxImage::AddHandler(new wxBMPHandler);
+		if (fs::exists(IMG_TMP_PATH_NAME))
+			fs::remove_all(IMG_TMP_PATH_NAME);
+		fs::create_directories(IMG_TMP_PATH_NAME);
 
 		port_type portsBegin = 5000, portsEnd = 9999;
 		bool use_v6 = false;
@@ -484,6 +495,7 @@ bool MyApp::OnInit()
 			}
 		}
 		
+		std::srand(static_cast<unsigned int>(std::time(NULL)));
 		for (; portsBegin <= portsEnd; portsBegin++)
 			inter.free_rand_port(portsBegin);
 		srv = std::make_unique<msgr_proto::server>(main_io_service, misc_io_service, inter,
