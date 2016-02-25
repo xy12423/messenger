@@ -133,8 +133,8 @@ const char space32 = '0';
 
 void base32(std::string &ret, byte* buf, int size)
 {
-	BYTE *ptr_end = buf + size - 5;
-	BYTE *ptr = buf;
+	byte *ptr_end = buf + size - 5;
+	byte *ptr = buf;
 	for (; ptr < ptr_end; ptr += 5)
 	{
 		ret.push_back(encode32[ptr[0] >> 3]);
