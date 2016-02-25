@@ -36,9 +36,33 @@ struct user_ext
 };
 typedef std::unordered_map<int, user_ext> user_ext_list;
 
+class msg_logger
+{
+public:
+	void open(const fs::path &log_path);
+	void log_msg(const std::string &name, const std::string &msg);
+	void log_img(const std::string &name, const std::string &path);
+private:
+	const char *log_file_name = "log.md";
+	const char *img_path_name = "images";
+
+	bool enabled = false;
+	std::ofstream log_stream;
+	fs::path log_path;
+};
+
 class cli_server_interface :public server_interface
 {
 public:
+	cli_server_interface(){
+		read_config();
+		read_data();
+		user_exts[-1].name = user_exts[-1].addr = "Server";
+	}
+	~cli_server_interface() {
+		write_data();
+	}
+
 	virtual void on_data(user_id_type id, const std::string &data);
 
 	virtual void on_join(user_id_type id);
@@ -53,10 +77,23 @@ public:
 	void broadcast_data(int id, const std::string &data, int priority);
 	std::string process_command(std::string cmd, user_record &user);
 
+	void set_mode(modes _mode) { mode = _mode; }
 	void set_static_port(port_type port) { static_port = port; };
 private:
+	void read_data();
+	void write_data();
+	void read_config();
+
+	const char *config_file = ".config";
+	const char *data_file = ".data";
+	const uint32_t data_ver = 0x00;
+
 	int static_port = -1;
 	std::list<port_type> ports;
+
+	modes mode = RELAY;
+	user_record_list user_records;
+	user_ext_list user_exts;
 };
 
 #endif

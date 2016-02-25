@@ -393,7 +393,7 @@ void pre_session_s::sid_packet_done()
 				break;
 			case 3:
 			{
-				session_ptr new_user(std::make_shared<session>(srv, local_port, key_string, proto_data,
+				session_ptr new_user(std::make_shared<session>(srv, local_port, key_string, std::move(proto_data),
 					main_io_service, misc_io_service, std::move(socket)));
 
 				srv.join(new_user);
@@ -482,7 +482,7 @@ void pre_session_c::sid_packet_done()
 				break;
 			case 3:
 			{
-				session_ptr new_user(std::make_shared<session>(srv, local_port, key_string, proto_data,
+				session_ptr new_user(std::make_shared<session>(srv, local_port, key_string, std::move(proto_data),
 					main_io_service, misc_io_service, std::move(socket)));
 
 				srv.join(new_user);

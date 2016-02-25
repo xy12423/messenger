@@ -7,24 +7,66 @@
 std::string empty_string;
 
 std::promise<void> exit_promise;
+std::unordered_map<std::string, std::string> config_items;
 
 asio::io_service main_io_service, misc_io_service;
 cli_server_interface inter;
+msg_logger logger;
 volatile bool server_on = true;
 
-user_record_list user_records;
-user_ext_list user_exts;
-
-const char *config_file = ".config";
-std::unordered_map<std::string, std::string> config_items;
-const char *data_file = ".data";
-const uint32_t data_ver = 0x00;
 const char *msg_new_user = "New user:", *msg_del_user = "Leaving user:";
 const char *msg_input_name = "Username:", *msg_input_pass = "Password:", *msg_welcome = "Welcome";
 
-modes mode = RELAY;
+void msg_logger::open(const fs::path &_log_path)
+{
+	log_path = _log_path;
+	fs::path imgPath, logPath;
+	imgPath = log_path / img_path_name;
+	if (!fs::exists(imgPath))
+		fs::create_directory(imgPath);
+	else if (!fs::is_directory(imgPath))
+	{
+		enabled = false;
+		return;
+	}
 
-void write_data()
+	logPath = log_path / log_file_name;
+	log_stream.open(logPath.string(), std::ios_base::out | std::ios_base::app);
+	enabled = log_stream.is_open() && log_stream;
+}
+
+void msg_logger::log_msg(const std::string &name, const std::string &msg)
+{
+	if (enabled)
+	{
+		std::time_t cur_time = std::time(nullptr);
+		std::string cur_time_str = std::ctime(&cur_time);
+		cur_time_str.pop_back();
+		log_stream << cur_time_str << ' ' << name << '\n' << msg << std::endl;
+	}
+}
+
+void msg_logger::log_img(const std::string &name, const std::string &data)
+{
+	if (enabled)
+	{
+		std::string img_name;
+		hash_short(data, img_name);
+		fs::path img_rela_path = img_path_name;
+		img_rela_path /= img_name;
+		std::string img_path = (log_path / img_rela_path).string();
+		std::ofstream fout(img_path, std::ios_base::out | std::ios_base::binary);
+		fout.write(data.data() + 1 + sizeof(data_length_type), data.size() - (1 + sizeof(data_length_type)));
+		fout.close();
+
+		std::time_t cur_time = std::time(nullptr);
+		std::string cur_time_str = std::ctime(&cur_time);
+		cur_time_str.pop_back();
+		log_stream << cur_time_str << ' ' << name << '\n' << "![](" << img_rela_path.string() << ')' << std::endl;
+	}
+}
+
+void cli_server_interface::write_data()
 {
 	std::ofstream fout(data_file, std::ios_base::out | std::ios_base::binary);
 	if (!fout.is_open())
@@ -44,7 +86,7 @@ void write_data()
 	}
 }
 
-void read_data()
+void cli_server_interface::read_data()
 {
 	if (!fs::exists(data_file))
 	{
@@ -79,18 +121,10 @@ void read_data()
 	}
 }
 
-void set_default_config()
-{
-
-}
-
-void read_config()
+void cli_server_interface::read_config()
 {
 	if (!fs::exists(config_file))
-	{
-		set_default_config();
 		return;
-	}
 	std::ifstream fin(config_file);
 
 	std::string line;
@@ -104,7 +138,12 @@ void read_config()
 			if (pos == std::string::npos)
 				config_items.emplace(std::move(line), empty_string);
 			else
-				config_items.emplace(line.substr(0, pos), line.substr(pos + 1));
+			{
+				std::string name = line.substr(0, pos), val = line.substr(pos + 1);
+				rtrim(name);
+				ltrim(val);
+				config_items.emplace(name, val);
+			}
 		}
 		std::getline(fin, line);
 	}
@@ -205,7 +244,10 @@ void cli_server_interface::on_data(user_id_type id, const std::string &data)
 								}
 							}
 							else
+							{
+								logger.log_msg(usr.name, msg);
 								broadcast_msg(id, msg);
+							}
 
 							break;
 						}
@@ -220,6 +262,7 @@ void cli_server_interface::on_data(user_id_type id, const std::string &data)
 				{
 					broadcast_msg(id, "");
 					broadcast_data(id, data, msgr_proto::session::priority_msg);
+					logger.log_img(usr.name, data);
 				}
 				break;
 			}
@@ -444,9 +487,6 @@ int main(int argc, char *argv[])
 	try
 	{
 #endif
-		read_config();
-		read_data();
-
 		for (int i = 1; i < argc; i++)
 		{
 			std::string arg(argv[i]);
@@ -465,18 +505,23 @@ int main(int argc, char *argv[])
 		{
 			std::string &arg = config_items.at("mode");
 			if (arg == "center" || arg == "centre")
-				mode = CENTER;
+				inter.set_mode(CENTER);
 			else if (arg == "relay")
-				mode = RELAY;
+				inter.set_mode(RELAY);
+			else
+				throw(0);
+			std::cout << "Mode set to " << arg << std::endl;
 		}
+		catch (int) {}
 		catch (std::out_of_range &) {}
 		try
 		{
 			std::string &arg = config_items.at("port");
 			portListener = static_cast<port_type>(std::stoi(arg));
+			std::cout << "Listening " << arg << std::endl;
 		}
-		catch (std::out_of_range &) {}
-		catch (std::invalid_argument &) {}
+		catch (std::out_of_range &) { portListener = 4826; }
+		catch (std::invalid_argument &) { portListener = 4826; }
 		try
 		{
 			std::string &arg = config_items.at("ports");
@@ -486,6 +531,7 @@ int main(int argc, char *argv[])
 				inter.set_static_port(static_cast<port_type>(std::stoi(arg)));
 				portsBegin = 1;
 				portsEnd = 0;
+				std::cout << "Connecting port set to " << arg << std::endl;
 			}
 			else
 			{
@@ -493,15 +539,29 @@ int main(int argc, char *argv[])
 				portsBegin = static_cast<port_type>(std::stoi(ports_begin));
 				portsEnd = static_cast<port_type>(std::stoi(ports_end));
 				inter.set_static_port(-1);
+				std::cout << "Connecting ports set to " << arg << std::endl;
 			}
 		}
-		catch (std::out_of_range &) {}
+		catch (std::out_of_range &) { portsBegin = 5000, portsEnd = 9999; }
 		catch (std::invalid_argument &) { portsBegin = 5000, portsEnd = 9999; }
 		try
 		{
 			config_items.at("usev6");
 			use_v6 = true;
+			std::cout << "Using IPv6 for listening" << std::endl;
 		}
+		catch (std::out_of_range &) {}
+		try
+		{
+			fs::path log_path = config_items.at("msg_log_path");
+			if (!fs::exists(log_path))
+				fs::create_directories(log_path);
+			else if (!fs::is_directory(log_path))
+				throw(0);
+			logger.open(log_path);
+			std::cout << "Using message log, log path:" << log_path << std::endl;
+		}
+		catch (int) {}
 		catch (std::out_of_range &) {}
 
 		std::srand(static_cast<unsigned int>(std::time(NULL)));
@@ -539,7 +599,6 @@ int main(int argc, char *argv[])
 		for (; portsBegin <= portsEnd; portsBegin++)
 			inter.free_rand_port(portsBegin);
 
-		user_exts[-1].name = user_exts[-1].addr = "Server";
 		user_record user_root;
 		user_root.name = "Server";
 		user_root.group = user_record::CONSOLE;
@@ -560,8 +619,6 @@ int main(int argc, char *argv[])
 
 		std::future<void> future = exit_promise.get_future();
 		future.wait();
-		
-		write_data();
 
 		misc_iosrv_work.reset();
 		misc_io_service.stop();
