@@ -212,13 +212,13 @@ namespace msgr_proto
 	class session : public session_base
 	{
 	public:
-		session(server &_srv, port_type_l _local_port, const std::string &_key_string, std::shared_ptr<proto_kit> _proto_data,
+		session(server &_srv, port_type_l _local_port, const std::string &_key_string, std::shared_ptr<proto_kit> &&_proto_data,
 			asio::io_service& _main_iosrv, asio::io_service& _misc_iosrv, socket_ptr &&_socket)
 			:session_base(_srv, _local_port, _key_string),
 			main_iosrv(_main_iosrv), misc_iosrv(_misc_iosrv), socket(_socket),
 			proto_data(_proto_data),
-			e(_proto_data->e), d(_proto_data->d), e1(_proto_data->e1),
-			session_id(_proto_data->session_id), rand_num_send(_proto_data->rand_num_send), rand_num_recv(_proto_data->rand_num_recv),
+			e(proto_data->e), d(proto_data->d), e1(proto_data->e1),
+			session_id(proto_data->session_id), rand_num_send(proto_data->rand_num_send), rand_num_recv(proto_data->rand_num_recv),
 			read_buffer(std::make_unique<char[]>(read_buffer_size))
 		{
 		}
