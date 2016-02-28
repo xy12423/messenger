@@ -36,21 +36,6 @@ struct user_ext
 };
 typedef std::unordered_map<int, user_ext> user_ext_list;
 
-class msg_logger
-{
-public:
-	void open(const fs::path &log_path);
-	void log_msg(const std::string &name, const std::string &msg);
-	void log_img(const std::string &name, const std::string &path);
-private:
-	const char *log_file_name = "log.md";
-	const char *img_path_name = "images";
-
-	bool enabled = false;
-	std::ofstream log_stream;
-	fs::path log_path;
-};
-
 class cli_server_interface :public server_interface
 {
 public:

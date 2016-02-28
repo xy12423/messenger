@@ -2,69 +2,21 @@
 #include "global.h"
 #include "crypto.h"
 #include "session.h"
+#include "plugin.h"
 #include "main.h"
 
 std::string empty_string;
 
 std::promise<void> exit_promise;
-std::unordered_map<std::string, std::string> config_items;
+config_table_tp config_items;
 
 asio::io_service main_io_service, misc_io_service;
 cli_server_interface inter;
-msg_logger logger;
+plugin_manager plugin_m;
 volatile bool server_on = true;
 
 const char *msg_new_user = "New user:", *msg_del_user = "Leaving user:";
 const char *msg_input_name = "Username:", *msg_input_pass = "Password:", *msg_welcome = "Welcome";
-
-void msg_logger::open(const fs::path &_log_path)
-{
-	log_path = _log_path;
-	fs::path imgPath, logPath;
-	imgPath = log_path / img_path_name;
-	if (!fs::exists(imgPath))
-		fs::create_directory(imgPath);
-	else if (!fs::is_directory(imgPath))
-	{
-		enabled = false;
-		return;
-	}
-
-	logPath = log_path / log_file_name;
-	log_stream.open(logPath.string(), std::ios_base::out | std::ios_base::app);
-	enabled = log_stream.is_open() && log_stream;
-}
-
-void msg_logger::log_msg(const std::string &name, const std::string &msg)
-{
-	if (enabled)
-	{
-		std::time_t cur_time = std::time(nullptr);
-		std::string cur_time_str = std::ctime(&cur_time);
-		cur_time_str.pop_back();
-		log_stream << cur_time_str << ' ' << name << '\n' << msg << std::endl;
-	}
-}
-
-void msg_logger::log_img(const std::string &name, const std::string &data)
-{
-	if (enabled)
-	{
-		std::string img_name;
-		hash_short(data, img_name);
-		fs::path img_rela_path = img_path_name;
-		img_rela_path /= img_name;
-		std::string img_path = (log_path / img_rela_path).string();
-		std::ofstream fout(img_path, std::ios_base::out | std::ios_base::binary);
-		fout.write(data.data() + 1 + sizeof(data_length_type), data.size() - (1 + sizeof(data_length_type)));
-		fout.close();
-
-		std::time_t cur_time = std::time(nullptr);
-		std::string cur_time_str = std::ctime(&cur_time);
-		cur_time_str.pop_back();
-		log_stream << cur_time_str << ' ' << name << '\n' << "![](" << img_rela_path.string() << ')' << std::endl;
-	}
-}
 
 void cli_server_interface::write_data()
 {
@@ -245,8 +197,8 @@ void cli_server_interface::on_data(user_id_type id, const std::string &data)
 							}
 							else
 							{
-								logger.log_msg(usr.name, msg);
 								broadcast_msg(id, msg);
+								plugin_m.on_msg(usr.name, msg);
 							}
 
 							break;
@@ -262,7 +214,7 @@ void cli_server_interface::on_data(user_id_type id, const std::string &data)
 				{
 					broadcast_msg(id, "");
 					broadcast_data(id, data, msgr_proto::session::priority_msg);
-					logger.log_img(usr.name, data);
+					plugin_m.on_img(usr.name, data.data() + 1 + sizeof(data_length_type), data.size() - (1 + sizeof(data_length_type)));
 				}
 				break;
 			}
@@ -551,18 +503,9 @@ int main(int argc, char *argv[])
 			std::cout << "Using IPv6 for listening" << std::endl;
 		}
 		catch (std::out_of_range &) {}
-		try
-		{
-			fs::path log_path = config_items.at("msg_log_path");
-			if (!fs::exists(log_path))
-				fs::create_directories(log_path);
-			else if (!fs::is_directory(log_path))
-				throw(0);
-			logger.open(log_path);
-			std::cout << "Using message log, log path:" << log_path << std::endl;
-		}
-		catch (int) {}
-		catch (std::out_of_range &) {}
+
+		plugin_m.new_plugin(std::make_unique<msg_logger>());
+		plugin_m.init(config_items);
 
 		std::srand(static_cast<unsigned int>(std::time(NULL)));
 
