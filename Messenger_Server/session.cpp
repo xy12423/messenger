@@ -535,8 +535,9 @@ void session::start()
 void session::shutdown()
 {
 	exiting = true;
-	socket->shutdown(socket->shutdown_both);
-	socket->close();
+	boost::system::error_code ec;
+	socket->shutdown(socket->shutdown_both, ec);
+	socket->close(ec);
 	for (const write_task &task : write_que)
 		task.callback();
 }

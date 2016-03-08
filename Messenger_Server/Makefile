@@ -3,7 +3,7 @@ ifdef CLANG
   CXX = clang++
 endif
 
-objects = global.o crypto.o session.o session_server.o main.o
+objects = global.o crypto.o session.o session_server.o plugin.o main.o
 cppflag = -c -pthread -I ~/boost -Wno-deprecated-declarations -std=c++14
 lflag = -pthread -L ~/boost/stage/lib -lboost_filesystem-mt-s -lboost_system-mt-s -lcryptopp
 
@@ -23,7 +23,9 @@ session.o : stdafx.h crypto.h session.h session.cpp
 	$(CXX) session.cpp $(cppflag) -o session.o
 session_server.o : stdafx.h crypto.h session.h session_server.cpp
 	$(CXX) session_server.cpp $(cppflag) -o session_server.o
-main.o : stdafx.h global.h crypto.h session.h main.h main.cpp
+plugin.o : stdafx.h global.h crypto.h session.h plugin.h plugin.cpp
+	$(CXX) plugin.cpp $(cppflag) -o plugin.o
+main.o : stdafx.h global.h crypto.h session.h plugin.h main.h main.cpp
 	$(CXX) main.cpp $(cppflag) -o main.o
 
 clean:
