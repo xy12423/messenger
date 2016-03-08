@@ -194,10 +194,7 @@ void server::disconnect(user_id_type id)
 
 void server::read_data()
 {
-	if (fs::exists(privatekeyFile))
-		initKey();
-	else
-		genKey();
+	initKey();
 
 	if (fs::exists(publickeysFile))
 	{

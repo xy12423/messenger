@@ -448,7 +448,6 @@ bool MyApp::OnInit()
 		wxImage::AddHandler(new wxPNGHandler);
 		wxImage::AddHandler(new wxJPEGHandler);
 		wxImage::AddHandler(new wxGIFHandler);
-		wxImage::AddHandler(new wxBMPHandler);
 		if (fs::exists(IMG_TMP_PATH_NAME))
 			fs::remove_all(IMG_TMP_PATH_NAME);
 		fs::create_directories(IMG_TMP_PATH_NAME);

@@ -306,6 +306,7 @@ namespace msgr_proto
 			inter(_inter)
 		{
 			read_data();
+			inter.set_server(this);
 		}
 
 		~server()
