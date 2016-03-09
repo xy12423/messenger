@@ -22,11 +22,17 @@ void genKey()
 void initKey()
 {
 	ECIES<ECP>::PrivateKey &privateKey = d0.AccessKey();
-	FileSource fs(privatekeyFile, true);
-	privateKey.Load(fs);
-	if (!privateKey.Validate(prng, 3))
+	try
+	{
+		FileSource fs(privatekeyFile, true);
+		privateKey.Load(fs);
+		if (!privateKey.Validate(prng, 3))
+			genKey();
+	}
+	catch (CryptoPP::FileStore::OpenErr &)
+	{
 		genKey();
-
+	}
 	dh_priv_block_size = dh.PrivateKeyLength();
 	dh_pub_block_size = dh.PublicKeyLength();
 	dh_agree_block_size = dh.AgreedValueLength();
