@@ -397,7 +397,6 @@ void pre_session_s::sid_packet_done()
 					main_io_service, misc_io_service, std::move(socket)));
 
 				srv.join(new_user);
-				srv.check_key(new_user->get_id(), key_string);
 				new_user->start();
 
 				passed = true;
@@ -486,7 +485,6 @@ void pre_session_c::sid_packet_done()
 					main_io_service, misc_io_service, std::move(socket)));
 
 				srv.join(new_user);
-				srv.check_key(new_user->get_id(), key_string);
 				new_user->start();
 
 				passed = true;
