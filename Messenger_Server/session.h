@@ -27,15 +27,13 @@ class server_interface
 public:
 	virtual void on_data(user_id_type id, const std::string &data) = 0;
 
-	virtual void on_join(user_id_type id) = 0;
+	virtual void on_join(user_id_type id, const std::string& key) = 0;
 	virtual void on_leave(user_id_type id) = 0;
-
-	virtual void on_unknown_key(user_id_type id, const std::string& key) = 0;
 
 	virtual bool new_rand_port(port_type &port) = 0;
 	virtual void free_rand_port(port_type port) = 0;
 
-	virtual void set_server(msgr_proto::server *_srv) { srv = _srv; }
+	void set_server(msgr_proto::server *_srv) { srv = _srv; }
 protected:
 	msgr_proto::server *srv;
 };
@@ -288,9 +286,9 @@ namespace msgr_proto
 			misc_io_service(_misc_io_service),
 			acceptor(main_io_service, _local_endpoint),
 			resolver(main_io_service),
-			inter(_inter)
+			inter(_inter),
+			e0str(getPublicKey())
 		{
-			read_data();
 			inter.set_server(this);
 			start();
 		}
@@ -303,9 +301,9 @@ namespace msgr_proto
 			misc_io_service(_misc_io_service),
 			acceptor(main_io_service),
 			resolver(main_io_service),
-			inter(_inter)
+			inter(_inter),
+			e0str(getPublicKey())
 		{
-			read_data();
 			inter.set_server(this);
 		}
 
@@ -316,7 +314,6 @@ namespace msgr_proto
 			pre_sessions.clear();
 			for (const auto& pair : sessions) pair.second->shutdown();
 			sessions.clear();
-			write_data();
 		}
 
 		void on_data(user_id_type id, std::shared_ptr<std::string> data);
@@ -336,9 +333,6 @@ namespace msgr_proto
 		const session_ptr& get_session(user_id_type id) const { return sessions.at(id); }
 		const std::string& get_public_key() const { return e0str; }
 
-		void check_key(user_id_type id, const std::string& key) { if (certifiedKeys.find(key) == certifiedKeys.end()) inter.on_unknown_key(id, key); }
-		void certify_key(const std::string& key) { certifiedKeys.emplace(key); }
-		void certify_key(std::string&& key) { certifiedKeys.emplace(key); }
 		bool check_key_connected(const std::string& key) { if (connectedKeys.find(key) == connectedKeys.end()) { connectedKeys.emplace(key); return false; } else return true; };
 	private:
 		void start();
@@ -346,15 +340,11 @@ namespace msgr_proto
 		void connect(const asio::ip::tcp::endpoint &remote_endpoint);
 		void connect(const asio::ip::tcp::resolver::query &query);
 
-		void read_data();
-		void write_data();
-
 		asio::io_service &main_io_service, &misc_io_service;
 		asio::ip::tcp::acceptor acceptor;
 		asio::ip::tcp::resolver resolver;
 
 		std::string e0str;
-		std::unordered_set<std::string> certifiedKeys;
 		std::unordered_set<std::string> connectedKeys;
 
 		std::unordered_set<std::shared_ptr<pre_session>> pre_sessions;

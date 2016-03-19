@@ -45,6 +45,7 @@ public:
 		read_config();
 		read_data();
 		user_exts[-1].name = user_exts[-1].addr = "Server";
+		initKey();
 	}
 	~cli_server_interface() {
 		write_data();
@@ -52,10 +53,8 @@ public:
 
 	virtual void on_data(user_id_type id, const std::string &data);
 
-	virtual void on_join(user_id_type id);
+	virtual void on_join(user_id_type id, const std::string &);
 	virtual void on_leave(user_id_type id);
-
-	virtual void on_unknown_key(user_id_type id, const std::string& key) {};
 
 	virtual bool new_rand_port(port_type &port);
 	virtual void free_rand_port(port_type port) { ports.push_back(port); };

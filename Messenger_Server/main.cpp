@@ -19,6 +19,8 @@ volatile bool server_on = true;
 const char *msg_new_user = "New user:", *msg_del_user = "Leaving user:";
 const char *msg_input_name = "Username:", *msg_input_pass = "Password:", *msg_welcome = "Welcome";
 
+const char* privatekeyFile = ".privatekey";
+
 bool cli_plugin_interface::get_id_by_name(const std::string &name, user_id_type &id)
 {
 	return inter.get_id_by_name(name, id);
@@ -293,7 +295,7 @@ void cli_server_interface::on_data(user_id_type id, const std::string &data)
 #undef checkErr
 #undef read_uint
 
-void cli_server_interface::on_join(user_id_type id)
+void cli_server_interface::on_join(user_id_type id, const std::string &)
 {
 	user_ext &ext = user_exts.emplace(id, user_ext()).first->second;
 	ext.addr = srv->get_session(id)->get_address();
