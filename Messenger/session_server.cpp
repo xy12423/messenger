@@ -4,9 +4,6 @@
 
 using namespace msgr_proto;
 
-const char* privatekeyFile = ".privatekey";
-const char* publickeysFile = ".publickey";
-
 void insLen(std::string &data)
 {
 	data_length_type len = boost::endian::native_to_little(static_cast<data_length_type>(data.size()));
@@ -48,12 +45,11 @@ void server::join(const session_ptr &_user)
 	user_id_type newID = nextID;
 	nextID++;
 	sessions.emplace(newID, _user);
+	_user->uid = newID;
 
-	try{ inter.on_join(newID); }
+	try{ inter.on_join(newID, _user->get_key()); }
 	catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
 	catch (...) {}
-
-	_user->uid = newID;
 }
 
 void server::leave(user_id_type _user)
@@ -190,47 +186,4 @@ void server::connect(const asio::ip::tcp::resolver::query &query)
 void server::disconnect(user_id_type id)
 {
 	leave(id);
-}
-
-void server::read_data()
-{
-	if (fs::exists(privatekeyFile))
-		initKey();
-	else
-		genKey();
-
-	if (fs::exists(publickeysFile))
-	{
-		size_t pubCount = 0, keyLen = 0;
-		std::ifstream publicIn(publickeysFile, std::ios_base::in | std::ios_base::binary);
-		publicIn.read(reinterpret_cast<char*>(&pubCount), sizeof(size_t));
-		for (; pubCount > 0; pubCount--)
-		{
-			publicIn.read(reinterpret_cast<char*>(&keyLen), sizeof(size_t));
-			std::unique_ptr<char[]> buf = std::make_unique<char[]>(keyLen);
-			publicIn.read(buf.get(), keyLen);
-			certifiedKeys.emplace(std::string(buf.get(), keyLen));
-		}
-
-		publicIn.close();
-	}
-
-	e0str = getPublicKey();
-}
-
-void server::write_data()
-{
-	size_t pubCount = certifiedKeys.size(), keySize = 0;
-	std::ofstream publicOut(publickeysFile, std::ios_base::out | std::ios_base::binary);
-	publicOut.write(reinterpret_cast<char*>(&pubCount), sizeof(size_t));
-
-	std::unordered_set<std::string>::iterator itr = certifiedKeys.begin(), itrEnd = certifiedKeys.end();
-	for (; itr != itrEnd; itr++)
-	{
-		keySize = itr->size();
-		publicOut.write(reinterpret_cast<char*>(&keySize), sizeof(size_t));
-		publicOut.write(itr->data(), keySize);
-	}
-
-	publicOut.close();
 }

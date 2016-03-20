@@ -9,11 +9,53 @@ extern std::unordered_map<user_id_type, user_ext_type> user_ext;
 const char* IMG_TMP_PATH_NAME = ".messenger_tmp";
 const char* IMG_TMP_FILE_NAME = ".messenger_tmp_";
 
+const char* privatekeyFile = ".privatekey";
+const char* publickeysFile = ".publickey";
+
+wx_srv_interface::wx_srv_interface()
+{
+	initKey();
+
+	if (fs::exists(publickeysFile))
+	{
+		size_t pubCount = 0, keyLen = 0;
+		std::ifstream publicIn(publickeysFile, std::ios_base::in | std::ios_base::binary);
+		publicIn.read(reinterpret_cast<char*>(&pubCount), sizeof(size_t));
+		for (; pubCount > 0; pubCount--)
+		{
+			publicIn.read(reinterpret_cast<char*>(&keyLen), sizeof(size_t));
+			std::unique_ptr<char[]> buf = std::make_unique<char[]>(keyLen);
+			publicIn.read(buf.get(), keyLen);
+			certifiedKeys.emplace(std::string(buf.get(), keyLen));
+		}
+
+		publicIn.close();
+	}
+}
+
+wx_srv_interface::~wx_srv_interface()
+{
+	size_t pubCount = certifiedKeys.size(), keySize = 0;
+	std::ofstream publicOut(publickeysFile, std::ios_base::out | std::ios_base::binary);
+	publicOut.write(reinterpret_cast<char*>(&pubCount), sizeof(size_t));
+
+	std::unordered_set<std::string>::iterator itr = certifiedKeys.begin(), itrEnd = certifiedKeys.end();
+	for (; itr != itrEnd; itr++)
+	{
+		keySize = itr->size();
+		publicOut.write(reinterpret_cast<char*>(&keySize), sizeof(size_t));
+		publicOut.write(itr->data(), keySize);
+	}
+
+	publicOut.close();
+}
+
 #define checkErr(x) if (dataItr + (x) > dataEnd) throw(0)
 #define read_len(x)													\
 	checkErr(sizeof_data_length);										\
 	memcpy(reinterpret_cast<char*>(&(x)), dataItr, sizeof_data_length);	\
 	dataItr += sizeof_data_length
+
 
 void wx_srv_interface::on_data(user_id_type id, const std::string &data)
 {
@@ -204,25 +246,36 @@ void wx_srv_interface::on_data(user_id_type id, const std::string &data)
 #undef checkErr
 #undef read_uint
 
-void wx_srv_interface::on_join(user_id_type id)
+void wx_srv_interface::on_join(user_id_type id, const std::string& key)
 {
 	if (frm == nullptr)
 		return;
 
 	wxThreadEvent *newEvent = new wxThreadEvent;
-	newEvent->SetPayload<gui_callback>([this, id]() {
-		user_ext_type &ext = user_ext.emplace(id, user_ext_type()).first->second;
+	newEvent->SetPayload<gui_callback>([this, id, key]() {
 		std::string addr = srv->get_session(id)->get_address();
-		ext.addr = wxConvLocal.cMB2WC(addr.c_str());
+		if (!key.empty() && certifiedKeys.find(key) == certifiedKeys.end())
+		{
+			int answer = wxMessageBox(wxT("The public key from " + addr + " hasn't shown before.Trust it?"), wxT("Confirm"), wxYES_NO | wxCANCEL);
+			if (answer == wxNO)
+				srv->disconnect(id);
+			else
+			{
+				if (answer == wxYES)
+					certify_key(key);
+				user_ext_type &ext = user_ext.emplace(id, user_ext_type()).first->second;
+				ext.addr = wxConvLocal.cMB2WC(addr.c_str());
 
-		frm->listUser->Append(ext.addr);
-		if (frm->listUser->GetSelection() == -1)
-			frm->listUser->SetSelection(frm->listUser->GetCount() - 1);
-		frm->userIDs.push_back(id);
+				frm->listUser->Append(ext.addr);
+				if (frm->listUser->GetSelection() == -1)
+					frm->listUser->SetSelection(frm->listUser->GetCount() - 1);
+				frm->userIDs.push_back(id);
 
-		fs::path tmp_path = IMG_TMP_PATH_NAME;
-		tmp_path /= std::to_string(id);
-		fs::create_directories(tmp_path);
+				fs::path tmp_path = IMG_TMP_PATH_NAME;
+				tmp_path /= std::to_string(id);
+				fs::create_directories(tmp_path);
+			}
+		}
 	});
 	wxQueueEvent(frm, newEvent);
 }
@@ -247,22 +300,6 @@ void wx_srv_interface::on_leave(user_id_type id)
 		fs::path tmp_path = IMG_TMP_PATH_NAME;
 		tmp_path /= std::to_string(id);
 		fs::remove_all(tmp_path);
-	});
-	wxQueueEvent(frm, newEvent);
-}
-
-void wx_srv_interface::on_unknown_key(user_id_type id, const std::string& key)
-{
-	if (frm == nullptr)
-		return;
-
-	wxThreadEvent *newEvent = new wxThreadEvent;
-	newEvent->SetPayload<gui_callback>([this, id, key]() {
-		int answer = wxMessageBox(wxT("The public key from " + user_ext.at(id).addr + " hasn't shown before.Trust it?"), wxT("Confirm"), wxYES_NO | wxCANCEL);
-		if (answer == wxNO)
-			srv->disconnect(id);
-		else if (answer == wxYES)
-			srv->certify_key(key);
 	});
 	wxQueueEvent(frm, newEvent);
 }
