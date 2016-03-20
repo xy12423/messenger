@@ -30,6 +30,9 @@
     <ClInclude Include="session.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="plugin.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp">
@@ -48,6 +51,9 @@
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="session_server.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="plugin.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>

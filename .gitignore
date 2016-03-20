@@ -190,16 +190,23 @@ GeneratedArtifacts/
 _Pvt_Extensions/
 ModelManifest.xml
 
+#Assistant UI Designer
 MessengerGUI/
 
 # Encryption keys
 .privatekey
 .publickey
 
+# Data and Config
+*.config
+*.data
+plugins.txt
+
 # Object files
 *.o
 
 # Built binary
 Messenger/messenger
+Messenger_Server/messenger_server
 
 *.opendb

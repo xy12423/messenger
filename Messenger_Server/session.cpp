@@ -393,11 +393,10 @@ void pre_session_s::sid_packet_done()
 				break;
 			case 3:
 			{
-				session_ptr new_user(std::make_shared<session>(srv, local_port, key_string, proto_data,
+				session_ptr new_user(std::make_shared<session>(srv, local_port, key_string, std::move(proto_data),
 					main_io_service, misc_io_service, std::move(socket)));
 
 				srv.join(new_user);
-				srv.check_key(new_user->get_id(), key_string);
 				new_user->start();
 
 				passed = true;
@@ -482,11 +481,10 @@ void pre_session_c::sid_packet_done()
 				break;
 			case 3:
 			{
-				session_ptr new_user(std::make_shared<session>(srv, local_port, key_string, proto_data,
+				session_ptr new_user(std::make_shared<session>(srv, local_port, key_string, std::move(proto_data),
 					main_io_service, misc_io_service, std::move(socket)));
 
 				srv.join(new_user);
-				srv.check_key(new_user->get_id(), key_string);
 				new_user->start();
 
 				passed = true;
@@ -535,8 +533,9 @@ void session::start()
 void session::shutdown()
 {
 	exiting = true;
-	socket->shutdown(socket->shutdown_both);
-	socket->close();
+	boost::system::error_code ec;
+	socket->shutdown(socket->shutdown_both, ec);
+	socket->close(ec);
 	for (const write_task &task : write_que)
 		task.callback();
 }
