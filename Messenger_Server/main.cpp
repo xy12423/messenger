@@ -5,7 +5,7 @@
 #include "plugin.h"
 #include "main.h"
 
-std::string empty_string;
+const std::string empty_string;
 
 std::promise<void> exit_promise;
 config_table_tp config_items;
@@ -26,12 +26,14 @@ bool cli_plugin_interface::get_id_by_name(const std::string &name, user_id_type 
 	return inter.get_id_by_name(name, id);
 }
 
+void cli_plugin_interface::broadcast_msg(const std::string &msg)
+{
+	inter.broadcast_msg(server_uid, msg);
+}
+
 void cli_plugin_interface::send_msg(user_id_type id, const std::string &msg)
 {
-	std::string msg_send(msg);
-	insLen(msg_send);
-	msg_send.insert(0, 1, PAC_TYPE_MSG);
-	inter.send_data(id, msg_send, msgr_proto::session::priority_msg);
+	inter.send_msg(id, msg);
 }
 
 void cli_plugin_interface::send_image(user_id_type id, const std::string &path)
@@ -162,7 +164,6 @@ void cli_server_interface::on_data(user_id_type id, const std::string &data)
 	{
 		const size_t size_length = sizeof(data_length_type);
 		const char *dataItr = data.data(), *dataEnd = data.data() + data.size();
-		user_ext &user = user_exts.at(id);
 
 		byte type;
 		checkErr(1);
@@ -179,100 +180,19 @@ void cli_server_interface::on_data(user_id_type id, const std::string &data)
 				std::string msg(dataItr, sizeRecv);
 				dataItr += sizeRecv;
 
-				if (mode != CENTER)
-					broadcast_msg(id, msg);
-				else
-				{
-					switch (user.current_stage)
-					{
-						case user_ext::LOGIN_NAME:
-						{
-							trim(msg);
-							user.name = std::move(msg);
-							user.current_stage = user_ext::LOGIN_PASS;
-							
-							std::string msg_send(msg_input_pass);
-							insLen(msg_send);
-							msg_send.insert(0, 1, PAC_TYPE_MSG);
-							srv->send_data(id, msg_send, msgr_proto::session::priority_msg);
-							break;
-						}
-						case user_ext::LOGIN_PASS:
-						{
-							user.current_stage = user_ext::LOGIN_NAME;
-							user_record_list::iterator itr = user_records.find(user.name);
-							if (itr != user_records.end())
-							{
-								user_record &record = itr->second;
-								std::string hashed_pass;
-								hash(msg, hashed_pass);
-								if (record.passwd == hashed_pass)
-								{
-									broadcast_msg(-1, msg_new_user + user.name + '(' + user.addr + ')');
-
-									std::string msg_send(msg_welcome);
-									insLen(msg_send);
-									msg_send.insert(0, 1, PAC_TYPE_MSG);
-									srv->send_data(id, msg_send, msgr_proto::session::priority_msg);
-
-									user.current_stage = user_ext::LOGGED_IN;
-									record.logged_in = true;
-									record.id = id;
-
-									m_plugin.on_new_user(user.name);
-								}
-							}
-
-							if (user.current_stage == user_ext::LOGIN_NAME)
-							{
-								std::string msg_send(msg_input_name);
-								insLen(msg_send);
-								msg_send.insert(0, 1, PAC_TYPE_MSG);
-								srv->send_data(id, msg_send, msgr_proto::session::priority_msg);
-							}
-							break;
-						}
-						case user_ext::LOGGED_IN:
-						{
-							std::string tmp(msg);
-							trim(tmp);
-							if (tmp.front() == '/')
-							{
-								tmp.erase(0, 1);
-
-								std::string msg_send = process_command(tmp, user_records[user.name]);
-								if (!msg_send.empty())
-								{
-									insLen(msg_send);
-									msg_send.insert(0, 1, PAC_TYPE_MSG);
-									srv->send_data(id, msg_send, msgr_proto::session::priority_msg);
-								}
-							}
-							else
-							{
-								broadcast_msg(id, msg);
-								m_plugin.on_msg(user.name, msg);
-							}
-
-							break;
-						}
-					}
-				}
+				on_msg(id, msg);
 
 				break;
 			}
 			case PAC_TYPE_IMAGE:
 			{
-				if (mode != CENTER || user.current_stage == user_ext::LOGGED_IN)
-				{
-					broadcast_msg(id, "");
-					broadcast_data(id, data, msgr_proto::session::priority_msg);
-					m_plugin.on_img(user.name, data.data() + 1 + sizeof(data_length_type), data.size() - (1 + sizeof(data_length_type)));
-				}
+				on_image(id, data);
 				break;
 			}
 			default:
 			{
+				user_ext &user = user_exts.at(id);
+
 				if (mode != CENTER || user.current_stage == user_ext::LOGGED_IN)
 					broadcast_data(id, data, msgr_proto::session::priority_file);
 				break;
@@ -295,20 +215,104 @@ void cli_server_interface::on_data(user_id_type id, const std::string &data)
 #undef checkErr
 #undef read_uint
 
+void cli_server_interface::on_msg(user_id_type id, std::string &msg)
+{
+	user_ext &user = user_exts.at(id);
+
+	if (mode != CENTER)
+		broadcast_msg(id, msg);
+	else
+	{
+		switch (user.current_stage)
+		{
+			case user_ext::LOGIN_NAME:
+			{
+				trim(msg);
+				user.name = std::move(msg);
+				user.current_stage = user_ext::LOGIN_PASS;
+
+				send_msg(id, msg_input_pass);
+				break;
+			}
+			case user_ext::LOGIN_PASS:
+			{
+				user.current_stage = user_ext::LOGIN_NAME;
+				user_record_list::iterator itr = user_records.find(user.name);
+				if (itr != user_records.end())
+				{
+					user_record &record = itr->second;
+					std::string hashed_pass;
+					hash(msg, hashed_pass);
+					if (record.passwd == hashed_pass)
+					{
+						broadcast_msg(server_uid, msg_new_user + user.name + '(' + user.addr + ')');
+
+						send_msg(id, msg_welcome);
+
+						user.current_stage = user_ext::LOGGED_IN;
+						record.logged_in = true;
+						record.id = id;
+
+						m_plugin.on_new_user(user.name);
+					}
+				}
+
+				if (user.current_stage == user_ext::LOGIN_NAME)
+				{
+					send_msg(id, msg_input_name);
+				}
+				break;
+			}
+			case user_ext::LOGGED_IN:
+			{
+				std::string tmp(msg);
+				trim(tmp);
+				if (tmp.front() == '/')
+				{
+					tmp.erase(0, 1);
+
+					std::string msg_send = process_command(tmp, user_records[user.name]);
+					if (!msg_send.empty())
+					{
+						send_msg(id, msg_send);
+					}
+				}
+				else
+				{
+					broadcast_msg(id, msg);
+					m_plugin.on_msg(user.name, msg);
+				}
+
+				break;
+			}
+		}
+	}
+}
+
+void cli_server_interface::on_image(user_id_type id, const std::string &data)
+{
+	user_ext &user = user_exts.at(id);
+
+	if (mode != CENTER || user.current_stage == user_ext::LOGGED_IN)
+	{
+		if (mode != CENTER || user.current_stage == user_ext::LOGGED_IN)
+		{
+			broadcast_msg(id, empty_string);
+			broadcast_data(id, data, msgr_proto::session::priority_msg);
+			m_plugin.on_img(user.name, data.data() + 1 + sizeof(data_length_type), data.size() - (1 + sizeof(data_length_type)));
+		}
+	}
+}
+
 void cli_server_interface::on_join(user_id_type id, const std::string &)
 {
 	user_ext &ext = user_exts.emplace(id, user_ext()).first->second;
 	ext.addr = srv->get_session(id)->get_address();
 
 	if (mode == CENTER)
-	{
-		std::string msg_send(msg_input_name);
-		insLen(msg_send);
-		msg_send.insert(0, 1, PAC_TYPE_MSG);
-		srv->send_data(id, msg_send, msgr_proto::session::priority_msg);
-	}
+		send_msg(id, msg_input_name);
 	else
-		broadcast_msg(-1, msg_new_user + ext.addr);
+		broadcast_msg(server_uid, msg_new_user + ext.addr);
 }
 
 void cli_server_interface::on_leave(user_id_type id)
@@ -322,7 +326,7 @@ void cli_server_interface::on_leave(user_id_type id)
 		if (user.current_stage == user_ext::LOGGED_IN)
 		{
 			msg_send.append(user.name + '(' + user.addr + ')');
-			broadcast_msg(-1, msg_send);
+			broadcast_msg(server_uid, msg_send);
 			user_record_list::iterator itr = user_records.find(user.name);
 			if (itr != user_records.end())
 			{
@@ -335,10 +339,18 @@ void cli_server_interface::on_leave(user_id_type id)
 	else
 	{
 		msg_send.append(user.addr);
-		broadcast_msg(-1, msg_send);
+		broadcast_msg(server_uid, msg_send);
 	}
 
 	user_exts.erase(itr);
+}
+
+void cli_server_interface::send_msg(user_id_type id, const std::string &msg)
+{
+	std::string msg_send(msg);
+	insLen(msg_send);
+	msg_send.insert(0, 1, PAC_TYPE_MSG);
+	send_data(id, msg_send, msgr_proto::session::priority_msg);
 }
 
 void cli_server_interface::broadcast_msg(int src, const std::string &msg)
@@ -351,6 +363,8 @@ void cli_server_interface::broadcast_msg(int src, const std::string &msg)
 		msg_send = user.addr;
 	msg_send.push_back(':');
 	msg_send.append(msg);
+	if (mode == CENTER && !msg.empty())
+		m_plugin.on_msg(server_uname, msg);
 
 	insLen(msg_send);
 	msg_send.insert(0, 1, PAC_TYPE_MSG);
@@ -364,9 +378,7 @@ void cli_server_interface::broadcast_data(int src, const std::string &data, int 
 		int target = p.first;
 		if (target != src && (mode != CENTER || p.second.current_stage == user_ext::LOGGED_IN))
 		{
-			misc_io_service.post([this, target, data, priority]() {
-				srv->send_data(static_cast<user_id_type>(target), data, priority);
-			});
+			send_data(static_cast<user_id_type>(target), data, priority);
 		}
 	}
 }

@@ -1,11 +1,13 @@
 #pragma once
 
 typedef std::unordered_map<std::string, std::string> config_table_tp;
+const std::string server_uname = "Server";
 
 class plugin_interface
 {
 public:
 	virtual bool get_id_by_name(const std::string &name, user_id_type &id) = 0;
+	virtual void broadcast_msg(const std::string &msg) = 0;
 	virtual void send_msg(user_id_type id, const std::string &msg) = 0;
 	virtual void send_image(user_id_type id, const std::string &path) = 0;
 };
