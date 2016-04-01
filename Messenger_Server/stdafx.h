@@ -43,10 +43,8 @@ namespace asio = boost::asio;
 
 #ifdef _MSC_VER
 #ifdef _DEBUG
-#pragma comment (lib, "zlibd.lib")
 #pragma comment (lib, "cryptlibd.lib")
 #else
-#pragma comment (lib, "zlib.lib")
 #pragma comment (lib, "cryptlib.lib")
 #endif
 #pragma comment (lib, "ws2_32.lib")

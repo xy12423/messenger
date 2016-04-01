@@ -38,13 +38,15 @@ struct user_ext
 };
 typedef std::unordered_map<int, user_ext> user_ext_list;
 
+const int server_uid = -1;
 class cli_server_interface :public server_interface
 {
 public:
 	cli_server_interface(){
 		read_config();
 		read_data();
-		user_exts[-1].name = user_exts[-1].addr = "Server";
+		user_exts[server_uid].name = user_exts[server_uid].addr = server_uname;
+		user_exts[server_uid].current_stage = user_ext::LOGGED_IN;
 		initKey();
 	}
 	~cli_server_interface() {
@@ -59,12 +61,16 @@ public:
 	virtual bool new_rand_port(port_type &port);
 	virtual void free_rand_port(port_type port) { ports.push_back(port); };
 
-	void send_data(user_id_type id, const std::string &data, int priority) { srv->send_data(id, data, priority); };
+	void send_msg(user_id_type id, const std::string &msg);
+	inline void send_data(user_id_type id, const std::string &data, int priority) { srv->send_data(id, data, priority); };
 	void broadcast_msg(int id, const std::string &msg);
+	void broadcast_data(int id, const std::string &data, int priority);
 	std::string process_command(std::string cmd, user_record &user);
 
 	bool get_id_by_name(const std::string &name, user_id_type &ret);
 
+	void on_msg(user_id_type id, std::string &msg);
+	void on_image(user_id_type id, const std::string &data);
 	void on_exit();
 
 	void set_mode(modes _mode) { mode = _mode; }
@@ -73,8 +79,6 @@ private:
 	void read_data();
 	void write_data();
 	void read_config();
-
-	void broadcast_data(int id, const std::string &data, int priority);
 
 	const char *config_file = ".config";
 	const char *data_file = ".data";
@@ -92,6 +96,7 @@ class cli_plugin_interface :public plugin_interface
 {
 public:
 	virtual bool get_id_by_name(const std::string &name, user_id_type &id);
+	virtual void broadcast_msg(const std::string &msg);
 	virtual void send_msg(user_id_type id, const std::string &msg);
 	virtual void send_image(user_id_type id, const std::string &path);
 };
