@@ -251,29 +251,32 @@ void wx_srv_interface::on_join(user_id_type id, const std::string& key)
 	if (frm == nullptr)
 		return;
 
+	user_ext_type &ext = user_ext.emplace(id, user_ext_type()).first->second;
+	ext.addr = wxConvLocal.cMB2WC(srv->get_session(id)->get_address().c_str());
+
+	fs::path tmp_path = IMG_TMP_PATH_NAME;
+	tmp_path /= std::to_string(id);
+	fs::create_directories(tmp_path);
+
 	wxThreadEvent *newEvent = new wxThreadEvent;
 	newEvent->SetPayload<gui_callback>([this, id, key]() {
-		std::string addr = srv->get_session(id)->get_address();
+		user_ext_type &ext = user_ext.at(id);
+		std::wstring &addr = ext.addr;
+
+		frm->listUser->Append(ext.addr);
+		if (frm->listUser->GetSelection() == -1)
+			frm->listUser->SetSelection(frm->listUser->GetCount() - 1);
+		frm->userIDs.push_back(id);
+
 		if (!key.empty() && certifiedKeys.find(key) == certifiedKeys.end())
 		{
-			int answer = wxMessageBox(wxT("The public key from " + addr + " hasn't shown before.Trust it?"), wxT("Confirm"), wxYES_NO | wxCANCEL);
+			int answer = wxMessageBox(wxT("The public key from ") + addr + wxT(" hasn't shown before.Trust it?"), wxT("Confirm"), wxYES_NO | wxCANCEL);
 			if (answer == wxNO)
 				srv->disconnect(id);
 			else
 			{
 				if (answer == wxYES)
 					certify_key(key);
-				user_ext_type &ext = user_ext.emplace(id, user_ext_type()).first->second;
-				ext.addr = wxConvLocal.cMB2WC(addr.c_str());
-
-				frm->listUser->Append(ext.addr);
-				if (frm->listUser->GetSelection() == -1)
-					frm->listUser->SetSelection(frm->listUser->GetCount() - 1);
-				frm->userIDs.push_back(id);
-
-				fs::path tmp_path = IMG_TMP_PATH_NAME;
-				tmp_path /= std::to_string(id);
-				fs::create_directories(tmp_path);
 			}
 		}
 	});
