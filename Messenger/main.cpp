@@ -90,10 +90,10 @@ int plugin_handler_NewVirtualUser(plugin_id_type plugin_id, const char* name)
 
 		std::shared_ptr<msgr_proto::virtual_session> new_session = std::make_shared<msgr_proto::virtual_session>(*srv, name_str);
 		if (virtual_msg_handler == nullptr)
-			new_session->set_callback([](const std::string &) {});
+			new_session->set_callback([](const std::string&) {});
 		else
 		{
-			new_session->set_callback([new_session, virtual_msg_handler](const std::string &data) {
+			new_session->set_callback([new_session, virtual_msg_handler](const std::string& data) {
 				virtual_msg_handler(new_session->get_id(), data.data(), data.size());
 			});
 		}
@@ -157,7 +157,7 @@ void plugin_method_Print(plugin_id_type plugin_id, const char* msg)
 	catch (...) {}
 }
 
-mainFrame::mainFrame(const wxString &title)
+mainFrame::mainFrame(const wxString& title)
 	: wxFrame(NULL, ID_FRAME, title, wxDefaultPosition, wxSize(_GUI_SIZE_X, _GUI_SIZE_Y))
 {
 	Center();

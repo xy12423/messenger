@@ -5,8 +5,6 @@
 
 extern std::unordered_map<user_id_type, user_ext_type> user_ext;
 
-const int checkInterval = 10;
-
 iosrvThread::ExitCode iosrvThread::Entry()
 {
 	iosrv_work = std::make_shared<asio::io_service::work>(iosrv);
@@ -22,7 +20,7 @@ iosrvThread::ExitCode iosrvThread::Entry()
 	return NULL;
 }
 
-void fileSendThread::start(user_id_type uID, const fs::path &path)
+void fileSendThread::start(user_id_type uID, const fs::path& path)
 {
 	iosrv.post([this, uID, path]() {
 		bool write_not_in_progress = tasks.empty();
