@@ -10,8 +10,8 @@ enum pac_type {
 	PAC_TYPE_IMAGE,
 };
 
-void ltrim(std::string &str);
-void rtrim(std::string &str);
-void trim(std::string &str);
+void ltrim(std::string& str);
+void rtrim(std::string& str);
+void trim(std::string& str);
 
 #endif

@@ -7,7 +7,7 @@
 class counting_streambuf :public std::streambuf
 {
 public:
-	counting_streambuf(std::fstream &_stream) :stream(_stream) {}
+	counting_streambuf(std::fstream& _stream) :stream(_stream) {}
 
 	int_type overflow(int_type c)
 	{
@@ -29,13 +29,13 @@ private:
 	size_t count = 0;
 };
 
-msg_logger::msg_logger(plugin_interface &_inter)
+msg_logger::msg_logger(plugin_interface& _inter)
 	:msg_server_plugin(_inter),
 	log_stream(new counting_streambuf(log_fstream))
 {
 }
 
-void msg_logger::init(const config_table_tp &config_items)
+void msg_logger::init(const config_table_tp& config_items)
 {
 	if (!load_config(config_items))
 		return;
@@ -56,7 +56,7 @@ void msg_logger::init(const config_table_tp &config_items)
 		static_cast<counting_streambuf*>(log_stream.rdbuf())->set_count(static_cast<size_t>(fs::file_size(logPath)));
 }
 
-bool msg_logger::load_config(const config_table_tp &config_items)
+bool msg_logger::load_config(const config_table_tp& config_items)
 {
 	try
 	{
@@ -134,7 +134,7 @@ void msg_logger::write_data()
 	}
 }
 
-void msg_logger::on_new_user(const std::string &name)
+void msg_logger::on_new_user(const std::string& name)
 {
 	if (offline_msg_lvl > OFF)
 	{
@@ -175,7 +175,7 @@ void msg_logger::on_new_user(const std::string &name)
 	}
 }
 
-void msg_logger::on_del_user(const std::string &name)
+void msg_logger::on_del_user(const std::string& name)
 {
 	if (offline_msg_lvl > OFF)
 	{
@@ -184,7 +184,7 @@ void msg_logger::on_del_user(const std::string &name)
 	}
 }
 
-void msg_logger::on_msg(const std::string &name, const std::string &msg)
+void msg_logger::on_msg(const std::string& name, const std::string& msg)
 {
 	if (enabled)
 	{
@@ -195,7 +195,7 @@ void msg_logger::on_msg(const std::string &name, const std::string &msg)
 	}
 }
 
-void msg_logger::on_img(const std::string &name, const char *data, size_t data_size)
+void msg_logger::on_img(const std::string& name, const char *data, size_t data_size)
 {
 	if (enabled)
 	{

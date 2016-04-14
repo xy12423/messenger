@@ -11,7 +11,7 @@ std::promise<void> exit_promise;
 config_table_tp config_items;
 
 asio::io_service main_io_service, misc_io_service;
-cli_server_interface inter;
+cli_server inter;
 cli_plugin_interface i_plugin;
 plugin_manager m_plugin(i_plugin);
 volatile bool server_on = true;
@@ -21,22 +21,22 @@ const char *msg_input_name = "Username:", *msg_input_pass = "Password:", *msg_we
 
 const char* privatekeyFile = ".privatekey";
 
-bool cli_plugin_interface::get_id_by_name(const std::string &name, user_id_type &id)
+bool cli_plugin_interface::get_id_by_name(const std::string& name, user_id_type& id)
 {
 	return inter.get_id_by_name(name, id);
 }
 
-void cli_plugin_interface::broadcast_msg(const std::string &msg)
+void cli_plugin_interface::broadcast_msg(const std::string& msg)
 {
 	inter.broadcast_msg(server_uid, msg);
 }
 
-void cli_plugin_interface::send_msg(user_id_type id, const std::string &msg)
+void cli_plugin_interface::send_msg(user_id_type id, const std::string& msg)
 {
 	inter.send_msg(id, msg);
 }
 
-void cli_plugin_interface::send_image(user_id_type id, const std::string &path)
+void cli_plugin_interface::send_image(user_id_type id, const std::string& path)
 {
 	const size_t read_buf_size = 0x10000;
 	std::string img_buf;
@@ -55,7 +55,7 @@ void cli_plugin_interface::send_image(user_id_type id, const std::string &path)
 	inter.send_data(id, img_buf, msgr_proto::session::priority_msg);
 }
 
-bool cli_server_interface::get_id_by_name(const std::string &name, user_id_type &ret)
+bool cli_server::get_id_by_name(const std::string& name, user_id_type& ret)
 {
 	try
 	{
@@ -70,7 +70,7 @@ bool cli_server_interface::get_id_by_name(const std::string &name, user_id_type 
 	return false;
 }
 
-void cli_server_interface::write_data()
+void cli_server::write_data()
 {
 	std::ofstream fout(data_file, std::ios_base::out | std::ios_base::binary);
 	if (!fout.is_open())
@@ -90,7 +90,7 @@ void cli_server_interface::write_data()
 	}
 }
 
-void cli_server_interface::read_data()
+void cli_server::read_data()
 {
 	if (!fs::exists(data_file))
 	{
@@ -124,7 +124,7 @@ void cli_server_interface::read_data()
 	}
 }
 
-void cli_server_interface::read_config()
+void cli_server::read_config()
 {
 	if (!fs::exists(config_file))
 		return;
@@ -158,7 +158,7 @@ void cli_server_interface::read_config()
 	memcpy(reinterpret_cast<char*>(&(x)), dataItr, size_length);	\
 	dataItr += size_length
 
-void cli_server_interface::on_data(user_id_type id, const std::string &data)
+void cli_server::on_data(user_id_type id, const std::string& data)
 {
 	try
 	{
@@ -199,7 +199,7 @@ void cli_server_interface::on_data(user_id_type id, const std::string &data)
 			}
 		}
 	}
-	catch (std::exception ex)
+	catch (std::exception &ex)
 	{
 		std::cerr << ex.what() << std::endl;
 	}
@@ -215,7 +215,7 @@ void cli_server_interface::on_data(user_id_type id, const std::string &data)
 #undef checkErr
 #undef read_uint
 
-void cli_server_interface::on_msg(user_id_type id, std::string &msg)
+void cli_server::on_msg(user_id_type id, std::string& msg)
 {
 	user_ext &user = user_exts.at(id);
 
@@ -289,7 +289,7 @@ void cli_server_interface::on_msg(user_id_type id, std::string &msg)
 	}
 }
 
-void cli_server_interface::on_image(user_id_type id, const std::string &data)
+void cli_server::on_image(user_id_type id, const std::string& data)
 {
 	user_ext &user = user_exts.at(id);
 
@@ -304,7 +304,7 @@ void cli_server_interface::on_image(user_id_type id, const std::string &data)
 	}
 }
 
-void cli_server_interface::on_join(user_id_type id, const std::string &)
+void cli_server::on_join(user_id_type id, const std::string& )
 {
 	user_ext &ext = user_exts.emplace(id, user_ext()).first->second;
 	ext.addr = srv->get_session(id)->get_address();
@@ -315,7 +315,7 @@ void cli_server_interface::on_join(user_id_type id, const std::string &)
 		broadcast_msg(server_uid, msg_new_user + ext.addr);
 }
 
-void cli_server_interface::on_leave(user_id_type id)
+void cli_server::on_leave(user_id_type id)
 {
 	user_ext_list::iterator itr = user_exts.find(id);
 	user_ext &user = itr->second;
@@ -345,7 +345,7 @@ void cli_server_interface::on_leave(user_id_type id)
 	user_exts.erase(itr);
 }
 
-void cli_server_interface::send_msg(user_id_type id, const std::string &msg)
+void cli_server::send_msg(user_id_type id, const std::string& msg)
 {
 	std::string msg_send(msg);
 	insLen(msg_send);
@@ -353,7 +353,7 @@ void cli_server_interface::send_msg(user_id_type id, const std::string &msg)
 	send_data(id, msg_send, msgr_proto::session::priority_msg);
 }
 
-void cli_server_interface::broadcast_msg(int src, const std::string &msg)
+void cli_server::broadcast_msg(int src, const std::string& msg)
 {
 	std::string msg_send;
 	user_ext &user = user_exts[src];
@@ -371,7 +371,7 @@ void cli_server_interface::broadcast_msg(int src, const std::string &msg)
 	broadcast_data(src, msg_send, msgr_proto::session::priority_msg);
 }
 
-void cli_server_interface::broadcast_data(int src, const std::string &data, int priority)
+void cli_server::broadcast_data(int src, const std::string& data, int priority)
 {
 	for (const std::pair<int, user_ext> &p : user_exts)
 	{
@@ -383,7 +383,7 @@ void cli_server_interface::broadcast_data(int src, const std::string &data, int 
 	}
 }
 
-std::string cli_server_interface::process_command(std::string cmd, user_record &user)
+std::string cli_server::process_command(std::string cmd, user_record& user)
 {
 	user_record::group_type group = user.group;
 	std::string ret;
@@ -482,7 +482,7 @@ std::string cli_server_interface::process_command(std::string cmd, user_record &
 	return ret;
 }
 
-bool cli_server_interface::new_rand_port(port_type &ret)
+bool cli_server::new_rand_port(port_type& ret)
 {
 	if (static_port != -1)
 		ret = static_cast<port_type>(static_port);
@@ -499,7 +499,7 @@ bool cli_server_interface::new_rand_port(port_type &ret)
 	return true;
 }
 
-void cli_server_interface::on_exit()
+void cli_server::on_exit()
 {
 	try
 	{
