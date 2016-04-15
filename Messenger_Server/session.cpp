@@ -551,7 +551,7 @@ void session::send(const std::string& data, int priority, write_callback&& callb
 	if (data.empty())
 		return;
 	
-	write_task new_task(data, priority, std::move(callback));
+	std::shared_ptr<write_task> new_task = std::make_shared<write_task>(data, priority, std::move(callback));
 
 	main_iosrv.post([this, self, new_task, priority]() {
 		bool write_not_in_progress = write_que.empty();
@@ -561,12 +561,12 @@ void session::send(const std::string& data, int priority, write_callback&& callb
 		{
 			if (priority > itr->priority)
 			{
-				write_que.insert(itr, new_task);
+				write_que.insert(itr, std::move(*new_task));
 				break;
 			}
 		}
 		if (itr == itrEnd)
-			write_que.push_back(new_task);
+			write_que.push_back(std::move(*new_task));
 
 		if (write_not_in_progress)
 		{
@@ -581,7 +581,7 @@ void session::send(std::string&& data, int priority, write_callback&& callback)
 	if (data.empty())
 		return;
 
-	write_task new_task(std::move(data), priority, std::move(callback));
+	std::shared_ptr<write_task> new_task = std::make_shared<write_task>(std::move(data), priority, std::move(callback));
 
 	main_iosrv.post([this, self, new_task, priority]() {
 		bool write_not_in_progress = write_que.empty();
@@ -591,12 +591,12 @@ void session::send(std::string&& data, int priority, write_callback&& callback)
 		{
 			if (priority > itr->priority)
 			{
-				write_que.insert(itr, new_task);
+				write_que.insert(itr, std::move(*new_task));
 				break;
 			}
 		}
 		if (itr == itrEnd)
-			write_que.push_back(new_task);
+			write_que.push_back(std::move(*new_task));
 
 		if (write_not_in_progress)
 		{

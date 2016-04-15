@@ -63,6 +63,7 @@ public:
 
 	void send_msg(user_id_type id, const std::string& msg);
 	inline void send_data(user_id_type id, const std::string& data, int priority) { srv->send_data(id, data, priority); };
+	inline void send_data(user_id_type id, std::string&& data, int priority) { srv->send_data(id, std::move(data), priority); };
 	void broadcast_msg(int id, const std::string& msg);
 	void broadcast_data(int id, const std::string& data, int priority);
 	std::string process_command(std::string cmd, user_record& user);
