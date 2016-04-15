@@ -51,21 +51,21 @@ void plugin_handler_SendData(plugin_id_type plugin_id, int to, const char* data,
 {
 	if (!plugin_check_id_type(plugin_id, *data))
 		return;
-	std::string data_str(data, size);
+	std::shared_ptr<std::string> data_str = std::make_shared<std::string>(data, size);
 	if (to == -1)
 	{
 		for (const std::pair<user_id_type, user_ext_type> &p : user_ext)
 		{
 			user_id_type id = p.first;
 			misc_io_service.post([id, data_str]() {
-				srv->send_data(id, data_str, msgr_proto::session::priority_plugin);
+				srv->send_data(id, *data_str, msgr_proto::session::priority_plugin);
 			});
 		};
 	}
 	else if (to >= 0 && to <= std::numeric_limits<plugin_id_type>::max())
 	{
 		misc_io_service.post([to, data_str]() {
-			srv->send_data(static_cast<user_id_type>(to), data_str, msgr_proto::session::priority_plugin);
+			srv->send_data(static_cast<user_id_type>(to), *data_str, msgr_proto::session::priority_plugin);
 		});
 	}
 }
@@ -369,22 +369,20 @@ void mainFrame::buttonSendImage_Click(wxCommandEvent& event)
 				user_ext[uID].log.push_back(image_path);
 				user_ext[uID].log.push_back("\n");
 
-				std::string img_buf;
+				std::shared_ptr<std::string> img_buf = std::make_shared<std::string>();
 
 				std::ifstream fin(path.ToStdString(), std::ios_base::in | std::ios_base::binary);
 				std::unique_ptr<char[]> read_buf = std::make_unique<char[]>(fileSendThread::fileBlockLen);
 				while (!fin.eof())
 				{
 					fin.read(read_buf.get(), fileSendThread::fileBlockLen);
-					img_buf.append(read_buf.get(), fin.gcount());
+					img_buf->append(read_buf.get(), fin.gcount());
 				}
 				fin.close();
-				insLen(img_buf);
-				img_buf.insert(0, 1, PAC_TYPE_IMAGE);
+				insLen(*img_buf);
+				img_buf->insert(0, 1, PAC_TYPE_IMAGE);
 
-				misc_io_service.post([uID, img_buf]() {
-					srv->send_data(uID, img_buf, msgr_proto::session::priority_msg);
-				});
+				srv->send_data(uID, std::move(*img_buf), msgr_proto::session::priority_msg);
 			}
 		}
 	}

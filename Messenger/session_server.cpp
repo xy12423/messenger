@@ -100,6 +100,26 @@ bool server::send_data(user_id_type id, const std::string& data, int priority, s
 	return true;
 }
 
+bool server::send_data(user_id_type id, std::string&& data, int priority)
+{
+	return send_data(id, std::move(data), priority, []() {});
+}
+
+bool server::send_data(user_id_type id, std::string&& data, int priority, const std::string& message)
+{
+	return send_data(id, std::move(data), priority, [message]() {std::cout << message << std::endl; });
+}
+
+bool server::send_data(user_id_type id, std::string&& data, int priority, session::write_callback&& callback)
+{
+	session_list_type::iterator itr(sessions.find(id));
+	if (itr == sessions.end())
+		return false;
+	session_ptr sptr = itr->second;
+	sptr->send(std::move(data), priority, std::move(callback));
+	return true;
+}
+
 void server::connect(const std::string& addr_str, port_type remote_port)
 {
 	connect({ addr_str, std::to_string(remote_port) });
