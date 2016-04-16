@@ -202,7 +202,6 @@ void pre_session::read_session_id_body(int check_level)
 				std::string raw_data, data(sid_packet_buffer.get(), sid_packet_length);
 				sym_decrypt(data, raw_data, d);
 				decrypt(raw_data, data);
-				
 
 				std::string hash_recv(data, data.size() - hash_size), hash_real;
 				hash(data, hash_real, hash_size);
@@ -509,7 +508,13 @@ void pre_session_c::sid_packet_done()
 	}
 }
 
-void virtual_session::send(const std::string& data, int priority, write_callback &&callback)
+void virtual_session::send(const std::string& data, int priority, write_callback&& callback)
+{
+	on_data(data);
+	callback();
+}
+
+void virtual_session::send(std::string&& data, int priority, write_callback&& callback)
 {
 	on_data(data);
 	callback();
@@ -540,13 +545,13 @@ void session::shutdown()
 		task.callback();
 }
 
-void session::send(const std::string& data, int priority, write_callback &&callback)
+void session::send(const std::string& data, int priority, write_callback&& callback)
 {
 	session_ptr self = shared_from_this();
 	if (data.empty())
 		return;
 	
-	write_task new_task(data, priority, std::move(callback));
+	std::shared_ptr<write_task> new_task = std::make_shared<write_task>(data, priority, std::move(callback));
 
 	main_iosrv.post([this, self, new_task, priority]() {
 		bool write_not_in_progress = write_que.empty();
@@ -556,12 +561,42 @@ void session::send(const std::string& data, int priority, write_callback &&callb
 		{
 			if (priority > itr->priority)
 			{
-				write_que.insert(itr, new_task);
+				write_que.insert(itr, std::move(*new_task));
 				break;
 			}
 		}
 		if (itr == itrEnd)
-			write_que.push_back(new_task);
+			write_que.push_back(std::move(*new_task));
+
+		if (write_not_in_progress)
+		{
+			write();
+		}
+	});
+}
+
+void session::send(std::string&& data, int priority, write_callback&& callback)
+{
+	session_ptr self = shared_from_this();
+	if (data.empty())
+		return;
+
+	std::shared_ptr<write_task> new_task = std::make_shared<write_task>(std::move(data), priority, std::move(callback));
+
+	main_iosrv.post([this, self, new_task, priority]() {
+		bool write_not_in_progress = write_que.empty();
+
+		write_que_tp::iterator itr = write_que.begin(), itrEnd = write_que.end();
+		for (; itr != itrEnd; itr++)
+		{
+			if (priority > itr->priority)
+			{
+				write_que.insert(itr, std::move(*new_task));
+				break;
+			}
+		}
+		if (itr == itrEnd)
+			write_que.push_back(std::move(*new_task));
 
 		if (write_not_in_progress)
 		{
@@ -607,7 +642,7 @@ void session::read_header()
 	}
 }
 
-void session::read_data(size_t size_last, const std::shared_ptr<std::string> &buf)
+void session::read_data(size_t size_last, const std::shared_ptr<std::string>& buf)
 {
 	try
 	{
@@ -668,7 +703,7 @@ void session::read_data(size_t size_last, const std::shared_ptr<std::string> &bu
 	}
 }
 
-void session::process_data(const std::shared_ptr<std::string> &buf)
+void session::process_data(const std::shared_ptr<std::string>& buf)
 {
 	session_ptr self = shared_from_this();
 
@@ -729,9 +764,8 @@ void session::write()
 	rand_num_type rand_num = boost::endian::native_to_little(get_rand_num_send());
 
 	misc_iosrv.post([this, self, write_itr, rand_num]() {
-		std::string write_raw, write_data;
-		write_raw.reserve(sizeof(session_id_type) + sizeof(rand_num_type) + write_itr->data.size() + hash_size);
-		write_raw.append(write_itr->data);
+		std::string &write_raw = write_itr->data, write_data;
+		write_raw.reserve(sizeof(session_id_type) + sizeof(rand_num_type) + write_raw.size() + hash_size);
 		write_raw.append(reinterpret_cast<char*>(&session_id), sizeof(session_id_type));
 		write_raw.append(reinterpret_cast<const char*>(&rand_num), sizeof(rand_num_type));
 		hash(write_raw, write_raw);
@@ -739,7 +773,6 @@ void session::write()
 		encrypt(write_raw, write_data, e1);
 		sym_encrypt(write_data, write_raw, e);
 		insLen(write_raw);
-		write_itr->data = std::move(write_raw);
 
 		asio::async_write(*socket,
 			asio::buffer(write_itr->data),

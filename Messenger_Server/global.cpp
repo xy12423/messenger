@@ -1,7 +1,7 @@
 #include "stdafx.h"
 #include "global.h"
 
-void ltrim(std::string &str)
+void ltrim(std::string& str)
 {
 	if (str.empty())
 		return;
@@ -14,7 +14,7 @@ void ltrim(std::string &str)
 		str.erase(str.begin(), itr);
 }
 
-void rtrim(std::string &str)
+void rtrim(std::string& str)
 {
 	if (str.empty())
 		return;
@@ -22,7 +22,7 @@ void rtrim(std::string &str)
 		str.pop_back();
 }
 
-void trim(std::string &str)
+void trim(std::string& str)
 {
 	ltrim(str);
 	rtrim(str);
