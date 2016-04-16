@@ -69,6 +69,8 @@ ipch/
 *.opensdf
 *.sdf
 *.cachefile
+*.opendb
+*.db
 
 # Visual Studio profiler
 *.psess
@@ -208,5 +210,3 @@ plugins.txt
 # Built binary
 Messenger/messenger
 Messenger_Server/messenger_server
-
-*.opendb
