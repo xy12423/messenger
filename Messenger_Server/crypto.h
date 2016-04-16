@@ -14,18 +14,18 @@ void initKey();
 std::string getPublicKey();
 std::string getUserIDGlobal();
 
-void encrypt(const std::string &src, std::string &dst, const CryptoPP::ECIES<CryptoPP::ECP>::Encryptor &e1);
-void decrypt(const std::string &src, std::string &dst);
-void hash(const std::string &src, std::string &dst, size_t input_shift = 0);
-void hash_short(const std::string &src, std::string &dst);
+void encrypt(const std::string& src, std::string& dst, const CryptoPP::ECIES<CryptoPP::ECP>::Encryptor& e1);
+void decrypt(const std::string& src, std::string& dst);
+void hash(const std::string& src, std::string& dst, size_t input_shift = 0);
+void hash_short(const std::string& src, std::string& dst);
 
-void init_sym_encryption(CryptoPP::CBC_Mode<CryptoPP::AES>::Encryption &e, const CryptoPP::SecByteBlock &key, CryptoPP::SecByteBlock &iv);
-void init_sym_decryption(CryptoPP::CBC_Mode<CryptoPP::AES>::Decryption &d, const CryptoPP::SecByteBlock &key, const CryptoPP::SecByteBlock &iv);
-void sym_encrypt(const std::string &src, std::string &dst, CryptoPP::CBC_Mode<CryptoPP::AES>::Encryption &e);
-void sym_decrypt(const std::string &src, std::string &dst, CryptoPP::CBC_Mode<CryptoPP::AES>::Decryption &d);
+void init_sym_encryption(CryptoPP::CBC_Mode<CryptoPP::AES>::Encryption& e, const CryptoPP::SecByteBlock& key, CryptoPP::SecByteBlock& iv);
+void init_sym_decryption(CryptoPP::CBC_Mode<CryptoPP::AES>::Decryption& d, const CryptoPP::SecByteBlock& key, const CryptoPP::SecByteBlock& iv);
+void sym_encrypt(const std::string& src, std::string& dst, CryptoPP::CBC_Mode<CryptoPP::AES>::Encryption& e);
+void sym_decrypt(const std::string& src, std::string& dst, CryptoPP::CBC_Mode<CryptoPP::AES>::Decryption& d);
 
-void dhGen(CryptoPP::SecByteBlock &priv, CryptoPP::SecByteBlock &pub);
-bool dhAgree(CryptoPP::SecByteBlock &agree, const  CryptoPP::SecByteBlock &priv, const  CryptoPP::SecByteBlock &pub);
+void dhGen(CryptoPP::SecByteBlock& priv, CryptoPP::SecByteBlock& pub);
+bool dhAgree(CryptoPP::SecByteBlock& agree, const CryptoPP::SecByteBlock& priv, const CryptoPP::SecByteBlock& pub);
 
 rand_num_type genRandomNumber();
 
