@@ -83,7 +83,7 @@ void* get_callback(plugin_id_type id, const char* callback_name)
 	return itr2->second;
 }
 
-bool new_plugin_id(std::list<plugin_id_type>::iterator &ret)
+bool new_plugin_id(std::list<plugin_id_type>::iterator& ret)
 {
 	if (free_plugin_id.empty())
 		return false;
@@ -114,7 +114,7 @@ void set_handler(unsigned int id, void* handler)
 		ExportHandlers[id] = handler;
 }
 
-int load_plugin(const std::wstring &plugin_full_path)
+int load_plugin(const std::wstring& plugin_full_path)
 {
 	plugin_id_type plugin_id;
 	try

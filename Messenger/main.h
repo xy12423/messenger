@@ -82,18 +82,18 @@ extern const char* IMG_TMP_PATH_NAME;
 extern const char* IMG_TMP_FILE_NAME;
 const size_t IMAGE_SIZE_LIMIT = 0x400000;
 
-class wx_srv_interface :public server_interface
+class wx_srv_interface :public msgr_inter
 {
 public:
 	wx_srv_interface();
 	~wx_srv_interface();
 
-	virtual void on_data(user_id_type id, const std::string &data);
+	virtual void on_data(user_id_type id, const std::string& data);
 
 	virtual void on_join(user_id_type id, const std::string& key);
 	virtual void on_leave(user_id_type id);
 
-	virtual bool new_rand_port(port_type &port);
+	virtual bool new_rand_port(port_type& port);
 	virtual void free_rand_port(port_type port) { ports.push_back(port); };
 
 	void certify_key(const std::string& key) { certifiedKeys.emplace(key); }
@@ -101,11 +101,9 @@ public:
 
 	void set_frame(mainFrame *_frm) { frm = _frm; }
 	void set_static_port(port_type port) { static_port = port; };
-	void new_image_id(int &id) { id = image_id; image_id++; }
+	void new_image_id(int& id) { id = image_id; image_id++; }
 private:
 	std::unordered_set<std::string> certifiedKeys;
-
-	std::unordered_set<iosrvThread*> threads;
 	std::list<port_type> ports;
 	int static_port = -1;
 

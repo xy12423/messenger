@@ -4,7 +4,7 @@
 
 using namespace msgr_proto;
 
-void insLen(std::string &data)
+void insLen(std::string& data)
 {
 	data_length_type len = boost::endian::native_to_little(static_cast<data_length_type>(data.size()));
 	data.insert(0, std::string(reinterpret_cast<const char*>(&len), sizeof(data_length_type)));
@@ -29,7 +29,7 @@ void server::start()
 	});
 }
 
-void server::pre_session_over(const std::shared_ptr<pre_session> &_pre, bool successful)
+void server::pre_session_over(const std::shared_ptr<pre_session>& _pre, bool successful)
 {
 	if (!successful)
 	{
@@ -40,7 +40,7 @@ void server::pre_session_over(const std::shared_ptr<pre_session> &_pre, bool suc
 	pre_sessions.erase(_pre);
 }
 
-void server::join(const session_ptr &_user)
+void server::join(const session_ptr& _user)
 {
 	user_id_type newID = nextID;
 	nextID++;
@@ -90,7 +90,7 @@ bool server::send_data(user_id_type id, const std::string& data, int priority, c
 	return send_data(id, data, priority, [message]() {std::cout << message << std::endl; });
 }
 
-bool server::send_data(user_id_type id, const std::string& data, int priority, session::write_callback &&callback)
+bool server::send_data(user_id_type id, const std::string& data, int priority, session::write_callback&& callback)
 {
 	session_list_type::iterator itr(sessions.find(id));
 	if (itr == sessions.end())
@@ -100,7 +100,27 @@ bool server::send_data(user_id_type id, const std::string& data, int priority, s
 	return true;
 }
 
-void server::connect(const std::string &addr_str, port_type remote_port)
+bool server::send_data(user_id_type id, std::string&& data, int priority)
+{
+	return send_data(id, std::move(data), priority, []() {});
+}
+
+bool server::send_data(user_id_type id, std::string&& data, int priority, const std::string& message)
+{
+	return send_data(id, std::move(data), priority, [message]() {std::cout << message << std::endl; });
+}
+
+bool server::send_data(user_id_type id, std::string&& data, int priority, session::write_callback&& callback)
+{
+	session_list_type::iterator itr(sessions.find(id));
+	if (itr == sessions.end())
+		return false;
+	session_ptr sptr = itr->second;
+	sptr->send(std::move(data), priority, std::move(callback));
+	return true;
+}
+
+void server::connect(const std::string& addr_str, port_type remote_port)
 {
 	connect({ addr_str, std::to_string(remote_port) });
 }
@@ -110,7 +130,7 @@ void server::connect(unsigned long addr_ulong, port_type remote_port)
 	connect(asio::ip::tcp::endpoint(asio::ip::address_v4(addr_ulong), remote_port));
 }
 
-void server::connect(const asio::ip::tcp::endpoint &remote_endpoint)
+void server::connect(const asio::ip::tcp::endpoint& remote_endpoint)
 {
 	port_type local_port;
 	if (!inter.new_rand_port(local_port))
@@ -139,7 +159,7 @@ void server::connect(const asio::ip::tcp::endpoint &remote_endpoint)
 	}
 }
 
-void server::connect(const asio::ip::tcp::resolver::query &query)
+void server::connect(const asio::ip::tcp::resolver::query& query)
 {
 	port_type local_port;
 	if (!inter.new_rand_port(local_port))

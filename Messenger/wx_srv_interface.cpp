@@ -57,7 +57,7 @@ wx_srv_interface::~wx_srv_interface()
 	dataItr += sizeof_data_length
 
 
-void wx_srv_interface::on_data(user_id_type id, const std::string &data)
+void wx_srv_interface::on_data(user_id_type id, const std::string& data)
 {
 	try
 	{
@@ -307,7 +307,7 @@ void wx_srv_interface::on_leave(user_id_type id)
 	wxQueueEvent(frm, newEvent);
 }
 
-bool wx_srv_interface::new_rand_port(port_type &ret)
+bool wx_srv_interface::new_rand_port(port_type& ret)
 {
 	if (static_port != -1)
 		ret = static_cast<port_type>(static_port);
@@ -323,4 +323,3 @@ bool wx_srv_interface::new_rand_port(port_type &ret)
 	}
 	return true;
 }
-

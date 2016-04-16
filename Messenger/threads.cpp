@@ -5,8 +5,6 @@
 
 extern std::unordered_map<user_id_type, user_ext_type> user_ext;
 
-const int checkInterval = 10;
-
 iosrvThread::ExitCode iosrvThread::Entry()
 {
 	iosrv_work = std::make_shared<asio::io_service::work>(iosrv);
@@ -22,7 +20,7 @@ iosrvThread::ExitCode iosrvThread::Entry()
 	return NULL;
 }
 
-void fileSendThread::start(user_id_type uID, const fs::path &path)
+void fileSendThread::start(user_id_type uID, const fs::path& path)
 {
 	iosrv.post([this, uID, path]() {
 		bool write_not_in_progress = tasks.empty();
@@ -52,7 +50,7 @@ void fileSendThread::start(user_id_type uID, const fs::path &path)
 			wxCharBuffer msgBuf = wxConvLocal.cWC2MB(
 				(wxT("Sending file ") + fileName + wxT(" To ") + user_ext[uID].addr).c_str()
 				);
-			srv.send_data(uID, head, msgr_proto::session::priority_file, std::string(msgBuf.data(), msgBuf.length()));
+			srv.send_data(uID, std::move(head), msgr_proto::session::priority_file, std::string(msgBuf.data(), msgBuf.length()));
 			
 			if (write_not_in_progress)
 				write();
@@ -80,14 +78,16 @@ void fileSendThread::write()
 	fileSendTask &task = tasks.front();
 	task.fin.read(block.get(), fileBlockLen);
 	std::streamsize sizeRead = task.fin.gcount();
-	sendBuf.assign(block.get(), sizeRead);
-	insLen(sendBuf);
-	sendBuf.insert(0, 1, PAC_TYPE_FILE_B);
+	sendBuf.push_back(PAC_TYPE_FILE_B);
+	data_length_type len = boost::endian::native_to_little(static_cast<data_length_type>(sizeRead));
+	sendBuf.append(reinterpret_cast<const char*>(&len), sizeof(data_length_type));
+	sendBuf.append(block.get(), sizeRead);
+	
 	wxCharBuffer msgBuf = wxConvLocal.cWC2MB(
 		(task.fileName + wxT(":Sended block ") + std::to_wstring(task.blockCount) + wxT("/") + std::to_wstring(task.blockCountAll) + wxT(" To ") + user_ext[task.uID].addr).c_str()
 		);
 	std::string msg(msgBuf.data(), msgBuf.length());
-	srv.send_data(task.uID, sendBuf, msgr_proto::session::priority_file, [msg, this]() {
+	srv.send_data(task.uID, std::move(sendBuf), msgr_proto::session::priority_file, [msg, this]() {
 		std::cout << msg << std::endl;
 		iosrv.post([this]() {
 			if (!tasks.empty())
