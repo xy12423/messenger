@@ -162,7 +162,7 @@ void cli_server::on_data(user_id_type id, const std::string& data)
 {
 	try
 	{
-		const size_t size_length = sizeof(data_length_type);
+		const size_t size_length = sizeof(data_size_type);
 		const char *dataItr = data.data(), *dataEnd = data.data() + data.size();
 
 		byte type;
@@ -173,7 +173,7 @@ void cli_server::on_data(user_id_type id, const std::string& data)
 		{
 			case PAC_TYPE_MSG:
 			{
-				data_length_type sizeRecv;
+				data_size_type sizeRecv;
 				read_uint(sizeRecv);
 
 				checkErr(sizeRecv);
@@ -299,7 +299,7 @@ void cli_server::on_image(user_id_type id, const std::string& data)
 		{
 			broadcast_msg(id, empty_string);
 			broadcast_data(id, data, msgr_proto::session::priority_msg);
-			m_plugin.on_img(user.name, data.data() + 1 + sizeof(data_length_type), data.size() - (1 + sizeof(data_length_type)));
+			m_plugin.on_img(user.name, data.data() + 1 + sizeof(data_size_type), data.size() - (1 + sizeof(data_size_type)));
 		}
 	}
 }
@@ -646,7 +646,7 @@ int main(int argc, char *argv[])
 	}
 	catch (std::exception& e)
 	{
-		std::cerr << "Exception: " << e.what() << "\n";
+		std::cerr << "Exception: " << e.what() << std::endl;
 	}
 #endif
 	return 0;

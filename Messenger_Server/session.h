@@ -5,8 +5,8 @@
 
 #include "crypto.h"
 
-typedef uint16_t key_length_type;
-typedef uint32_t data_length_type;
+typedef uint16_t key_size_type;
+typedef uint32_t data_size_type;
 
 typedef uint16_t port_type;
 typedef int32_t port_type_l;
@@ -56,7 +56,7 @@ namespace msgr_proto
 	public:
 		pre_session(server& _srv, port_type_l _local_port, asio::io_service& main_io_srv, asio::io_service& misc_io_srv, const socket_ptr& _socket)
 			:srv(_srv), main_io_service(main_io_srv), misc_io_service(misc_io_srv), socket(_socket),
-			priv(dh_priv_block_size), pubA(dh_pub_block_size), pubB(dh_pub_block_size), key(sym_key_length),
+			priv(dh_priv_block_size), pubA(dh_pub_block_size), pubB(dh_pub_block_size), key(sym_key_size),
 			proto_data(std::make_shared<proto_kit>()),
 			session_id(proto_data->session_id), rand_num_send(proto_data->rand_num_send), rand_num_recv(proto_data->rand_num_recv),
 			e(proto_data->e), d(proto_data->d), e1(proto_data->e1)
@@ -90,13 +90,13 @@ namespace msgr_proto
 
 		CryptoPP::SecByteBlock priv, pubA, pubB, key;
 
-		byte iv_buffer[sym_key_length];
+		byte iv_buffer[sym_key_size];
 
-		key_length_type key_length;
+		key_size_type key_size;
 		std::unique_ptr<char[]> key_buffer;
 		std::string key_string;
 
-		data_length_type sid_packet_length;
+		data_size_type sid_packet_size;
 		std::unique_ptr<char[]> sid_packet_buffer;
 		int stage = 0;
 

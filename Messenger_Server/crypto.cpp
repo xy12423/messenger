@@ -78,16 +78,16 @@ void decrypt(const std::string& src, std::string& dst)
 
 void init_sym_encryption(CBC_Mode<AES>::Encryption& e, const SecByteBlock& key, SecByteBlock& iv)
 {
-	assert(key.SizeInBytes() == sym_key_length);
-	prng.GenerateBlock(iv, sym_key_length);
-	e.SetKeyWithIV(key, sym_key_length, iv);
+	assert(key.SizeInBytes() == sym_key_size);
+	prng.GenerateBlock(iv, sym_key_size);
+	e.SetKeyWithIV(key, sym_key_size, iv);
 }
 
 void init_sym_decryption(CBC_Mode<AES>::Decryption& d, const SecByteBlock& key, const SecByteBlock& iv)
 {
-	assert(key.SizeInBytes() == sym_key_length);
-	assert(iv.SizeInBytes() == sym_key_length);
-	d.SetKeyWithIV(key, sym_key_length, iv);
+	assert(key.SizeInBytes() == sym_key_size);
+	assert(iv.SizeInBytes() == sym_key_size);
+	d.SetKeyWithIV(key, sym_key_size, iv);
 }
 
 void sym_encrypt(const std::string& src, std::string& dst, CBC_Mode<AES>::Encryption& e)
