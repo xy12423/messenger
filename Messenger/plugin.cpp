@@ -14,7 +14,7 @@ typedef void(*SetHandlerPtr)(void* handler);
 
 typedef void(*InitPtr)();
 
-typedef void(*OnDataPtr)(int from, uint8_t type, const char* data, uint32_t length);
+typedef void(*OnDataPtr)(int from, uint8_t type, const char* data, uint32_t size);
 
 struct TypeReg
 {

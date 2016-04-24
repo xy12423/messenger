@@ -5,7 +5,7 @@
 
 typedef uint64_t rand_num_type;
 const size_t hash_size = 64;
-const size_t sym_key_length = 32;
+const size_t sym_key_size = 32;
 extern size_t dh_priv_block_size, dh_pub_block_size, dh_agree_block_size;
 
 void genKey();

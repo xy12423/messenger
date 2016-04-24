@@ -126,14 +126,14 @@ bool plugin_handler_DelVirtualUser(plugin_id_type plugin_id, uint16_t virtual_us
 	return false;
 }
 
-bool plugin_handler_VirtualUserMsg(plugin_id_type plugin_id, uint16_t virtual_user_id, const char* message, uint32_t length)
+bool plugin_handler_VirtualUserMsg(plugin_id_type plugin_id, uint16_t virtual_user_id, const char* message, uint32_t size)
 {
 	try
 	{
 		plugin_info_type &info = plugin_info.at(plugin_id);
 		if (info.virtual_user_list.find(virtual_user_id) != info.virtual_user_list.end())
 		{
-			std::dynamic_pointer_cast<msgr_proto::virtual_session>(srv->get_session(virtual_user_id))->push(std::string(message, length));
+			std::dynamic_pointer_cast<msgr_proto::virtual_session>(srv->get_session(virtual_user_id))->push(std::string(message, size));
 			return true;
 		}
 	}

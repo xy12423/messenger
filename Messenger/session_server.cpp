@@ -6,8 +6,8 @@ using namespace msgr_proto;
 
 void insLen(std::string& data)
 {
-	data_length_type len = boost::endian::native_to_little(static_cast<data_length_type>(data.size()));
-	data.insert(0, std::string(reinterpret_cast<const char*>(&len), sizeof(data_length_type)));
+	data_size_type len = boost::endian::native_to_little(static_cast<data_size_type>(data.size()));
+	data.insert(0, std::string(reinterpret_cast<const char*>(&len), sizeof(data_size_type)));
 }
 
 void server::start()
