@@ -470,6 +470,20 @@ std::string cli_server::process_command(std::string cmd, user_record& user)
 			srv->connect(args, portConnect);
 		}
 	}
+	else if (cmd == "list")
+	{
+		if (group >= user_record::USER)
+		{
+			for (const std::pair<int, user_ext> &p : user_exts)
+			{
+				if (p.first == server_uid)
+					continue;
+				ret.append(p.second.name);
+				ret.push_back(';');
+			}
+			ret.pop_back();
+		}
+	}
 	else if (cmd == "stop")
 	{
 		if (group >= user_record::CONSOLE)
