@@ -13,7 +13,7 @@ else
 endif
 
 ifeq ($(RELEASE), 1)
-    cppflag += -O2 -DNDEBUG
+    cppflag += -O2 -g0 -DNDEBUG
 else
     cppflag += -g -O0 -D_DEBUG
 endif
