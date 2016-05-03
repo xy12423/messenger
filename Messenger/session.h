@@ -75,20 +75,23 @@ namespace msgr_proto
 		virtual void stage2() = 0;
 		virtual void sid_packet_done() = 0;
 	protected:
+		void read_key_header();
+		void read_key();
+
 		void write_secret();
+		void read_secret_header();
 		void read_secret();
 
 		void write_iv();
 		void read_iv();
-
-		void read_key_header();
-		void read_key();
 
 		void read_session_id(int check_level, bool ignore_error = false);
 		void read_session_id_body(int check_level);
 		void write_session_id();
 
 		CryptoPP::SecByteBlock priv, pubA, pubB, key;
+		key_size_type pubB_size;
+		std::unique_ptr<char[]> pubB_buffer;
 
 		byte iv_buffer[sym_key_size];
 
@@ -143,7 +146,7 @@ namespace msgr_proto
 
 		virtual void start();
 	private:
-		virtual void stage1() { read_key_header(); };
+		virtual void stage1();
 		virtual void stage2();
 		virtual void sid_packet_done();
 	};
