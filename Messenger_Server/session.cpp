@@ -4,19 +4,82 @@
 
 using namespace msgr_proto;
 
+void pre_session::read_key_header()
+{
+	asio::async_read(*socket,
+		asio::buffer(reinterpret_cast<char*>(&(this->key_size)), sizeof(key_size_type)),
+		asio::transfer_exactly(sizeof(key_size_type)),
+		[this](boost::system::error_code ec, std::size_t size)
+	{
+		try
+		{
+			if (ec)
+				throw(std::runtime_error("Socket Error:" + ec.message()));
+			key_size = boost::endian::little_to_native(key_size);
+			read_key();
+		}
+		catch (std::exception &ex)
+		{
+			if (!exiting)
+			{
+				std::cerr << ex.what() << std::endl;
+				srv.pre_session_over(shared_from_this());
+			}
+		}
+	});
+}
+
+void pre_session::read_key()
+{
+	key_buffer = std::make_unique<char[]>(key_size);
+	asio::async_read(*socket,
+		asio::buffer(key_buffer.get(), key_size),
+		asio::transfer_exactly(key_size),
+		[this](boost::system::error_code ec, std::size_t size)
+	{
+		try
+		{
+			if (ec)
+				throw(std::runtime_error("Socket Error:" + ec.message()));
+			key_string.assign(key_buffer.release(), key_size);
+			if (srv.check_key_connected(key_string))
+			{
+				key_string.clear();
+				if (!exiting)
+					srv.pre_session_over(shared_from_this());
+			}
+			else
+				stage1();
+		}
+		catch (std::exception &ex)
+		{
+			if (!exiting)
+			{
+				std::cerr << ex.what() << std::endl;
+				srv.pre_session_over(shared_from_this());
+			}
+		}
+	});
+}
+
 void pre_session::write_secret()
 {
 	misc_io_service.post([this]() {
 		dhGen(priv, pubA);
+		std::shared_ptr<std::string> buf = std::make_shared<std::string>();
+		encrypt(pubA, *buf, e1);
+		key_size_type len = boost::endian::native_to_little(static_cast<key_size_type>(buf->size()));
+		buf->insert(0, reinterpret_cast<const char*>(&len), sizeof(key_size_type));
+
 		asio::async_write(*socket,
-			asio::buffer(reinterpret_cast<char*>(pubA.data()), pubA.SizeInBytes()),
-			[this](boost::system::error_code ec, std::size_t)
+			asio::buffer(buf->data(), buf->size()),
+			[this, buf](boost::system::error_code ec, std::size_t)
 		{
 			try
 			{
 				if (ec)
 					throw(std::runtime_error("Socket Error:" + ec.message()));
-				read_secret();
+				read_secret_header();
 			}
 			catch (std::exception &ex)
 			{
@@ -30,11 +93,37 @@ void pre_session::write_secret()
 	});
 }
 
-void pre_session::read_secret()
+void pre_session::read_secret_header()
 {
 	asio::async_read(*socket,
-		asio::buffer(reinterpret_cast<char*>(pubB.data()), dh_pub_block_size),
-		asio::transfer_exactly(dh_pub_block_size),
+		asio::buffer(reinterpret_cast<char*>(&(this->pubB_size)), sizeof(key_size_type)),
+		asio::transfer_exactly(sizeof(key_size_type)),
+		[this](boost::system::error_code ec, std::size_t size)
+	{
+		try
+		{
+			if (ec)
+				throw(std::runtime_error("Socket Error:" + ec.message()));
+			pubB_size = boost::endian::little_to_native(pubB_size);
+			read_secret();
+		}
+		catch (std::exception &ex)
+		{
+			if (!exiting)
+			{
+				std::cerr << ex.what() << std::endl;
+				srv.pre_session_over(shared_from_this());
+			}
+		}
+	});
+}
+
+void pre_session::read_secret()
+{
+	pubB_buffer = std::make_unique<char[]>(pubB_size);
+	asio::async_read(*socket,
+		asio::buffer(pubB_buffer.get(), pubB_size),
+		asio::transfer_exactly(pubB_size),
 		[this](boost::system::error_code ec, std::size_t size)
 	{
 		if (!ec)
@@ -42,6 +131,7 @@ void pre_session::read_secret()
 			misc_io_service.post([this]() {
 				try
 				{
+					decrypt(pubB_buffer.get(), pubB_size, pubB);
 					if (!dhAgree(key, priv, pubB))
 						throw(std::runtime_error("Failed to reach shared secret"));
 					write_iv();
@@ -104,65 +194,7 @@ void pre_session::read_iv()
 			if (ec)
 				throw(std::runtime_error("Socket Error:" + ec.message()));
 			init_sym_decryption(d, key, CryptoPP::SecByteBlock(iv_buffer, sym_key_size));
-			stage1();
-		}
-		catch (std::exception &ex)
-		{
-			if (!exiting)
-			{
-				std::cerr << ex.what() << std::endl;
-				srv.pre_session_over(shared_from_this());
-			}
-		}
-	});
-}
-
-void pre_session::read_key_header()
-{
-	asio::async_read(*socket,
-		asio::buffer(reinterpret_cast<char*>(&(this->key_size)), sizeof(key_size_type)),
-		asio::transfer_exactly(sizeof(key_size_type)),
-		[this](boost::system::error_code ec, std::size_t size)
-	{
-		try
-		{
-			if (ec)
-				throw(std::runtime_error("Socket Error:" + ec.message()));
-			key_size = boost::endian::little_to_native(key_size);
-			read_key();
-		}
-		catch (std::exception &ex)
-		{
-			if (!exiting)
-			{
-				std::cerr << ex.what() << std::endl;
-				srv.pre_session_over(shared_from_this());
-			}
-		}
-	});
-}
-
-void pre_session::read_key()
-{
-	key_buffer = std::make_unique<char[]>(key_size);
-	asio::async_read(*socket,
-		asio::buffer(key_buffer.get(), key_size),
-		asio::transfer_exactly(key_size),
-		[this](boost::system::error_code ec, std::size_t size)
-	{
-		try
-		{
-			if (ec)
-				throw(std::runtime_error("Socket Error:" + ec.message()));
-			sym_decrypt(std::string(key_buffer.release(), key_size), key_string, d);
-			if (srv.check_key_connected(key_string))
-			{
-				key_string.clear();
-				if (!exiting)
-					srv.pre_session_over(shared_from_this());
-			}
-			else
-				stage2();
+			stage2();
 		}
 		catch (std::exception &ex)
 		{
@@ -214,8 +246,9 @@ void pre_session::read_session_id_body(int check_level)
 				try
 				{
 					std::string raw_data, data(sid_packet_buffer.get(), sid_packet_size);
-					sym_decrypt(data, raw_data, d);
-					decrypt(raw_data, data);
+					decrypt(data, raw_data);
+					sym_decrypt(raw_data, data, d);
+					
 
 					std::string hash_recv(data, data.size() - hash_size), hash_real;
 					hash(data, hash_real, hash_size);
@@ -311,8 +344,9 @@ void pre_session::write_session_id()
 
 		hash(*data_buf_1, *data_buf_1);
 
-		encrypt(*data_buf_1, data_buf_2, e1);
-		sym_encrypt(data_buf_2, *data_buf_1, e);
+		sym_encrypt(*data_buf_1, data_buf_2, e);
+		encrypt(data_buf_2, *data_buf_1, e1);
+		
 		insLen(*data_buf_1);
 
 		asio::async_write(*socket,
@@ -339,15 +373,9 @@ void pre_session::write_session_id()
 
 void pre_session_s::start()
 {
-	write_secret();
-}
-
-void pre_session_s::stage1()
-{
-	std::shared_ptr<std::string> buffer = std::make_shared<std::string>();
-	sym_encrypt(srv.get_public_key(), *buffer, e);
+	std::shared_ptr<std::string> buffer = std::make_shared<std::string>(srv.get_public_key());
 	key_size_type e0len = boost::endian::native_to_little(static_cast<key_size_type>(buffer->size()));
-	buffer->insert(0, std::string(reinterpret_cast<const char*>(&e0len), sizeof(key_size_type)));
+	buffer->insert(0, reinterpret_cast<const char*>(&e0len), sizeof(key_size_type));
 
 	asio::async_write(*socket,
 		asio::buffer(*buffer),
@@ -370,13 +398,29 @@ void pre_session_s::stage1()
 	});
 }
 
-void pre_session_s::stage2()
+void pre_session_s::stage1()
 {
 	try
 	{
 		CryptoPP::StringSource keySource(key_string, true);
 		e1.AccessPublicKey().Load(keySource);
 
+		write_secret();
+	}
+	catch (std::exception &ex)
+	{
+		if (!exiting)
+		{
+			std::cerr << ex.what() << std::endl;
+			srv.pre_session_over(shared_from_this());
+		}
+	}
+}
+
+void pre_session_s::stage2()
+{
+	try
+	{
 		session_id = boost::endian::native_to_little(genRandomNumber());
 		rand_num_send = genRandomNumber();
 		rand_num = boost::endian::native_to_little(rand_num_send);
@@ -445,15 +489,9 @@ void pre_session_s::sid_packet_done()
 
 void pre_session_c::start()
 {
-	write_secret();
-}
-
-void pre_session_c::stage2()
-{
-	std::shared_ptr<std::string> buffer = std::make_shared<std::string>();
-	sym_encrypt(srv.get_public_key(), *buffer, e);
+	std::shared_ptr<std::string> buffer = std::make_shared<std::string>(srv.get_public_key());
 	key_size_type e0len = boost::endian::native_to_little(static_cast<key_size_type>(buffer->size()));
-	buffer->insert(0, std::string(reinterpret_cast<const char*>(&e0len), sizeof(key_size_type)));
+	buffer->insert(0, reinterpret_cast<const char*>(&e0len), sizeof(key_size_type));
 
 	asio::async_write(*socket,
 		asio::buffer(*buffer),
@@ -463,10 +501,7 @@ void pre_session_c::stage2()
 		{
 			if (ec)
 				throw(std::runtime_error("Socket Error:" + ec.message()));
-			CryptoPP::StringSource keySource(key_string, true);
-			e1.AccessPublicKey().Load(keySource);
-
-			read_session_id(0, true);
+			read_key_header();
 		}
 		catch (std::exception &ex)
 		{
@@ -477,6 +512,42 @@ void pre_session_c::stage2()
 			}
 		}
 	});
+}
+
+void pre_session_c::stage1()
+{
+	try
+	{
+		CryptoPP::StringSource keySource(key_string, true);
+		e1.AccessPublicKey().Load(keySource);
+
+		write_secret();
+	}
+	catch (std::exception &ex)
+	{
+		if (!exiting)
+		{
+			std::cerr << ex.what() << std::endl;
+			srv.pre_session_over(shared_from_this());
+		}
+	}
+}
+
+void pre_session_c::stage2()
+{
+	try
+	{
+		stage = 0;
+		read_session_id(0, true);
+	}
+	catch (std::exception &ex)
+	{
+		if (!exiting)
+		{
+			std::cerr << ex.what() << std::endl;
+			srv.pre_session_over(shared_from_this());
+		}
+	}
 }
 
 void pre_session_c::sid_packet_done()
@@ -738,8 +809,9 @@ void session::process_data(const std::shared_ptr<std::string>& buf)
 
 	misc_iosrv.post([this, self, buf]() {
 		std::string decrypted_data;
-		sym_decrypt(*buf, decrypted_data, d);
-		decrypt(decrypted_data, *buf);
+		
+		decrypt(*buf, decrypted_data);
+		sym_decrypt(decrypted_data, *buf, d);
 
 		std::string hash_real;
 		hash(*buf, hash_real, hash_size);
@@ -799,8 +871,8 @@ void session::write()
 		write_raw.append(reinterpret_cast<const char*>(&rand_num), sizeof(rand_num_type));
 		hash(write_raw, write_raw);
 
-		encrypt(write_raw, write_data, e1);
-		sym_encrypt(write_data, write_raw, e);
+		sym_encrypt(write_raw, write_data, e);
+		encrypt(write_data, write_raw, e1);
 		insLen(write_raw);
 
 		asio::async_write(*socket,
