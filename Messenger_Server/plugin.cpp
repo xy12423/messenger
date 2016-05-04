@@ -214,3 +214,80 @@ void msg_logger::on_img(const std::string& name, const char *data, size_t data_s
 		log_stream << cur_time_str << ' ' << name << '\n' << "![](" << img_rela_path.string() << ')' << std::endl;
 	}
 }
+
+void server_mail::init(const config_table_tp& config_items)
+{
+	if (!load_config(config_items))
+		return;
+	enabled = true;
+}
+
+void server_mail::on_new_user(const std::string& name)
+{
+	if (!enabled)
+		return;
+	fs::path mail_path = mails_path / (name + ".dat");
+	if (fs::exists(mail_path))
+	{
+		user_id_type id;
+		inter.get_id_by_name(name, id);
+
+		std::ifstream fin(mail_path.string());
+		std::string line;
+		std::getline(fin, line);
+		while (!fin.eof())
+		{
+			inter.send_msg(id, line);
+			std::getline(fin, line);
+		}
+		fin.close();
+
+		fs::remove(mail_path);
+	}
+}
+
+void server_mail::on_cmd(const std::string& name, const std::string& cmd, const std::string& arg)
+{
+	if (!enabled)
+		return;
+	if (cmd == "mail")
+	{
+		size_t pos = arg.find(' ');
+		std::string target_name = arg.substr(0, pos), content = arg.substr(pos + 1);
+
+		user_id_type id;
+		if (inter.get_id_by_name(target_name, id))
+		{
+			inter.send_msg(id, "From:" + name + '\n' + content);
+		}
+		else
+		{
+			fs::path mail_path = mails_path / (target_name + ".dat");
+			std::ofstream fout(mail_path.string(), std::ios_base::out | std::ios_base::app);
+
+			std::time_t cur_time = std::time(nullptr);
+			std::string cur_time_str = std::ctime(&cur_time);
+			cur_time_str.pop_back();
+			fout << "Time:" << cur_time_str << std::endl << "From:" << name << std::endl << content << std::endl;
+
+			fout.close();
+		}
+	}
+}
+
+bool server_mail::load_config(const config_table_tp& config_items)
+{
+	try
+	{
+		fs::path _mail_path = config_items.at("mail_path");
+		if (!fs::exists(_mail_path))
+			fs::create_directories(_mail_path);
+		else if (!fs::is_directory(_mail_path))
+			throw(0);
+		mails_path = std::move(_mail_path);
+		std::cout << "Mail enabled, mail path:" << mails_path << std::endl;
+	}
+	catch (int) { return false; }
+	catch (std::out_of_range &) { return false; }
+	return true;
+}
