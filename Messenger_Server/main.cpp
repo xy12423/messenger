@@ -162,7 +162,7 @@ void cli_server::on_data(user_id_type id, const std::string& data)
 {
 	try
 	{
-		const size_t size_length = sizeof(data_length_type);
+		const size_t size_length = sizeof(data_size_type);
 		const char *dataItr = data.data(), *dataEnd = data.data() + data.size();
 
 		byte type;
@@ -173,7 +173,7 @@ void cli_server::on_data(user_id_type id, const std::string& data)
 		{
 			case PAC_TYPE_MSG:
 			{
-				data_length_type sizeRecv;
+				data_size_type sizeRecv;
 				read_uint(sizeRecv);
 
 				checkErr(sizeRecv);
@@ -299,7 +299,7 @@ void cli_server::on_image(user_id_type id, const std::string& data)
 		{
 			broadcast_msg(id, empty_string);
 			broadcast_data(id, data, msgr_proto::session::priority_msg);
-			m_plugin.on_img(user.name, data.data() + 1 + sizeof(data_length_type), data.size() - (1 + sizeof(data_length_type)));
+			m_plugin.on_img(user.name, data.data() + 1 + sizeof(data_size_type), data.size() - (1 + sizeof(data_size_type)));
 		}
 	}
 }
@@ -383,12 +383,12 @@ void cli_server::broadcast_data(int src, const std::string& data, int priority)
 	}
 }
 
-std::string cli_server::process_command(std::string cmd, user_record& user)
+std::string cli_server::process_command(std::string& cmd, user_record& user)
 {
 	user_record::group_type group = user.group;
 	std::string ret;
 
-	int pos = cmd.find(' ');
+	size_t pos = cmd.find(' ');
 	std::string args;
 	if (pos != std::string::npos)
 	{
@@ -470,6 +470,20 @@ std::string cli_server::process_command(std::string cmd, user_record& user)
 			srv->connect(args, portConnect);
 		}
 	}
+	else if (cmd == "list")
+	{
+		if (group >= user_record::USER)
+		{
+			for (const std::pair<int, user_ext> &p : user_exts)
+			{
+				if (p.first == server_uid)
+					continue;
+				ret.append(p.second.name);
+				ret.push_back(';');
+			}
+			ret.pop_back();
+		}
+	}
 	else if (cmd == "stop")
 	{
 		if (group >= user_record::CONSOLE)
@@ -478,6 +492,10 @@ std::string cli_server::process_command(std::string cmd, user_record& user)
 			exit_promise.set_value();
 			ret = "Stopping server";
 		}
+	}
+	else
+	{
+		m_plugin.on_cmd(user.name, cmd, args);
 	}
 	return ret;
 }
@@ -589,6 +607,7 @@ int main(int argc, char *argv[])
 		catch (std::out_of_range &) {}
 
 		m_plugin.new_plugin<msg_logger>();
+		m_plugin.new_plugin<server_mail>();
 		m_plugin.init(config_items);
 
 		std::srand(static_cast<unsigned int>(std::time(NULL)));
@@ -646,7 +665,7 @@ int main(int argc, char *argv[])
 	}
 	catch (std::exception& e)
 	{
-		std::cerr << "Exception: " << e.what() << "\n";
+		std::cerr << "Exception: " << e.what() << std::endl;
 	}
 #endif
 	return 0;

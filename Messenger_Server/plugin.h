@@ -23,6 +23,7 @@ public:
 	virtual void on_new_user(const std::string& name) = 0;
 	virtual void on_del_user(const std::string& name) = 0;
 	virtual void on_msg(const std::string& name, const std::string& msg) = 0;
+	virtual void on_cmd(const std::string& name, const std::string& cmd, const std::string& arg) = 0;
 	virtual void on_img(const std::string& name, const char *data, size_t data_size) = 0;
 	virtual void on_exit() = 0;
 protected:
@@ -38,6 +39,7 @@ public:
 	virtual void on_new_user(const std::string& name);
 	virtual void on_del_user(const std::string& name);
 	virtual void on_msg(const std::string& name, const std::string& msg);
+	virtual void on_cmd(const std::string& name, const std::string& cmd, const std::string& arg) {};
 	virtual void on_img(const std::string& name, const char *data, size_t data_size);
 	virtual void on_exit() {};
 private:
@@ -50,7 +52,7 @@ private:
 	void write_data();
 
 	const char *log_file_name = "log.md";
-	const char *data_file_name = "data.dat";
+	const char *data_file_name = "msg_logger.dat";
 	const char *img_path_name = "images";
 
 	bool enabled = false;
@@ -62,6 +64,27 @@ private:
 	typedef uint32_t record_tp;
 	typedef std::unordered_map<std::string, record_tp> record_list;
 	record_list records;
+};
+
+class server_mail :public msg_server_plugin
+{
+public:
+	server_mail(plugin_interface& _inter)
+		:msg_server_plugin(_inter)
+	{}
+
+	virtual void init(const config_table_tp& config_items);
+	virtual void on_new_user(const std::string& name);
+	virtual void on_del_user(const std::string& name) {};
+	virtual void on_msg(const std::string& name, const std::string& msg) {};
+	virtual void on_cmd(const std::string& name, const std::string& cmd, const std::string& arg);
+	virtual void on_img(const std::string& name, const char *data, size_t data_size) {};
+	virtual void on_exit() {};
+private:
+	bool load_config(const config_table_tp& config_items);
+
+	bool enabled = false;
+	fs::path mails_path;
 };
 
 class plugin_manager :public msg_server_plugin
@@ -77,6 +100,7 @@ public:
 	virtual void on_new_user(const std::string& name) { for (const plugin_ptr& ptr : plugins) ptr->on_new_user(name); };
 	virtual void on_del_user(const std::string& name) { for (const plugin_ptr& ptr : plugins) ptr->on_del_user(name); };
 	virtual void on_msg(const std::string& name, const std::string& msg) { for (const plugin_ptr &ptr : plugins) ptr->on_msg(name, msg); };
+	virtual void on_cmd(const std::string& name, const std::string& cmd, const std::string& arg) { for (const plugin_ptr &ptr : plugins) ptr->on_cmd(name, cmd, arg); }
 	virtual void on_img(const std::string& name, const char *data, size_t data_size) { for (const plugin_ptr &ptr : plugins) ptr->on_img(name, data, data_size); };
 	virtual void on_exit() { for (const plugin_ptr &ptr : plugins) ptr->on_exit(); };
 
