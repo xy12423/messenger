@@ -116,7 +116,7 @@ void msg_logger::read_data()
 				rtrim(name);
 				ltrim(val);
 				if (name == "byte_count")
-					selected->second = std::stoi(val);
+					selected->second = std::stol(val);
 			}
 		}
 		std::getline(fin, line);

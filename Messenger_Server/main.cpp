@@ -76,12 +76,12 @@ void cli_server::write_data()
 	if (!fout.is_open())
 		return;
 	fout.write(reinterpret_cast<const char*>(&data_ver), sizeof(uint32_t));
-	uint32_t size = user_records.size();
+	uint32_t size = static_cast<uint32_t>(user_records.size());
 	fout.write(reinterpret_cast<char*>(&size), sizeof(uint32_t));
 	for (const std::pair<std::string, user_record> &pair : user_records)
 	{
 		const user_record &user = pair.second;
-		size = user.name.size();
+		size = static_cast<uint32_t>(user.name.size());
 		fout.write(reinterpret_cast<char*>(&size), sizeof(uint32_t));
 		fout.write(user.name.data(), size);
 		fout.write(user.passwd.data(), hash_size);

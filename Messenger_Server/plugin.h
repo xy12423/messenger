@@ -61,7 +61,7 @@ private:
 	std::ostream log_stream;
 	fs::path log_path;
 
-	typedef uint32_t record_tp;
+	typedef size_t record_tp;
 	typedef std::unordered_map<std::string, record_tp> record_list;
 	record_list records;
 };
