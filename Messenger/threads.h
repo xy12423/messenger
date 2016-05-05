@@ -26,7 +26,7 @@ struct fileSendTask
 	user_id_type uID;
 	std::wstring fileName;
 	std::ifstream fin;
-	data_length_type blockCount = 1, blockCountAll;
+	data_size_type blockCount = 1, blockCountAll;
 };
 
 class fileSendThread :public wxThread

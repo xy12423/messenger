@@ -29,7 +29,7 @@ void fileSendThread::start(user_id_type uID, const fs::path& path)
 
 		if (newTask.fin.is_open())
 		{
-			data_length_type blockCountAll = static_cast<data_length_type>(fs::file_size(path));
+			data_size_type blockCountAll = static_cast<data_size_type>(fs::file_size(path));
 			if (blockCountAll == 0)
 				throw(0);
 			if (blockCountAll % fileBlockLen == 0)
@@ -39,11 +39,10 @@ void fileSendThread::start(user_id_type uID, const fs::path& path)
 			newTask.blockCountAll = blockCountAll;
 
 			std::wstring fileName = path.leaf().wstring();
-			data_length_type blockCountAll_LE = wxUINT32_SWAP_ON_BE(blockCountAll);
+			data_size_type blockCountAll_LE = wxUINT32_SWAP_ON_BE(blockCountAll);
 			std::string head(1, PAC_TYPE_FILE_H);
-			head.append(reinterpret_cast<const char*>(&blockCountAll_LE), sizeof(data_length_type));
-			wxCharBuffer nameBuf = wxConvUTF8.cWC2MB(fileName.c_str());
-			std::string name(nameBuf, nameBuf.length());
+			head.append(reinterpret_cast<const char*>(&blockCountAll_LE), sizeof(data_size_type));
+			std::string name(wxConvUTF8.cWC2MB(fileName.c_str()));
 			insLen(name);
 			head.append(name);
 
@@ -79,8 +78,8 @@ void fileSendThread::write()
 	task.fin.read(block.get(), fileBlockLen);
 	std::streamsize sizeRead = task.fin.gcount();
 	sendBuf.push_back(PAC_TYPE_FILE_B);
-	data_length_type len = boost::endian::native_to_little(static_cast<data_length_type>(sizeRead));
-	sendBuf.append(reinterpret_cast<const char*>(&len), sizeof(data_length_type));
+	data_size_type len = boost::endian::native_to_little(static_cast<data_size_type>(sizeRead));
+	sendBuf.append(reinterpret_cast<const char*>(&len), sizeof(data_size_type));
 	sendBuf.append(block.get(), sizeRead);
 	
 	wxCharBuffer msgBuf = wxConvLocal.cWC2MB(

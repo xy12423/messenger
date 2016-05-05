@@ -123,7 +123,7 @@ private:
 
 struct plugin_info_type
 {
-	typedef void(*virtual_msg_handler_ptr)(uint16_t virtual_user_id, const char* data, uint32_t length);
+	typedef void(*virtual_msg_handler_ptr)(uint16_t virtual_user_id, const char* data, uint32_t size);
 
 	std::string name;
 	plugin_id_type plugin_id;

@@ -52,16 +52,16 @@ wx_srv_interface::~wx_srv_interface()
 
 #define checkErr(x) if (dataItr + (x) > dataEnd) throw(0)
 #define read_len(x)													\
-	checkErr(sizeof_data_length);										\
-	memcpy(reinterpret_cast<char*>(&(x)), dataItr, sizeof_data_length);	\
-	dataItr += sizeof_data_length
+	checkErr(sizeof_data_size);										\
+	memcpy(reinterpret_cast<char*>(&(x)), dataItr, sizeof_data_size);	\
+	dataItr += sizeof_data_size
 
 
 void wx_srv_interface::on_data(user_id_type id, const std::string& data)
 {
 	try
 	{
-		const size_t sizeof_data_length = sizeof(data_length_type);
+		const size_t sizeof_data_size = sizeof(data_size_type);
 		const char *dataItr = data.data(), *dataEnd = data.data() + data.size();
 		user_ext_type &usr = user_ext.at(id);
 
@@ -76,7 +76,7 @@ void wx_srv_interface::on_data(user_id_type id, const std::string& data)
 				if (frm == nullptr)
 					throw(0);
 
-				data_length_type msg_size;
+				data_size_type msg_size;
 				read_len(msg_size);
 
 				checkErr(msg_size);
@@ -111,12 +111,12 @@ void wx_srv_interface::on_data(user_id_type id, const std::string& data)
 			}
 			case PAC_TYPE_FILE_H:
 			{
-				data_length_type recvLE;
+				data_size_type recvLE;
 				read_len(recvLE);
-				data_length_type blockCountAll = boost::endian::little_to_native(static_cast<data_length_type>(recvLE));
+				data_size_type blockCountAll = boost::endian::little_to_native(static_cast<data_size_type>(recvLE));
 
 				read_len(recvLE);
-				data_length_type fNameLen = boost::endian::little_to_native(static_cast<data_length_type>(recvLE));
+				data_size_type fNameLen = boost::endian::little_to_native(static_cast<data_size_type>(recvLE));
 
 				std::wstring fName;
 				{
@@ -147,9 +147,9 @@ void wx_srv_interface::on_data(user_id_type id, const std::string& data)
 			}
 			case PAC_TYPE_FILE_B:
 			{
-				data_length_type recvLE;
+				data_size_type recvLE;
 				read_len(recvLE);
-				data_length_type dataSize = boost::endian::little_to_native(static_cast<data_length_type>(recvLE));
+				data_size_type dataSize = boost::endian::little_to_native(static_cast<data_size_type>(recvLE));
 
 				checkErr(dataSize);
 
@@ -174,7 +174,7 @@ void wx_srv_interface::on_data(user_id_type id, const std::string& data)
 				if (frm == nullptr)
 					throw(0);
 
-				data_length_type image_size;
+				data_size_type image_size;
 				read_len(image_size);
 
 				int next_image_id;
