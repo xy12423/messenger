@@ -67,7 +67,7 @@ void pre_session::write_secret()
 	misc_io_service.post([this]() {
 		dhGen(priv, pubA);
 		std::shared_ptr<std::string> buf = std::make_shared<std::string>();
-		encrypt(pubA, *buf, e1);
+		encrypt(pubA.BytePtr(), pubA.SizeInBytes(), *buf, e1);
 		key_size_type len = boost::endian::native_to_little(static_cast<key_size_type>(buf->size()));
 		buf->insert(0, reinterpret_cast<const char*>(&len), sizeof(key_size_type));
 
@@ -131,7 +131,7 @@ void pre_session::read_secret()
 			misc_io_service.post([this]() {
 				try
 				{
-					decrypt(pubB_buffer.get(), pubB_size, pubB);
+					decrypt(reinterpret_cast<byte*>(pubB_buffer.get()), pubB_size, pubB);
 					if (!dhAgree(key, priv, pubB))
 						throw(std::runtime_error("Failed to reach shared secret"));
 					write_iv();
