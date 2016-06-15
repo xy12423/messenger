@@ -64,7 +64,7 @@ bool msg_logger::load_config(const config_table_tp& config_items)
 		if (!fs::exists(_log_path))
 			fs::create_directories(_log_path);
 		else if (!fs::is_directory(_log_path))
-			throw(0);
+			throw(plugin_error());
 		log_path = std::move(_log_path);
 		std::cout << "Using message log, log path:" << log_path << std::endl;
 
@@ -85,7 +85,7 @@ bool msg_logger::load_config(const config_table_tp& config_items)
 		}
 		catch (std::out_of_range &) {}
 	}
-	catch (int) { return false; }
+	catch (plugin_error &) { return false; }
 	catch (std::out_of_range &) { return false; }
 	return true;
 }
@@ -283,11 +283,11 @@ bool server_mail::load_config(const config_table_tp& config_items)
 		if (!fs::exists(_mail_path))
 			fs::create_directories(_mail_path);
 		else if (!fs::is_directory(_mail_path))
-			throw(0);
+			throw(plugin_error());
 		mails_path = std::move(_mail_path);
 		std::cout << "Mail enabled, mail path:" << mails_path << std::endl;
 	}
-	catch (int) { return false; }
+	catch (plugin_error &) { return false; }
 	catch (std::out_of_range &) { return false; }
 	return true;
 }

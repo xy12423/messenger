@@ -31,7 +31,10 @@ void fileSendThread::start(user_id_type uID, const fs::path& path)
 		{
 			data_size_type blockCountAll = static_cast<data_size_type>(fs::file_size(path));
 			if (blockCountAll == 0)
-				throw(0);
+			{
+				tasks.pop_back();
+				return;
+			}
 			if (blockCountAll % fileBlockLen == 0)
 				blockCountAll /= fileBlockLen;
 			else
@@ -53,6 +56,11 @@ void fileSendThread::start(user_id_type uID, const fs::path& path)
 			
 			if (write_not_in_progress)
 				write();
+		}
+		else
+		{
+			tasks.pop_back();
+			return;
 		}
 	});
 }

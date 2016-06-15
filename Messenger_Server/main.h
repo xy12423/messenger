@@ -38,6 +38,12 @@ struct user_ext
 };
 typedef std::unordered_map<int, user_ext> user_ext_list;
 
+class cli_server_error :public std::runtime_error
+{
+public:
+	cli_server_error() :std::runtime_error("Internal server error") {};
+};
+
 const int server_uid = -1;
 class cli_server :public msgr_inter
 {

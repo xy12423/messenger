@@ -51,6 +51,13 @@ namespace msgr_proto
 		rand_num_type rand_num_send, rand_num_recv;
 	};
 
+	//Exceptions that can be safely ignored
+	class msgr_proto_error :public std::runtime_error
+	{
+	public:
+		msgr_proto_error() :std::runtime_error("Error in msgr_proto") {};
+	};
+
 	class pre_session : public std::enable_shared_from_this<pre_session>
 	{
 	public:
@@ -304,7 +311,7 @@ namespace msgr_proto
 		server(asio::io_service& _main_io_service,
 			asio::io_service& _misc_io_service,
 			msgr_inter& _inter
-			)
+		)
 			: main_io_service(_main_io_service),
 			misc_io_service(_misc_io_service),
 			acceptor(main_io_service),

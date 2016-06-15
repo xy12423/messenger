@@ -282,7 +282,7 @@ void pre_session::read_session_id_body(int check_level)
 										if (!exiting)
 											srv.pre_session_over(shared_from_this());
 									});
-									throw(0);
+									throw(msgr_proto_error());
 								}
 								memcpy(reinterpret_cast<char*>(&rand_num), data.data() + sizeof(session_id_type), sizeof(rand_num_type));
 								rand_num = boost::endian::native_to_little(boost::endian::little_to_native(rand_num) + 1);
@@ -302,7 +302,7 @@ void pre_session::read_session_id_body(int check_level)
 										if (!exiting)
 											srv.pre_session_over(shared_from_this());
 									});
-									throw(0);
+									throw(msgr_proto_error());
 								}
 								break;
 							}
@@ -311,7 +311,7 @@ void pre_session::read_session_id_body(int check_level)
 						sid_packet_done();
 					}
 				}
-				catch (int) {}
+				catch (msgr_proto_error &) {}
 				catch (std::exception &ex)
 				{
 					std::cerr << ex.what() << std::endl;

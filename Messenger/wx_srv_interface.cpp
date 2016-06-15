@@ -21,12 +21,13 @@ wx_srv_interface::wx_srv_interface()
 		size_t pubCount = 0, keyLen = 0;
 		std::ifstream publicIn(publickeysFile, std::ios_base::in | std::ios_base::binary);
 		publicIn.read(reinterpret_cast<char*>(&pubCount), sizeof(size_t));
+		std::vector<char> buf;
 		for (; pubCount > 0; pubCount--)
 		{
 			publicIn.read(reinterpret_cast<char*>(&keyLen), sizeof(size_t));
-			std::unique_ptr<char[]> buf = std::make_unique<char[]>(keyLen);
-			publicIn.read(buf.get(), keyLen);
-			certifiedKeys.emplace(std::string(buf.get(), keyLen));
+			buf.resize(keyLen);
+			publicIn.read(buf.data(), keyLen);
+			certifiedKeys.emplace(std::string(buf.data(), keyLen));
 		}
 
 		publicIn.close();
@@ -50,7 +51,7 @@ wx_srv_interface::~wx_srv_interface()
 	publicOut.close();
 }
 
-#define checkErr(x) if (dataItr + (x) > dataEnd) throw(0)
+#define checkErr(x) if (dataItr + (x) > dataEnd) throw(wx_srv_interface_error())
 #define read_len(x)													\
 	checkErr(sizeof_data_size);										\
 	memcpy(reinterpret_cast<char*>(&(x)), dataItr, sizeof_data_size);	\
@@ -74,7 +75,7 @@ void wx_srv_interface::on_data(user_id_type id, const std::string& data)
 			case PAC_TYPE_MSG:
 			{
 				if (frm == nullptr)
-					throw(0);
+					throw(wx_srv_interface_error());
 
 				data_size_type msg_size;
 				read_len(msg_size);
@@ -172,7 +173,7 @@ void wx_srv_interface::on_data(user_id_type id, const std::string& data)
 			case PAC_TYPE_IMAGE:
 			{
 				if (frm == nullptr)
-					throw(0);
+					throw(wx_srv_interface_error());
 
 				data_size_type image_size;
 				read_len(image_size);
@@ -230,12 +231,10 @@ void wx_srv_interface::on_data(user_id_type id, const std::string& data)
 			}
 		}
 	}
+	catch (wx_srv_interface_error &) {}
 	catch (std::exception &ex)
 	{
 		std::cerr << ex.what() << std::endl;
-	}
-	catch (int)
-	{
 	}
 	catch (...)
 	{

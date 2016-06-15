@@ -82,6 +82,13 @@ extern const char* IMG_TMP_PATH_NAME;
 extern const char* IMG_TMP_FILE_NAME;
 const size_t IMAGE_SIZE_LIMIT = 0x400000;
 
+//Exceptions that can be safely ignored
+class wx_srv_interface_error :public std::runtime_error
+{
+public:
+	wx_srv_interface_error() :std::runtime_error("Error in wx_srv_interface") {};
+};
+
 class wx_srv_interface :public msgr_inter
 {
 public:
