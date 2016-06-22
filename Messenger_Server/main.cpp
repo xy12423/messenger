@@ -76,12 +76,12 @@ void cli_server::write_data()
 	if (!fout.is_open())
 		return;
 	fout.write(reinterpret_cast<const char*>(&data_ver), sizeof(uint32_t));
-	uint32_t size = user_records.size();
+	uint32_t size = static_cast<uint32_t>(user_records.size());
 	fout.write(reinterpret_cast<char*>(&size), sizeof(uint32_t));
 	for (const std::pair<std::string, user_record> &pair : user_records)
 	{
 		const user_record &user = pair.second;
-		size = user.name.size();
+		size = static_cast<uint32_t>(user.name.size());
 		fout.write(reinterpret_cast<char*>(&size), sizeof(uint32_t));
 		fout.write(user.name.data(), size);
 		fout.write(user.passwd.data(), hash_size);
@@ -109,13 +109,14 @@ void cli_server::read_data()
 	uint32_t userCount, size;
 	fin.read(reinterpret_cast<char*>(&userCount), sizeof(uint32_t));
 	char passwd_buf[hash_size];
+	std::vector<char> buf;
 	for (; userCount > 0; userCount--)
 	{
 		user_record user;
 		fin.read(reinterpret_cast<char*>(&size), sizeof(uint32_t));
-		std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
-		fin.read(buf.get(), size);
-		user.name = std::string(buf.get(), size);
+		buf.resize(size);
+		fin.read(buf.data(), size);
+		user.name = std::string(buf.data(), size);
 		fin.read(passwd_buf, hash_size);
 		user.passwd = std::string(passwd_buf, hash_size);
 		fin.read(reinterpret_cast<char*>(&size), sizeof(uint32_t));
@@ -152,7 +153,7 @@ void cli_server::read_config()
 	}
 }
 
-#define checkErr(x) if (dataItr + (x) > dataEnd) throw(0)
+#define checkErr(x) if (dataItr + (x) > dataEnd) throw(cli_server_error())
 #define read_uint(x)												\
 	checkErr(size_length);											\
 	memcpy(reinterpret_cast<char*>(&(x)), dataItr, size_length);	\
@@ -162,7 +163,7 @@ void cli_server::on_data(user_id_type id, const std::string& data)
 {
 	try
 	{
-		const size_t size_length = sizeof(data_length_type);
+		const size_t size_length = sizeof(data_size_type);
 		const char *dataItr = data.data(), *dataEnd = data.data() + data.size();
 
 		byte type;
@@ -173,7 +174,7 @@ void cli_server::on_data(user_id_type id, const std::string& data)
 		{
 			case PAC_TYPE_MSG:
 			{
-				data_length_type sizeRecv;
+				data_size_type sizeRecv;
 				read_uint(sizeRecv);
 
 				checkErr(sizeRecv);
@@ -199,12 +200,10 @@ void cli_server::on_data(user_id_type id, const std::string& data)
 			}
 		}
 	}
+	catch (cli_server_error &) {}
 	catch (std::exception &ex)
 	{
 		std::cerr << ex.what() << std::endl;
-	}
-	catch (int)
-	{
 	}
 	catch (...)
 	{
@@ -299,7 +298,7 @@ void cli_server::on_image(user_id_type id, const std::string& data)
 		{
 			broadcast_msg(id, empty_string);
 			broadcast_data(id, data, msgr_proto::session::priority_msg);
-			m_plugin.on_img(user.name, data.data() + 1 + sizeof(data_length_type), data.size() - (1 + sizeof(data_length_type)));
+			m_plugin.on_img(user.name, data.data() + 1 + sizeof(data_size_type), data.size() - (1 + sizeof(data_size_type)));
 		}
 	}
 }
@@ -383,12 +382,12 @@ void cli_server::broadcast_data(int src, const std::string& data, int priority)
 	}
 }
 
-std::string cli_server::process_command(std::string cmd, user_record& user)
+std::string cli_server::process_command(std::string& cmd, user_record& user)
 {
 	user_record::group_type group = user.group;
 	std::string ret;
 
-	int pos = cmd.find(' ');
+	size_t pos = cmd.find(' ');
 	std::string args;
 	if (pos != std::string::npos)
 	{
@@ -470,6 +469,20 @@ std::string cli_server::process_command(std::string cmd, user_record& user)
 			srv->connect(args, portConnect);
 		}
 	}
+	else if (cmd == "list")
+	{
+		if (group >= user_record::USER)
+		{
+			for (const std::pair<int, user_ext> &p : user_exts)
+			{
+				if (p.first == server_uid)
+					continue;
+				ret.append(p.second.name);
+				ret.push_back(';');
+			}
+			ret.pop_back();
+		}
+	}
 	else if (cmd == "stop")
 	{
 		if (group >= user_record::CONSOLE)
@@ -478,6 +491,10 @@ std::string cli_server::process_command(std::string cmd, user_record& user)
 			exit_promise.set_value();
 			ret = "Stopping server";
 		}
+	}
+	else
+	{
+		m_plugin.on_cmd(user.name, cmd, args);
 	}
 	return ret;
 }
@@ -545,10 +562,9 @@ int main(int argc, char *argv[])
 			else if (arg == "relay")
 				inter.set_mode(RELAY);
 			else
-				throw(0);
+				throw(std::out_of_range(""));
 			std::cout << "Mode set to " << arg << std::endl;
 		}
-		catch (int) {}
 		catch (std::out_of_range &) {}
 		try
 		{
@@ -589,6 +605,7 @@ int main(int argc, char *argv[])
 		catch (std::out_of_range &) {}
 
 		m_plugin.new_plugin<msg_logger>();
+		m_plugin.new_plugin<server_mail>();
 		m_plugin.init(config_items);
 
 		std::srand(static_cast<unsigned int>(std::time(NULL)));
@@ -646,7 +663,7 @@ int main(int argc, char *argv[])
 	}
 	catch (std::exception& e)
 	{
-		std::cerr << "Exception: " << e.what() << "\n";
+		std::cerr << "Exception: " << e.what() << std::endl;
 	}
 #endif
 	return 0;

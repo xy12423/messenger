@@ -1,6 +1,12 @@
 #include "stdafx.h"
 #include "plugin.h"
 
+class plugin_loading_error :public std::runtime_error
+{
+public:
+	plugin_loading_error() :std::runtime_error("Failed to load plugin") {};
+};
+
 typedef void(*RegPluginPtr)(plugin_id_type plugin_id);
 typedef uint8_t(*RegNextTypePtr)();
 typedef const char*(*RegNextMethodPtr)();
@@ -121,7 +127,7 @@ int load_plugin(const std::wstring& plugin_full_path)
 	{
 		lib_ptr plugin = std::make_unique<wxDynamicLibrary>(plugin_full_path);
 		if (!plugin->IsLoaded())
-			throw(-1);	//Plugin not loaded
+			throw(plugin_loading_error());	//Plugin not loaded
 
 		//Load basic symbols
 		void *ExportFuncPtr[ExportFuncCount];
@@ -129,7 +135,7 @@ int load_plugin(const std::wstring& plugin_full_path)
 		{
 			ExportFuncPtr[i] = plugin->GetSymbol(ExportFuncName[i]);
 			if (ExportFuncPtr[i] == nullptr)
-				throw(-1);	//Symbol not found
+				throw(plugin_loading_error());	//Symbol not found
 		}
 		RegNextTypePtr regType = reinterpret_cast<RegNextTypePtr>(ExportFuncPtr[RegNextType]);
 		RegNextMethodPtr regMethod = reinterpret_cast<RegNextMethodPtr>(ExportFuncPtr[RegNextMethod]);
@@ -139,7 +145,7 @@ int load_plugin(const std::wstring& plugin_full_path)
 		//Alloc new plugin id
 		std::list<plugin_id_type>::iterator plugin_id_itr;
 		if (!new_plugin_id(plugin_id_itr))
-			throw(-1);	//No more plugin id
+			throw(plugin_loading_error());	//No more plugin id
 		plugin_id = *plugin_id_itr;
 		reinterpret_cast<RegPluginPtr>(ExportFuncPtr[RegPlugin])(plugin_id);
 		reinterpret_cast<SetGetMethodHandlerPtr>(ExportFuncPtr[SetGetMethodHandler])(get_method);
@@ -153,11 +159,11 @@ int load_plugin(const std::wstring& plugin_full_path)
 		while (nextMethodCStr != nullptr && !(nextMethod.assign(nextMethodCStr)).empty())
 		{
 			if (plugin_methods.find(nextMethod) != itrEnd)
-				throw(-1);	//Confliction
+				throw(plugin_loading_error());	//Confliction
 
 			void* nextMethodPtr = plugin->GetSymbol(nextMethod);
 			if (nextMethodPtr == nullptr)
-				throw(-1);	//Method not found
+				throw(plugin_loading_error());	//Method not found
 
 			methods.emplace(nextMethod, nextMethodPtr);
 			nextMethodCStr = regMethod();
@@ -171,7 +177,7 @@ int load_plugin(const std::wstring& plugin_full_path)
 		{
 			void* nextCallbackPtr = plugin->GetSymbol(nextCallback);
 			if (nextCallbackPtr == nullptr)
-				throw(-1);	//Callback not found
+				throw(plugin_loading_error());	//Callback not found
 
 			callbacks.emplace(nextCallback, nextCallbackPtr);
 			nextCallbackCStr = regCallback();
@@ -184,7 +190,7 @@ int load_plugin(const std::wstring& plugin_full_path)
 		{
 			nextType &= 0x7F;
 			if (TypeRegs[nextType].used)
-				throw(-1);	//Confliction
+				throw(plugin_loading_error());	//Confliction
 			types.emplace(nextType);
 			nextType = regType();
 		}
@@ -194,7 +200,7 @@ int load_plugin(const std::wstring& plugin_full_path)
 		{
 			SetHandlerPtr SetHandler = reinterpret_cast<SetHandlerPtr>(plugin->GetSymbol(wxT("Set") + ExportHandlerName[i]));
 			if (SetHandler == nullptr)
-				throw(-1);	//Symbol not found
+				throw(plugin_loading_error());	//Symbol not found
 			SetHandler(ExportHandlers[i]);
 		}
 
@@ -226,12 +232,12 @@ int load_plugin(const std::wstring& plugin_full_path)
 
 		free_plugin_id.erase(plugin_id_itr);
 	}
+	catch (plugin_loading_error &) { return -1; }
 	catch (std::exception &ex)
 	{
 		std::cerr << ex.what() << std::endl;
 		return -1;
 	}
-	catch (int) { return -1; }
 	
 	return plugin_id;
 }

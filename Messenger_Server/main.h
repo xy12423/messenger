@@ -38,6 +38,12 @@ struct user_ext
 };
 typedef std::unordered_map<int, user_ext> user_ext_list;
 
+class cli_server_error :public std::runtime_error
+{
+public:
+	cli_server_error() :std::runtime_error("Internal server error") {};
+};
+
 const int server_uid = -1;
 class cli_server :public msgr_inter
 {
@@ -66,7 +72,7 @@ public:
 	inline void send_data(user_id_type id, std::string&& data, int priority) { srv->send_data(id, std::move(data), priority); };
 	void broadcast_msg(int id, const std::string& msg);
 	void broadcast_data(int id, const std::string& data, int priority);
-	std::string process_command(std::string cmd, user_record& user);
+	std::string process_command(std::string& cmd, user_record& user);
 
 	bool get_id_by_name(const std::string& name, user_id_type& ret);
 
