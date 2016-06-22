@@ -1,15 +1,18 @@
 #include "stdafx.h"
 #include "global.h"
 
-void ltrim(std::string &str)
+void ltrim(std::string& str)
 {
 	if (str.empty())
 		return;
-	while (isspace(str.front()))
-		str.erase(0, 1);
+	std::string::iterator itr = str.begin(), itrEnd = str.end();
+	for (; itr != itrEnd; itr++)
+		if (!isspace(*itr))
+			break;
+	str.erase(str.begin(), itr);
 }
 
-void rtrim(std::string &str)
+void rtrim(std::string& str)
 {
 	if (str.empty())
 		return;
@@ -17,7 +20,7 @@ void rtrim(std::string &str)
 		str.pop_back();
 }
 
-void trim(std::string &str)
+void trim(std::string& str)
 {
 	ltrim(str);
 	rtrim(str);

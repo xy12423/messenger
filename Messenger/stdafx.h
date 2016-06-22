@@ -35,9 +35,11 @@ namespace asio = boost::asio;
 
 #include <cryptopp/cryptlib.h>
 #include <cryptopp/eccrypto.h>
+#include <cryptopp/aes.h>
 #include <cryptopp/files.h>
 #include <cryptopp/osrng.h>
 #include <cryptopp/oids.h>
+#include <cryptopp/modes.h>
 
 #include <wx/platform.h>
 #include <wx/wxprec.h>
@@ -49,22 +51,22 @@ namespace asio = boost::asio;
 #include <wx/dynlib.h>
 #ifdef _MSC_VER
 #	ifdef _DEBUG
-#		pragma comment (lib, "wxbase30ud.lib")
-#		pragma comment (lib, "wxbase30ud_net.lib")
-#		pragma comment (lib, "wxbase30ud_xml.lib")
-#		pragma comment (lib, "wxmsw30ud_adv.lib")
-#		pragma comment (lib, "wxmsw30ud_aui.lib")
-#		pragma comment (lib, "wxmsw30ud_core.lib")
-#		pragma comment (lib, "wxmsw30ud_gl.lib")
-#		pragma comment (lib, "wxmsw30ud_html.lib")
-#		pragma comment (lib, "wxmsw30ud_media.lib")
-#		pragma comment (lib, "wxmsw30ud_propgrid.lib")
-#		pragma comment (lib, "wxmsw30ud_qa.lib")
-#		pragma comment (lib, "wxmsw30ud_ribbon.lib")
-#		pragma comment (lib, "wxmsw30ud_richtext.lib")
-#		pragma comment (lib, "wxmsw30ud_stc.lib")
-#		pragma comment (lib, "wxmsw30ud_webview.lib")
-#		pragma comment (lib, "wxmsw30ud_xrc.lib")
+#		pragma comment (lib, "wxbase31ud.lib")
+#		pragma comment (lib, "wxbase31ud_net.lib")
+#		pragma comment (lib, "wxbase31ud_xml.lib")
+#		pragma comment (lib, "wxmsw31ud_adv.lib")
+#		pragma comment (lib, "wxmsw31ud_aui.lib")
+#		pragma comment (lib, "wxmsw31ud_core.lib")
+#		pragma comment (lib, "wxmsw31ud_gl.lib")
+#		pragma comment (lib, "wxmsw31ud_html.lib")
+#		pragma comment (lib, "wxmsw31ud_media.lib")
+#		pragma comment (lib, "wxmsw31ud_propgrid.lib")
+#		pragma comment (lib, "wxmsw31ud_qa.lib")
+#		pragma comment (lib, "wxmsw31ud_ribbon.lib")
+#		pragma comment (lib, "wxmsw31ud_richtext.lib")
+#		pragma comment (lib, "wxmsw31ud_stc.lib")
+#		pragma comment (lib, "wxmsw31ud_webview.lib")
+#		pragma comment (lib, "wxmsw31ud_xrc.lib")
 #		pragma comment (lib, "wxexpatd.lib")
 #		pragma comment (lib, "wxjpegd.lib")
 #		pragma comment (lib, "wxpngd.lib")
@@ -73,22 +75,22 @@ namespace asio = boost::asio;
 #		pragma comment (lib, "wxtiffd.lib")
 #		pragma comment (lib, "wxzlibd.lib")
 #	else
-#		pragma comment (lib, "wxbase30u.lib")
-#		pragma comment (lib, "wxbase30u_net.lib")
-#		pragma comment (lib, "wxbase30u_xml.lib")
-#		pragma comment (lib, "wxmsw30u_adv.lib")
-#		pragma comment (lib, "wxmsw30u_aui.lib")
-#		pragma comment (lib, "wxmsw30u_core.lib")
-#		pragma comment (lib, "wxmsw30u_gl.lib")
-#		pragma comment (lib, "wxmsw30u_html.lib")
-#		pragma comment (lib, "wxmsw30u_media.lib")
-#		pragma comment (lib, "wxmsw30u_propgrid.lib")
-#		pragma comment (lib, "wxmsw30u_qa.lib")
-#		pragma comment (lib, "wxmsw30u_ribbon.lib")
-#		pragma comment (lib, "wxmsw30u_richtext.lib")
-#		pragma comment (lib, "wxmsw30u_stc.lib")
-#		pragma comment (lib, "wxmsw30u_webview.lib")
-#		pragma comment (lib, "wxmsw30u_xrc.lib")
+#		pragma comment (lib, "wxbase31u.lib")
+#		pragma comment (lib, "wxbase31u_net.lib")
+#		pragma comment (lib, "wxbase31u_xml.lib")
+#		pragma comment (lib, "wxmsw31u_adv.lib")
+#		pragma comment (lib, "wxmsw31u_aui.lib")
+#		pragma comment (lib, "wxmsw31u_core.lib")
+#		pragma comment (lib, "wxmsw31u_gl.lib")
+#		pragma comment (lib, "wxmsw31u_html.lib")
+#		pragma comment (lib, "wxmsw31u_media.lib")
+#		pragma comment (lib, "wxmsw31u_propgrid.lib")
+#		pragma comment (lib, "wxmsw31u_qa.lib")
+#		pragma comment (lib, "wxmsw31u_ribbon.lib")
+#		pragma comment (lib, "wxmsw31u_richtext.lib")
+#		pragma comment (lib, "wxmsw31u_stc.lib")
+#		pragma comment (lib, "wxmsw31u_webview.lib")
+#		pragma comment (lib, "wxmsw31u_xrc.lib")
 #		pragma comment (lib, "wxexpat.lib")
 #		pragma comment (lib, "wxjpeg.lib")
 #		pragma comment (lib, "wxpng.lib")
@@ -101,10 +103,8 @@ namespace asio = boost::asio;
 
 #ifdef _MSC_VER
 #ifdef _DEBUG
-#pragma comment (lib, "zlibd.lib")
 #pragma comment (lib, "cryptlibd.lib")
 #else
-#pragma comment (lib, "zlib.lib")
 #pragma comment (lib, "cryptlib.lib")
 #endif
 #pragma comment (lib, "ws2_32.lib")

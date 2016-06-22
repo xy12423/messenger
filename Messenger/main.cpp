@@ -51,21 +51,21 @@ void plugin_handler_SendData(plugin_id_type plugin_id, int to, const char* data,
 {
 	if (!plugin_check_id_type(plugin_id, *data))
 		return;
-	std::string data_str(data, size);
+	std::shared_ptr<std::string> data_str = std::make_shared<std::string>(data, size);
 	if (to == -1)
 	{
 		for (const std::pair<user_id_type, user_ext_type> &p : user_ext)
 		{
 			user_id_type id = p.first;
 			misc_io_service.post([id, data_str]() {
-				srv->send_data(id, data_str, msgr_proto::session::priority_plugin);
+				srv->send_data(id, *data_str, msgr_proto::session::priority_plugin);
 			});
 		};
 	}
 	else if (to >= 0 && to <= std::numeric_limits<plugin_id_type>::max())
 	{
 		misc_io_service.post([to, data_str]() {
-			srv->send_data(static_cast<user_id_type>(to), data_str, msgr_proto::session::priority_plugin);
+			srv->send_data(static_cast<user_id_type>(to), *data_str, msgr_proto::session::priority_plugin);
 		});
 	}
 }
@@ -90,10 +90,10 @@ int plugin_handler_NewVirtualUser(plugin_id_type plugin_id, const char* name)
 
 		std::shared_ptr<msgr_proto::virtual_session> new_session = std::make_shared<msgr_proto::virtual_session>(*srv, name_str);
 		if (virtual_msg_handler == nullptr)
-			new_session->set_callback([](const std::string &) {});
+			new_session->set_callback([](const std::string&) {});
 		else
 		{
-			new_session->set_callback([new_session, virtual_msg_handler](const std::string &data) {
+			new_session->set_callback([new_session, virtual_msg_handler](const std::string& data) {
 				virtual_msg_handler(new_session->get_id(), data.data(), data.size());
 			});
 		}
@@ -126,14 +126,14 @@ bool plugin_handler_DelVirtualUser(plugin_id_type plugin_id, uint16_t virtual_us
 	return false;
 }
 
-bool plugin_handler_VirtualUserMsg(plugin_id_type plugin_id, uint16_t virtual_user_id, const char* message, uint32_t length)
+bool plugin_handler_VirtualUserMsg(plugin_id_type plugin_id, uint16_t virtual_user_id, const char* message, uint32_t size)
 {
 	try
 	{
 		plugin_info_type &info = plugin_info.at(plugin_id);
 		if (info.virtual_user_list.find(virtual_user_id) != info.virtual_user_list.end())
 		{
-			std::dynamic_pointer_cast<msgr_proto::virtual_session>(srv->get_session(virtual_user_id))->push(std::string(message, length));
+			std::dynamic_pointer_cast<msgr_proto::virtual_session>(srv->get_session(virtual_user_id))->push(std::string(message, size));
 			return true;
 		}
 	}
@@ -157,7 +157,7 @@ void plugin_method_Print(plugin_id_type plugin_id, const char* msg)
 	catch (...) {}
 }
 
-mainFrame::mainFrame(const wxString &title)
+mainFrame::mainFrame(const wxString& title)
 	: wxFrame(NULL, ID_FRAME, title, wxDefaultPosition, wxSize(_GUI_SIZE_X, _GUI_SIZE_Y))
 {
 	Center();
@@ -330,6 +330,7 @@ void mainFrame::buttonSend_Click(wxCommandEvent& event)
 			});
 			textMsg->AppendText("Me:" + msg + '\n');
 			user_ext[uID].log.push_back("Me:" + msg + '\n');
+			textMsg->ShowPosition(textMsg->GetLastPosition());
 		}
 	}
 }
@@ -368,22 +369,20 @@ void mainFrame::buttonSendImage_Click(wxCommandEvent& event)
 				user_ext[uID].log.push_back(image_path);
 				user_ext[uID].log.push_back("\n");
 
-				std::string img_buf;
+				std::shared_ptr<std::string> img_buf = std::make_shared<std::string>();
 
 				std::ifstream fin(path.ToStdString(), std::ios_base::in | std::ios_base::binary);
 				std::unique_ptr<char[]> read_buf = std::make_unique<char[]>(fileSendThread::fileBlockLen);
 				while (!fin.eof())
 				{
 					fin.read(read_buf.get(), fileSendThread::fileBlockLen);
-					img_buf.append(read_buf.get(), fin.gcount());
+					img_buf->append(read_buf.get(), fin.gcount());
 				}
 				fin.close();
-				insLen(img_buf);
-				img_buf.insert(0, 1, PAC_TYPE_IMAGE);
+				insLen(*img_buf);
+				img_buf->insert(0, 1, PAC_TYPE_IMAGE);
 
-				misc_io_service.post([uID, img_buf]() {
-					srv->send_data(uID, img_buf, msgr_proto::session::priority_msg);
-				});
+				srv->send_data(uID, std::move(*img_buf), msgr_proto::session::priority_msg);
 			}
 		}
 	}
@@ -447,7 +446,6 @@ bool MyApp::OnInit()
 		wxImage::AddHandler(new wxPNGHandler);
 		wxImage::AddHandler(new wxJPEGHandler);
 		wxImage::AddHandler(new wxGIFHandler);
-		wxImage::AddHandler(new wxBMPHandler);
 		if (fs::exists(IMG_TMP_PATH_NAME))
 			fs::remove_all(IMG_TMP_PATH_NAME);
 		fs::create_directories(IMG_TMP_PATH_NAME);
@@ -494,6 +492,7 @@ bool MyApp::OnInit()
 			}
 		}
 		
+		std::srand(static_cast<unsigned int>(std::time(NULL)));
 		for (; portsBegin <= portsEnd; portsBegin++)
 			inter.free_rand_port(portsBegin);
 		srv = std::make_unique<msgr_proto::server>(main_io_service, misc_io_service, inter,

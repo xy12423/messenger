@@ -4,13 +4,10 @@
 
 using namespace msgr_proto;
 
-const char* privatekeyFile = ".privatekey";
-const char* publickeysFile = ".publickey";
-
-void insLen(std::string &data)
+void insLen(std::string& data)
 {
-	data_length_type len = boost::endian::native_to_little(static_cast<data_length_type>(data.size()));
-	data.insert(0, std::string(reinterpret_cast<const char*>(&len), sizeof(data_length_type)));
+	data_size_type len = boost::endian::native_to_little(static_cast<data_size_type>(data.size()));
+	data.insert(0, reinterpret_cast<const char*>(&len), sizeof(data_size_type));
 }
 
 void server::start()
@@ -32,7 +29,7 @@ void server::start()
 	});
 }
 
-void server::pre_session_over(const std::shared_ptr<pre_session> &_pre, bool successful)
+void server::pre_session_over(const std::shared_ptr<pre_session>& _pre, bool successful)
 {
 	if (!successful)
 	{
@@ -43,17 +40,16 @@ void server::pre_session_over(const std::shared_ptr<pre_session> &_pre, bool suc
 	pre_sessions.erase(_pre);
 }
 
-void server::join(const session_ptr &_user)
+void server::join(const session_ptr& _user)
 {
 	user_id_type newID = nextID;
 	nextID++;
 	sessions.emplace(newID, _user);
+	_user->uid = newID;
 
-	try{ inter.on_join(newID); }
+	try{ inter.on_join(newID, _user->get_key()); }
 	catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
 	catch (...) {}
-
-	_user->uid = newID;
 }
 
 void server::leave(user_id_type _user)
@@ -94,7 +90,7 @@ bool server::send_data(user_id_type id, const std::string& data, int priority, c
 	return send_data(id, data, priority, [message]() {std::cout << message << std::endl; });
 }
 
-bool server::send_data(user_id_type id, const std::string& data, int priority, session::write_callback &&callback)
+bool server::send_data(user_id_type id, const std::string& data, int priority, session::write_callback&& callback)
 {
 	session_list_type::iterator itr(sessions.find(id));
 	if (itr == sessions.end())
@@ -104,7 +100,27 @@ bool server::send_data(user_id_type id, const std::string& data, int priority, s
 	return true;
 }
 
-void server::connect(const std::string &addr_str, port_type remote_port)
+bool server::send_data(user_id_type id, std::string&& data, int priority)
+{
+	return send_data(id, std::move(data), priority, []() {});
+}
+
+bool server::send_data(user_id_type id, std::string&& data, int priority, const std::string& message)
+{
+	return send_data(id, std::move(data), priority, [message]() {std::cout << message << std::endl; });
+}
+
+bool server::send_data(user_id_type id, std::string&& data, int priority, session::write_callback&& callback)
+{
+	session_list_type::iterator itr(sessions.find(id));
+	if (itr == sessions.end())
+		return false;
+	session_ptr sptr = itr->second;
+	sptr->send(std::move(data), priority, std::move(callback));
+	return true;
+}
+
+void server::connect(const std::string& addr_str, port_type remote_port)
 {
 	connect({ addr_str, std::to_string(remote_port) });
 }
@@ -114,7 +130,7 @@ void server::connect(unsigned long addr_ulong, port_type remote_port)
 	connect(asio::ip::tcp::endpoint(asio::ip::address_v4(addr_ulong), remote_port));
 }
 
-void server::connect(const asio::ip::tcp::endpoint &remote_endpoint)
+void server::connect(const asio::ip::tcp::endpoint& remote_endpoint)
 {
 	port_type local_port;
 	if (!inter.new_rand_port(local_port))
@@ -143,7 +159,7 @@ void server::connect(const asio::ip::tcp::endpoint &remote_endpoint)
 	}
 }
 
-void server::connect(const asio::ip::tcp::resolver::query &query)
+void server::connect(const asio::ip::tcp::resolver::query& query)
 {
 	port_type local_port;
 	if (!inter.new_rand_port(local_port))
@@ -190,49 +206,4 @@ void server::connect(const asio::ip::tcp::resolver::query &query)
 void server::disconnect(user_id_type id)
 {
 	leave(id);
-}
-
-void server::read_data()
-{
-	if (fs::exists(privatekeyFile))
-		initKey();
-	else
-		genKey();
-
-	if (fs::exists(publickeysFile))
-	{
-		size_t pubCount = 0, keyLen = 0;
-		std::ifstream publicIn(publickeysFile, std::ios_base::in | std::ios_base::binary);
-		publicIn.read(reinterpret_cast<char*>(&pubCount), sizeof(size_t));
-		for (; pubCount > 0; pubCount--)
-		{
-			publicIn.read(reinterpret_cast<char*>(&keyLen), sizeof(size_t));
-			std::unique_ptr<char[]> buf = std::make_unique<char[]>(keyLen);
-			publicIn.read(buf.get(), keyLen);
-			certifiedKeys.emplace(std::string(buf.get(), keyLen));
-		}
-
-		publicIn.close();
-	}
-
-	e0str = getPublicKey();
-	key_length_type e0len = boost::endian::native_to_little(static_cast<key_length_type>(e0str.size()));
-	e0str = std::string(reinterpret_cast<const char*>(&e0len), sizeof(key_length_type)) + e0str;
-}
-
-void server::write_data()
-{
-	size_t pubCount = certifiedKeys.size(), keySize = 0;
-	std::ofstream publicOut(publickeysFile, std::ios_base::out | std::ios_base::binary);
-	publicOut.write(reinterpret_cast<char*>(&pubCount), sizeof(size_t));
-
-	std::unordered_set<std::string>::iterator itr = certifiedKeys.begin(), itrEnd = certifiedKeys.end();
-	for (; itr != itrEnd; itr++)
-	{
-		keySize = itr->size();
-		publicOut.write(reinterpret_cast<char*>(&keySize), sizeof(size_t));
-		publicOut.write(itr->data(), keySize);
-	}
-
-	publicOut.close();
 }

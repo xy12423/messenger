@@ -1,27 +1,28 @@
-CXX = g++-5
-ifdef CLANG
-  CXX = clang++
-endif
-
 objects = crypto.o session.o session_server.o threads.o plugin.o wx_srv_interface.o frmAddrInput.o main.o
-wx_cppflag = `wx-config --cppflags`
-cppflag = -c -o2 $(wx_cppflag) -pthread -I ~/boost -Wno-deprecated-declarations -std=c++14
-wx_lflag = `wx-config --libs`
-lflag = -pthread -L ~/boost/stage/lib $(wx_lflag) -lboost_filesystem-mt-s -lboost_system-mt-s -lcryptopp
+wx_cppflag = `wx-config --cppflags std,richtext`
+wx_lflag = `wx-config --libs std,richtext`
 
-ifdef RELEASE
-  cppflag += -O2 -march=native -mtune=native
+ifeq ($(shell sh -c 'uname -s'), Darwin)
+    cppflag = -c $(wx_cppflag) -I /usr/local/include -Wno-deprecated-declarations -std=c++14
+    lflag = -lpthread -L /usr/local/lib $(wx_lflag) -lboost_filesystem-mt -lboost_system-mt -lcryptopp
+    CXX = clang++
 else
-  cppflag += -g3 -O0
+    cppflag = -c $(wx_cppflag) -pthread -I ~/boost -Wno-deprecated-declarations -std=c++14
+    lflag = -pthread -L ~/boost/stage/lib $(wx_lflag) -lboost_filesystem-mt-s -lboost_system-mt-s -lcryptopp
+    CXX = g++
 endif
 
-ifdef NO_WARNING
-  cppflag += -w
+ifeq ($(RELEASE), 1)
+    cppflag += -O2 -g0 -DNDEBUG
 else
-  ifdef CLANG
-    cppflag += -Wno-potentially-evaluated-expression
-  endif
+    cppflag += -g -O0 -D_DEBUG
 endif
+
+ifeq ($(NOWARNING), 1)
+    cppflag += -w
+endif
+
+all: messenger
 
 messenger : $(objects)
 	$(CXX) $(objects) $(lflag) -o messenger

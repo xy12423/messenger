@@ -82,24 +82,35 @@ extern const char* IMG_TMP_PATH_NAME;
 extern const char* IMG_TMP_FILE_NAME;
 const size_t IMAGE_SIZE_LIMIT = 0x400000;
 
-class wx_srv_interface :public server_interface
+//Exceptions that can be safely ignored
+class wx_srv_interface_error :public std::runtime_error
 {
 public:
-	virtual void on_data(user_id_type id, const std::string &data);
+	wx_srv_interface_error() :std::runtime_error("Error in wx_srv_interface") {};
+};
 
-	virtual void on_join(user_id_type id);
+class wx_srv_interface :public msgr_inter
+{
+public:
+	wx_srv_interface();
+	~wx_srv_interface();
+
+	virtual void on_data(user_id_type id, const std::string& data);
+
+	virtual void on_join(user_id_type id, const std::string& key);
 	virtual void on_leave(user_id_type id);
 
-	virtual void on_unknown_key(user_id_type id, const std::string& key);
-
-	virtual bool new_rand_port(port_type &port);
+	virtual bool new_rand_port(port_type& port);
 	virtual void free_rand_port(port_type port) { ports.push_back(port); };
+
+	void certify_key(const std::string& key) { certifiedKeys.emplace(key); }
+	void certify_key(std::string&& key) { certifiedKeys.emplace(key); }
 
 	void set_frame(mainFrame *_frm) { frm = _frm; }
 	void set_static_port(port_type port) { static_port = port; };
-	void new_image_id(int &id) { id = image_id; image_id++; }
+	void new_image_id(int& id) { id = image_id; image_id++; }
 private:
-	std::unordered_set<iosrvThread*> threads;
+	std::unordered_set<std::string> certifiedKeys;
 	std::list<port_type> ports;
 	int static_port = -1;
 
@@ -119,7 +130,7 @@ private:
 
 struct plugin_info_type
 {
-	typedef void(*virtual_msg_handler_ptr)(uint16_t virtual_user_id, const char* data, uint32_t length);
+	typedef void(*virtual_msg_handler_ptr)(uint16_t virtual_user_id, const char* data, uint32_t size);
 
 	std::string name;
 	plugin_id_type plugin_id;

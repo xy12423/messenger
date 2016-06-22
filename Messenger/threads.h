@@ -19,23 +19,23 @@ protected:
 
 struct fileSendTask
 {
-	fileSendTask(user_id_type _uID, const fs::path &path)
+	fileSendTask(user_id_type _uID, const fs::path& path)
 		:fileName(path.wstring()), uID(_uID),
 		fin(path.string(), std::ios_base::in | std::ios_base::binary)
 	{}
 	user_id_type uID;
 	std::wstring fileName;
 	std::ifstream fin;
-	data_length_type blockCount = 1, blockCountAll;
+	data_size_type blockCount = 1, blockCountAll;
 };
 
 class fileSendThread :public wxThread
 {
 public:
-	fileSendThread(msgr_proto::server &_srv) : wxThread(wxTHREAD_DETACHED), srv(_srv), block(std::make_unique<char[]>(fileBlockLen)) {}
+	fileSendThread(msgr_proto::server& _srv) : wxThread(wxTHREAD_DETACHED), srv(_srv), block(std::make_unique<char[]>(fileBlockLen)) {}
 	wxThreadError Delete(ExitCode *rc = NULL, wxThreadWait waitMode = wxTHREAD_WAIT_DEFAULT) { stop_thread(); return wxThread::Delete(); }
 	
-	void start(user_id_type uID, const fs::path &path);
+	void start(user_id_type uID, const fs::path& path);
 	void stop(user_id_type uID);
 
 	void stop_thread() { iosrv_work.reset(); iosrv.stop(); }
@@ -61,9 +61,9 @@ struct user_ext_type
 	struct log_type
 	{
 		log_type(const char* _msg) :is_image(false), msg(_msg) {}
-		log_type(const std::string &_msg) :is_image(false), msg(_msg) {}
-		log_type(const wxString &_msg) :is_image(false), msg(_msg) {}
-		log_type(const fs::path &_image) :is_image(true), image(_image) {}
+		log_type(const std::string& _msg) :is_image(false), msg(_msg) {}
+		log_type(const wxString& _msg) :is_image(false), msg(_msg) {}
+		log_type(const fs::path& _image) :is_image(true), image(_image) {}
 
 		bool is_image;
 		wxString msg;

@@ -9,17 +9,60 @@ extern std::unordered_map<user_id_type, user_ext_type> user_ext;
 const char* IMG_TMP_PATH_NAME = ".messenger_tmp";
 const char* IMG_TMP_FILE_NAME = ".messenger_tmp_";
 
-#define checkErr(x) if (dataItr + (x) > dataEnd) throw(0)
-#define read_len(x)													\
-	checkErr(sizeof_data_length);										\
-	memcpy(reinterpret_cast<char*>(&(x)), dataItr, sizeof_data_length);	\
-	dataItr += sizeof_data_length
+const char* privatekeyFile = ".privatekey";
+const char* publickeysFile = ".publickey";
 
-void wx_srv_interface::on_data(user_id_type id, const std::string &data)
+wx_srv_interface::wx_srv_interface()
+{
+	initKey();
+
+	if (fs::exists(publickeysFile))
+	{
+		size_t pubCount = 0, keyLen = 0;
+		std::ifstream publicIn(publickeysFile, std::ios_base::in | std::ios_base::binary);
+		publicIn.read(reinterpret_cast<char*>(&pubCount), sizeof(size_t));
+		std::vector<char> buf;
+		for (; pubCount > 0; pubCount--)
+		{
+			publicIn.read(reinterpret_cast<char*>(&keyLen), sizeof(size_t));
+			buf.resize(keyLen);
+			publicIn.read(buf.data(), keyLen);
+			certifiedKeys.emplace(std::string(buf.data(), keyLen));
+		}
+
+		publicIn.close();
+	}
+}
+
+wx_srv_interface::~wx_srv_interface()
+{
+	size_t pubCount = certifiedKeys.size(), keySize = 0;
+	std::ofstream publicOut(publickeysFile, std::ios_base::out | std::ios_base::binary);
+	publicOut.write(reinterpret_cast<char*>(&pubCount), sizeof(size_t));
+
+	std::unordered_set<std::string>::iterator itr = certifiedKeys.begin(), itrEnd = certifiedKeys.end();
+	for (; itr != itrEnd; itr++)
+	{
+		keySize = itr->size();
+		publicOut.write(reinterpret_cast<char*>(&keySize), sizeof(size_t));
+		publicOut.write(itr->data(), keySize);
+	}
+
+	publicOut.close();
+}
+
+#define checkErr(x) if (dataItr + (x) > dataEnd) throw(wx_srv_interface_error())
+#define read_len(x)													\
+	checkErr(sizeof_data_size);										\
+	memcpy(reinterpret_cast<char*>(&(x)), dataItr, sizeof_data_size);	\
+	dataItr += sizeof_data_size
+
+
+void wx_srv_interface::on_data(user_id_type id, const std::string& data)
 {
 	try
 	{
-		const size_t sizeof_data_length = sizeof(data_length_type);
+		const size_t sizeof_data_size = sizeof(data_size_type);
 		const char *dataItr = data.data(), *dataEnd = data.data() + data.size();
 		user_ext_type &usr = user_ext.at(id);
 
@@ -32,9 +75,9 @@ void wx_srv_interface::on_data(user_id_type id, const std::string &data)
 			case PAC_TYPE_MSG:
 			{
 				if (frm == nullptr)
-					throw(0);
+					throw(wx_srv_interface_error());
 
-				data_length_type msg_size;
+				data_size_type msg_size;
 				read_len(msg_size);
 
 				checkErr(msg_size);
@@ -50,7 +93,10 @@ void wx_srv_interface::on_data(user_id_type id, const std::string &data)
 					if (frm->listUser->GetSelection() != -1)
 					{
 						if (id == frm->userIDs[frm->listUser->GetSelection()])
+						{
 							frm->textMsg->AppendText(msg);
+							frm->textMsg->ShowPosition(frm->textMsg->GetLastPosition());
+						}
 						else
 							frm->textInfo->AppendText("Received message from " + usr.addr + "\n");
 					}
@@ -66,12 +112,12 @@ void wx_srv_interface::on_data(user_id_type id, const std::string &data)
 			}
 			case PAC_TYPE_FILE_H:
 			{
-				data_length_type recvLE;
+				data_size_type recvLE;
 				read_len(recvLE);
-				data_length_type blockCountAll = boost::endian::little_to_native(static_cast<data_length_type>(recvLE));
+				data_size_type blockCountAll = boost::endian::little_to_native(static_cast<data_size_type>(recvLE));
 
 				read_len(recvLE);
-				data_length_type fNameLen = boost::endian::little_to_native(static_cast<data_length_type>(recvLE));
+				data_size_type fNameLen = boost::endian::little_to_native(static_cast<data_size_type>(recvLE));
 
 				std::wstring fName;
 				{
@@ -102,9 +148,9 @@ void wx_srv_interface::on_data(user_id_type id, const std::string &data)
 			}
 			case PAC_TYPE_FILE_B:
 			{
-				data_length_type recvLE;
+				data_size_type recvLE;
 				read_len(recvLE);
-				data_length_type dataSize = boost::endian::little_to_native(static_cast<data_length_type>(recvLE));
+				data_size_type dataSize = boost::endian::little_to_native(static_cast<data_size_type>(recvLE));
 
 				checkErr(dataSize);
 
@@ -127,9 +173,9 @@ void wx_srv_interface::on_data(user_id_type id, const std::string &data)
 			case PAC_TYPE_IMAGE:
 			{
 				if (frm == nullptr)
-					throw(0);
+					throw(wx_srv_interface_error());
 
-				data_length_type image_size;
+				data_size_type image_size;
 				read_len(image_size);
 
 				int next_image_id;
@@ -185,12 +231,10 @@ void wx_srv_interface::on_data(user_id_type id, const std::string &data)
 			}
 		}
 	}
+	catch (wx_srv_interface_error &) {}
 	catch (std::exception &ex)
 	{
 		std::cerr << ex.what() << std::endl;
-	}
-	catch (int)
-	{
 	}
 	catch (...)
 	{
@@ -201,25 +245,39 @@ void wx_srv_interface::on_data(user_id_type id, const std::string &data)
 #undef checkErr
 #undef read_uint
 
-void wx_srv_interface::on_join(user_id_type id)
+void wx_srv_interface::on_join(user_id_type id, const std::string& key)
 {
 	if (frm == nullptr)
 		return;
 
+	user_ext_type &ext = user_ext.emplace(id, user_ext_type()).first->second;
+	ext.addr = wxConvLocal.cMB2WC(srv->get_session(id)->get_address().c_str());
+
+	fs::path tmp_path = IMG_TMP_PATH_NAME;
+	tmp_path /= std::to_string(id);
+	fs::create_directories(tmp_path);
+
 	wxThreadEvent *newEvent = new wxThreadEvent;
-	newEvent->SetPayload<gui_callback>([this, id]() {
-		user_ext_type &ext = user_ext.emplace(id, user_ext_type()).first->second;
-		std::string addr = srv->get_session(id)->get_address();
-		ext.addr = wxConvLocal.cMB2WC(addr.c_str());
+	newEvent->SetPayload<gui_callback>([this, id, key]() {
+		user_ext_type &ext = user_ext.at(id);
+		std::wstring &addr = ext.addr;
 
 		frm->listUser->Append(ext.addr);
 		if (frm->listUser->GetSelection() == -1)
 			frm->listUser->SetSelection(frm->listUser->GetCount() - 1);
 		frm->userIDs.push_back(id);
 
-		fs::path tmp_path = IMG_TMP_PATH_NAME;
-		tmp_path /= std::to_string(id);
-		fs::create_directories(tmp_path);
+		if (!key.empty() && certifiedKeys.find(key) == certifiedKeys.end())
+		{
+			int answer = wxMessageBox(wxT("The public key from ") + addr + wxT(" hasn't shown before.Trust it?"), wxT("Confirm"), wxYES_NO | wxCANCEL);
+			if (answer == wxNO)
+				srv->disconnect(id);
+			else
+			{
+				if (answer == wxYES)
+					certify_key(key);
+			}
+		}
 	});
 	wxQueueEvent(frm, newEvent);
 }
@@ -248,23 +306,7 @@ void wx_srv_interface::on_leave(user_id_type id)
 	wxQueueEvent(frm, newEvent);
 }
 
-void wx_srv_interface::on_unknown_key(user_id_type id, const std::string& key)
-{
-	if (frm == nullptr)
-		return;
-
-	wxThreadEvent *newEvent = new wxThreadEvent;
-	newEvent->SetPayload<gui_callback>([this, id, key]() {
-		int answer = wxMessageBox(wxT("The public key from " + user_ext.at(id).addr + " hasn't shown before.Trust it?"), wxT("Confirm"), wxYES_NO | wxCANCEL);
-		if (answer == wxNO)
-			srv->disconnect(id);
-		else if (answer == wxYES)
-			srv->certify_key(key);
-	});
-	wxQueueEvent(frm, newEvent);
-}
-
-bool wx_srv_interface::new_rand_port(port_type &ret)
+bool wx_srv_interface::new_rand_port(port_type& ret)
 {
 	if (static_port != -1)
 		ret = static_cast<port_type>(static_port);
@@ -280,4 +322,3 @@ bool wx_srv_interface::new_rand_port(port_type &ret)
 	}
 	return true;
 }
-
