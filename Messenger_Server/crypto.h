@@ -15,9 +15,9 @@ std::string getPublicKey();
 std::string getUserIDGlobal();
 
 void encrypt(const std::string& src, std::string& dst, const CryptoPP::ECIES<CryptoPP::ECP>::Encryptor& e1);
-void encrypt(const CryptoPP::SecByteBlock& src, std::string& dst, const CryptoPP::ECIES<CryptoPP::ECP>::Encryptor& e1);
+void encrypt(const byte* src, size_t src_size, std::string& dst, const CryptoPP::ECIES<CryptoPP::ECP>::Encryptor& e1);
 void decrypt(const std::string& src, std::string& dst);
-void decrypt(const char* src, size_t src_size, CryptoPP::SecByteBlock& dst);
+void decrypt(const byte* src, size_t src_size, CryptoPP::SecByteBlock& dst);
 void hash(const std::string& src, std::string& dst, size_t input_shift = 0);
 void hash_short(const std::string& src, std::string& dst);
 

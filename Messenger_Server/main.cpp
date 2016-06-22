@@ -76,12 +76,12 @@ void cli_server::write_data()
 	if (!fout.is_open())
 		return;
 	fout.write(reinterpret_cast<const char*>(&data_ver), sizeof(uint32_t));
-	uint32_t size = user_records.size();
+	uint32_t size = static_cast<uint32_t>(user_records.size());
 	fout.write(reinterpret_cast<char*>(&size), sizeof(uint32_t));
 	for (const std::pair<std::string, user_record> &pair : user_records)
 	{
 		const user_record &user = pair.second;
-		size = user.name.size();
+		size = static_cast<uint32_t>(user.name.size());
 		fout.write(reinterpret_cast<char*>(&size), sizeof(uint32_t));
 		fout.write(user.name.data(), size);
 		fout.write(user.passwd.data(), hash_size);
@@ -109,13 +109,14 @@ void cli_server::read_data()
 	uint32_t userCount, size;
 	fin.read(reinterpret_cast<char*>(&userCount), sizeof(uint32_t));
 	char passwd_buf[hash_size];
+	std::vector<char> buf;
 	for (; userCount > 0; userCount--)
 	{
 		user_record user;
 		fin.read(reinterpret_cast<char*>(&size), sizeof(uint32_t));
-		std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
-		fin.read(buf.get(), size);
-		user.name = std::string(buf.get(), size);
+		buf.resize(size);
+		fin.read(buf.data(), size);
+		user.name = std::string(buf.data(), size);
 		fin.read(passwd_buf, hash_size);
 		user.passwd = std::string(passwd_buf, hash_size);
 		fin.read(reinterpret_cast<char*>(&size), sizeof(uint32_t));
@@ -152,7 +153,7 @@ void cli_server::read_config()
 	}
 }
 
-#define checkErr(x) if (dataItr + (x) > dataEnd) throw(0)
+#define checkErr(x) if (dataItr + (x) > dataEnd) throw(cli_server_error())
 #define read_uint(x)												\
 	checkErr(size_length);											\
 	memcpy(reinterpret_cast<char*>(&(x)), dataItr, size_length);	\
@@ -199,12 +200,10 @@ void cli_server::on_data(user_id_type id, const std::string& data)
 			}
 		}
 	}
+	catch (cli_server_error &) {}
 	catch (std::exception &ex)
 	{
 		std::cerr << ex.what() << std::endl;
-	}
-	catch (int)
-	{
 	}
 	catch (...)
 	{
@@ -563,10 +562,9 @@ int main(int argc, char *argv[])
 			else if (arg == "relay")
 				inter.set_mode(RELAY);
 			else
-				throw(0);
+				throw(std::out_of_range(""));
 			std::cout << "Mode set to " << arg << std::endl;
 		}
-		catch (int) {}
 		catch (std::out_of_range &) {}
 		try
 		{

@@ -3,6 +3,13 @@
 typedef std::unordered_map<std::string, std::string> config_table_tp;
 const std::string server_uname = "Server";
 
+class plugin_error :public std::runtime_error
+{
+public:
+	plugin_error() :std::runtime_error("Internal plugin error") {};
+	plugin_error(const char* err) :std::runtime_error(err) {};
+};
+
 class plugin_interface
 {
 public:
@@ -61,7 +68,7 @@ private:
 	std::ostream log_stream;
 	fs::path log_path;
 
-	typedef uint32_t record_tp;
+	typedef size_t record_tp;
 	typedef std::unordered_map<std::string, record_tp> record_list;
 	record_list records;
 };
