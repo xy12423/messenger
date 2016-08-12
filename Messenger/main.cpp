@@ -24,6 +24,7 @@ EVT_BUTTON(ID_BUTTONCANCELSEND, mainFrame::buttonCancelSend_Click)
 
 EVT_THREAD(wxID_ANY, mainFrame::thread_Message)
 
+EVT_SIZE(mainFrame::mainFrame_Resize)
 EVT_CLOSE(mainFrame::mainFrame_Close)
 
 wxEND_EVENT_TABLE()
@@ -157,72 +158,101 @@ void plugin_method_Print(plugin_id_type plugin_id, const char* msg)
 	catch (...) {}
 }
 
+const wxPoint itemPos[] = {
+	{},
+	{ 12,  12  },	//LABEL_LISTUSER
+	{ 12,  39  },	//LISTUSER
+	{ 12,  321 },	//BUTTONADD
+	{ 12,  369 },	//BUTTONDEL
+	{ 180, 12  },	//TEXTMSG
+	{ 180, 321 },	//TEXTINPUT
+	{ 180, 369 },	//BUTTONSEND
+	{ 284, 369 },	//BUTTONSENDIMAGE
+	{ 389, 369 },	//BUTTONSENDFILE
+	{ 494, 369 },	//BUTTONCANCELSEND
+	{ 12,  417 },	//TEXTINFO
+};
+
+const wxSize itemSize[] = {
+	{},
+	{ 162, 21  },	//LABEL_LISTUSER
+	{ 162, 276 },	//LISTUSER
+	{ 162, 42  },	//BUTTONADD
+	{ 162, 42  },	//BUTTONDEL
+	{ 412, 303 },	//TEXTMSG
+	{ 412, 42  },	//TEXTINPUT
+	{ 98,  42  },	//BUTTONSEND
+	{ 99,  42  },	//BUTTONSENDIMAGE
+	{ 99,  42  },	//BUTTONSENDFILE
+	{ 98,  42  },	//BUTTONCANCELSEND
+	{ 580, 92  },	//TEXTINFO
+};
+
 mainFrame::mainFrame(const wxString& title)
 	: wxFrame(NULL, ID_FRAME, title, wxDefaultPosition, wxSize(_GUI_SIZE_X, _GUI_SIZE_Y))
 {
 	Center();
 
-	panel = new wxPanel(this);
-	wxStaticText *label;
+	panel = new wxPanel(this, wxID_ANY, wxPoint(0, 0), wxSize(_GUI_SIZE_X, _GUI_SIZE_Y));
 
-	label = new wxStaticText(panel, wxID_ANY,
+	labelListUser = new wxStaticText(panel, ID_LABELLISTUSER,
 		wxT("User list"),
-		wxPoint(12, 12),
-		wxSize(162, 21)
+		itemPos[ID_LABELLISTUSER],
+		itemSize[ID_LABELLISTUSER]
 		);
 	listUser = new wxListBox(panel, ID_LISTUSER,
-		wxPoint(12, 39),
-		wxSize(162, 276),
+		itemPos[ID_LISTUSER],
+		itemSize[ID_LISTUSER],
 		wxArrayString()
 		);
 	buttonAdd = new wxButton(panel, ID_BUTTONADD,
 		wxT("Connect to"),
-		wxPoint(12, 321),
-		wxSize(162, 42)
+		itemPos[ID_BUTTONADD],
+		itemSize[ID_BUTTONADD]
 		);
 	buttonDel = new wxButton(panel, ID_BUTTONDEL,
 		wxT("Disconnect"),
-		wxPoint(12, 369),
-		wxSize(162, 42)
+		itemPos[ID_BUTTONDEL],
+		itemSize[ID_BUTTONDEL]
 		);
 
 	textMsg = new wxRichTextCtrl(panel, ID_TEXTMSG,
 		wxEmptyString,
-		wxPoint(180, 12),
-		wxSize(412, 303),
+		itemPos[ID_TEXTMSG],
+		itemSize[ID_TEXTMSG],
 		wxTE_MULTILINE | wxTE_READONLY
 		);
 	textInput = new wxTextCtrl(panel, ID_TEXTINPUT,
 		wxEmptyString,
-		wxPoint(180, 321),
-		wxSize(412, 42),
+		itemPos[ID_TEXTINPUT],
+		itemSize[ID_TEXTINPUT],
 		wxTE_MULTILINE
 		);
 	buttonSend = new wxButton(panel, ID_BUTTONSEND,
 		wxT("Send"),
-		wxPoint(180, 369),
-		wxSize(98, 42)
+		itemPos[ID_BUTTONSEND],
+		itemSize[ID_BUTTONSEND]
 		);
 	buttonSendImage = new wxButton(panel, ID_BUTTONSENDIMAGE,
 		wxT("Image"),
-		wxPoint(284, 369),
-		wxSize(99, 42)
+		itemPos[ID_BUTTONSENDIMAGE],
+		itemSize[ID_BUTTONSENDIMAGE]
 		);
 	buttonSendFile = new wxButton(panel, ID_BUTTONSENDFILE,
 		wxT("File"),
-		wxPoint(389, 369),
-		wxSize(99, 42)
+		itemPos[ID_BUTTONSENDFILE],
+		itemSize[ID_BUTTONSENDFILE]
 		);
 	buttonCancelSend = new wxButton(panel, ID_BUTTONCANCELSEND,
 		wxT("Cancel"),
-		wxPoint(494, 369),
-		wxSize(98, 42)
+		itemPos[ID_BUTTONCANCELSEND],
+		itemSize[ID_BUTTONCANCELSEND]
 		);
 
 	textInfo = new wxTextCtrl(panel, ID_TEXTINFO,
 		wxEmptyString,
-		wxPoint(12, 417),
-		wxSize(580, 92),
+		itemPos[ID_TEXTINFO],
+		itemSize[ID_TEXTINFO],
 		wxTE_MULTILINE | wxTE_READONLY
 		);
 
@@ -273,6 +303,44 @@ mainFrame::mainFrame(const wxString& title)
 		}
 	}
 }
+
+#define REPOSITION(control, id) (control)->SetPosition(wxPoint(static_cast<int>(itemPos[id].x * ratio_x), static_cast<int>(itemPos[id].y * ratio_y)))
+#define RESIZE(control, id) (control)->SetSize(wxSize(static_cast<int>(itemSize[id].x * ratio_x), static_cast<int>(itemSize[id].y * ratio_y)))
+
+void mainFrame::mainFrame_Resize(wxSizeEvent& event)
+{
+	panel->SetSize(wxSize(event.GetSize().GetWidth(), event.GetSize().GetHeight()));
+	double ratio_x = event.GetSize().GetWidth(), ratio_y = event.GetSize().GetHeight();
+	ratio_x /= _GUI_SIZE_X;
+	ratio_y /= _GUI_SIZE_Y;
+
+	REPOSITION(labelListUser, ID_LABELLISTUSER);
+	REPOSITION(listUser, ID_LISTUSER);
+	REPOSITION(buttonAdd, ID_BUTTONADD);
+	REPOSITION(buttonDel, ID_BUTTONDEL);
+	REPOSITION(textMsg, ID_TEXTMSG);
+	REPOSITION(textInput, ID_TEXTINPUT);
+	REPOSITION(buttonSend, ID_BUTTONSEND);
+	REPOSITION(buttonSendImage, ID_BUTTONSENDIMAGE);
+	REPOSITION(buttonSendFile, ID_BUTTONSENDFILE);
+	REPOSITION(buttonCancelSend, ID_BUTTONCANCELSEND);
+	REPOSITION(textInfo, ID_TEXTINFO);
+
+	RESIZE(labelListUser, ID_LABELLISTUSER);
+	RESIZE(listUser, ID_LISTUSER);
+	RESIZE(buttonAdd, ID_BUTTONADD);
+	RESIZE(buttonDel, ID_BUTTONDEL);
+	RESIZE(textMsg, ID_TEXTMSG);
+	RESIZE(textInput, ID_TEXTINPUT);
+	RESIZE(buttonSend, ID_BUTTONSEND);
+	RESIZE(buttonSendImage, ID_BUTTONSENDIMAGE);
+	RESIZE(buttonSendFile, ID_BUTTONSENDFILE);
+	RESIZE(buttonCancelSend, ID_BUTTONCANCELSEND);
+	RESIZE(textInfo, ID_TEXTINFO);
+}
+
+#undef RESIZE
+#undef REPOSITION
 
 void mainFrame::listUser_SelectedIndexChanged(wxCommandEvent& event)
 {
