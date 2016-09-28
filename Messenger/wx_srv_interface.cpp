@@ -12,10 +12,11 @@ const char* IMG_TMP_FILE_NAME = ".messenger_tmp_";
 const char* privatekeyFile = ".privatekey";
 const char* publickeysFile = ".publickey";
 
-wx_srv_interface::wx_srv_interface()
+wx_srv_interface::wx_srv_interface(asio::io_service& _main_io_service,
+	asio::io_service& _misc_io_service,
+	asio::ip::tcp::endpoint _local_endpoint)
+	:msgr_proto::server(_main_io_service, _misc_io_service, _local_endpoint)
 {
-	initKey();
-
 	if (fs::exists(publickeysFile))
 	{
 		size_t pubCount = 0, keyLen = 0;
@@ -258,7 +259,7 @@ void wx_srv_interface::on_join(user_id_type id, const std::string& key)
 		return;
 
 	user_ext_type &ext = user_ext.emplace(id, user_ext_type()).first->second;
-	ext.addr = wxConvLocal.cMB2WC(srv->get_session(id)->get_address().c_str());
+	ext.addr = wxConvLocal.cMB2WC(get_session(id)->get_address().c_str());
 
 	fs::path tmp_path = IMG_TMP_PATH_NAME;
 	tmp_path /= std::to_string(id);
@@ -278,7 +279,7 @@ void wx_srv_interface::on_join(user_id_type id, const std::string& key)
 		{
 			int answer = wxMessageBox(wxT("The public key from ") + addr + wxT(" hasn't shown before.Trust it?"), wxT("Confirm"), wxYES_NO | wxCANCEL);
 			if (answer == wxNO)
-				srv->disconnect(id);
+				disconnect(id);
 			else
 			{
 				if (answer == wxYES)

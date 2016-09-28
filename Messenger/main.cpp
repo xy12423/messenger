@@ -41,8 +41,7 @@ fileSendThread *threadFileSend;
 iosrvThread *threadNetwork, *threadMisc;
 
 asio::io_service main_io_service, misc_io_service;
-std::unique_ptr<msgr_proto::server> srv;
-wx_srv_interface inter;
+std::unique_ptr<wx_srv_interface> srv;
 
 std::unordered_map<user_id_type, user_ext_type> user_ext;
 std::unordered_map<plugin_id_type, plugin_info_type> plugin_info;
@@ -89,17 +88,16 @@ int plugin_handler_NewVirtualUser(plugin_id_type plugin_id, const char* name)
 			name_str.append(name);
 		}
 
-		std::shared_ptr<msgr_proto::virtual_session> new_session;
+		std::shared_ptr<msgr_proto::virtual_session> new_session = std::make_shared<msgr_proto::virtual_session>(*srv, name_str);
 		if (virtual_msg_handler == nullptr)
-			new_session = std::make_shared<msgr_proto::virtual_session>(*srv, name_str, [](const std::string&) {});
+			new_session->set_callback([](const std::string&) {});
 		else
 		{
-			new_session = std::make_shared<msgr_proto::virtual_session>(*srv, name_str,
-				[new_session, virtual_msg_handler](const std::string& data)
-			{
+			new_session->set_callback([new_session, virtual_msg_handler](const std::string& data) {
 				virtual_msg_handler(new_session->get_id(), data.data(), data.size());
 			});
 		}
+		new_session->join();
 		new_session->start();
 		user_id_type new_user_id = new_session->get_id();
 		info.virtual_user_list.emplace(new_user_id);
@@ -419,7 +417,7 @@ void mainFrame::buttonSendImage_Click(wxCommandEvent& event)
 				return;
 			}
 			int next_image_id;
-			inter.new_image_id(next_image_id);
+			srv->new_image_id(next_image_id);
 			fs::path image_path = IMG_TMP_PATH_NAME;
 			image_path /= std::to_string(uID);
 			image_path /= ".messenger_tmp_" + std::to_string(next_image_id);
@@ -495,7 +493,7 @@ void mainFrame::mainFrame_Close(wxCloseEvent& event)
 		std::cerr.rdbuf(cerr_orig);
 		delete textStrm;
 
-		inter.set_frame(nullptr);
+		srv->set_frame(nullptr);
 	}
 	catch (std::exception &ex)
 	{
@@ -526,6 +524,11 @@ bool MyApp::OnInit()
 		threadMisc = new iosrvThread(misc_io_service);
 		stage = 2;
 
+		initKey();
+
+		srv = std::make_unique<wx_srv_interface>(main_io_service, misc_io_service,
+			asio::ip::tcp::endpoint((use_v6 ? asio::ip::tcp::v6() : asio::ip::tcp::v4()), portListen));
+
 		for (int i = 1; i < argc; i++)
 		{
 			std::string arg(argv[i]);
@@ -538,7 +541,7 @@ bool MyApp::OnInit()
 				int pos = arg.find('-', 6);
 				if (pos == std::string::npos)
 				{
-					inter.set_static_port(static_cast<port_type>(std::stoi(arg.substr(6))));
+					srv->set_static_port(static_cast<port_type>(std::stoi(arg.substr(6))));
 					portsBegin = 1;
 					portsEnd = 0;
 				}
@@ -547,7 +550,7 @@ bool MyApp::OnInit()
 					std::string ports_begin = arg.substr(6, pos - 6), ports_end = arg.substr(pos + 1);
 					portsBegin = static_cast<port_type>(std::stoi(ports_begin));
 					portsEnd = static_cast<port_type>(std::stoi(ports_end));
-					inter.set_static_port(-1);
+					srv->set_static_port(-1);
 				}
 			}
 			else if (arg == "usev6")
@@ -562,16 +565,16 @@ bool MyApp::OnInit()
 		
 		std::srand(static_cast<unsigned int>(std::time(NULL)));
 		for (; portsBegin <= portsEnd; portsBegin++)
-			inter.free_rand_port(portsBegin);
-		srv = std::make_unique<msgr_proto::server>(main_io_service, misc_io_service, inter,
-			asio::ip::tcp::endpoint((use_v6 ? asio::ip::tcp::v6() : asio::ip::tcp::v4()), portListen));
+			srv->free_rand_port(portsBegin);
+
+		srv->start();
 
 		threadFileSend = new fileSendThread(*srv);
 		stage = 3;
 
 		form = new mainFrame(wxT("Messenger"));
 		form->Show();
-		inter.set_frame(form);
+		srv->set_frame(form);
 
 		if (threadNetwork->Run() != wxTHREAD_NO_ERROR)
 		{

@@ -22,26 +22,7 @@ void insLen(std::string& data);
 namespace msgr_proto
 {
 	class server;
-}
 
-class msgr_inter
-{
-public:
-	virtual void on_data(user_id_type id, const std::string& data) = 0;
-
-	virtual void on_join(user_id_type id, const std::string& key) = 0;
-	virtual void on_leave(user_id_type id) = 0;
-
-	virtual bool new_rand_port(port_type& port) = 0;
-	virtual void free_rand_port(port_type port) = 0;
-
-	void set_server(msgr_proto::server *_srv) { srv = _srv; }
-protected:
-	msgr_proto::server *srv;
-};
-
-namespace msgr_proto
-{
 	//Exceptions that can be safely ignored
 	class msgr_proto_error :public std::runtime_error
 	{
@@ -169,7 +150,7 @@ namespace msgr_proto
 		virtual void sid_packet_done();
 	};
 
-	class session_base : public std::enable_shared_from_this<session_base>
+	class session_base :public std::enable_shared_from_this<session_base>
 	{
 	public:
 		static constexpr int priority_sys = 30;
@@ -179,8 +160,12 @@ namespace msgr_proto
 
 		typedef std::function<void()> write_callback;
 
-		session_base(server& _srv, port_type_l _local_port, const std::string& _key_string);
+		session_base(server& _srv, port_type_l _local_port, const std::string& _key_string)
+			:srv(_srv), local_port(_local_port), key_string(_key_string)
+		{};
 		session_base(const session_base&) = delete;
+
+		void join();
 
 		virtual void start() = 0;
 		virtual void shutdown() = 0;
@@ -207,8 +192,8 @@ namespace msgr_proto
 	public:
 		typedef std::function<void(const std::string&)> on_data_callback;
 
-		virtual_session(server& _srv, const std::string& _name, on_data_callback&& _callback)
-			:session_base(_srv, port_null, ""), name(_name), on_data(std::move(_callback))
+		virtual_session(server& _srv, const std::string& _name)
+			:session_base(_srv, port_null, ""), name(_name)
 		{}
 
 		virtual void start() {};
@@ -291,32 +276,23 @@ namespace msgr_proto
 	public:
 		server(asio::io_service& _main_io_service,
 			asio::io_service& _misc_io_service,
-			msgr_inter& _inter,
 			asio::ip::tcp::endpoint _local_endpoint)
 			:main_io_service(_main_io_service),
 			misc_io_service(_misc_io_service),
 			acceptor(main_io_service, _local_endpoint),
 			resolver(main_io_service),
-			inter(_inter),
 			e0str(getPublicKey())
-		{
-			inter.set_server(this);
-			start();
-		}
+		{}
 
 		server(asio::io_service& _main_io_service,
-			asio::io_service& _misc_io_service,
-			msgr_inter& _inter
+			asio::io_service& _misc_io_service
 			)
 			: main_io_service(_main_io_service),
 			misc_io_service(_misc_io_service),
 			acceptor(main_io_service),
 			resolver(main_io_service),
-			inter(_inter),
 			e0str(getPublicKey())
-		{
-			inter.set_server(this);
-		}
+		{}
 
 		~server()
 		{
@@ -327,7 +303,9 @@ namespace msgr_proto
 			sessions.clear();
 		}
 
-		void on_data(user_id_type id, std::shared_ptr<std::string> data);
+		void start() { if (!started) { started = true; do_start(); } };
+
+		void on_recv_data(user_id_type id, std::shared_ptr<std::string> data);
 
 		bool send_data(user_id_type id, const std::string& data, int priority);
 		bool send_data(user_id_type id, const std::string& data, int priority, const std::string& message);
@@ -348,8 +326,17 @@ namespace msgr_proto
 		const std::string& get_public_key() const { return e0str; }
 
 		bool check_key_connected(const std::string& key) { if (connected_keys.find(key) == connected_keys.end()) { connected_keys.emplace(key); return false; } else return true; };
+
+		virtual void on_data(user_id_type id, const std::string& data) = 0;
+
+		virtual void on_join(user_id_type id, const std::string& key) = 0;
+		virtual void on_leave(user_id_type id) = 0;
+
+		virtual bool new_rand_port(port_type& port) = 0;
+		virtual void free_rand_port(port_type port) = 0;
+
 	private:
-		void start();
+		void do_start();
 
 		void connect(const asio::ip::tcp::endpoint& remote_endpoint);
 		void connect(const asio::ip::tcp::resolver::query& query);
@@ -365,8 +352,7 @@ namespace msgr_proto
 		session_list_type sessions;
 		user_id_type nextID = 0;
 
-		msgr_inter &inter;
-		volatile bool closing = false;
+		volatile bool started = false, closing = false;
 	};
 }
 

@@ -504,6 +504,7 @@ void pre_session_s::sid_packet_done()
 			{
 				session_ptr new_user = std::make_shared<session>(srv, local_port, key_string, std::move(proto_data),
 					main_io_service, misc_io_service, std::move(socket));
+				new_user->join();
 				new_user->start();
 
 				passed = true;
@@ -617,6 +618,7 @@ void pre_session_c::sid_packet_done()
 			{
 				session_ptr new_user = std::make_shared<session>(srv, local_port, key_string, std::move(proto_data),
 					main_io_service, misc_io_service, std::move(socket));
+				new_user->join();
 				new_user->start();
 
 				passed = true;
@@ -641,32 +643,33 @@ void pre_session_c::sid_packet_done()
 	}
 }
 
-session_base::session_base(server& _srv, port_type_l _local_port, const std::string& _key_string)
-	:srv(_srv), local_port(_local_port), key_string(_key_string)
+void session_base::join()
 {
 	srv.join(shared_from_this(), uid);
 }
 
 void virtual_session::send(const std::string& data, int priority, write_callback&& callback)
 {
-	on_data(data);
+	if (on_data)
+		on_data(data);
 	callback();
 }
 
 void virtual_session::send(std::string&& data, int priority, write_callback&& callback)
 {
-	on_data(data);
+	if (on_data)
+		on_data(data);
 	callback();
 }
 
 void virtual_session::push(const std::string& data)
 {
-	srv.on_data(uid, std::make_shared<std::string>(data));
+	srv.on_recv_data(uid, std::make_shared<std::string>(data));
 }
 
 void virtual_session::push(std::string&& data)
 {
-	srv.on_data(uid, std::make_shared<std::string>(data));
+	srv.on_recv_data(uid, std::make_shared<std::string>(data));
 }
 
 void session::start()
@@ -863,7 +866,7 @@ void session::process_data(const std::shared_ptr<std::string>& buf)
 		{
 			crypto_kit->dec(*buf);
 			main_iosrv.post([this, self, buf]() {
-				srv.on_data(uid, buf);
+				srv.on_recv_data(uid, buf);
 			});
 		}
 		catch (msgr_proto_error& ex)
@@ -884,7 +887,8 @@ void session::write()
 	write_que_tp::iterator write_itr;
 	try
 	{
-		write_que_tp::iterator write_itr = write_que.begin(), write_que_end = write_que.end();
+		write_itr = write_que.begin();
+		write_que_tp::iterator write_que_end = write_que.end();
 		while (write_itr->data.empty())
 		{
 			write_itr->callback();
