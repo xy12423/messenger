@@ -35,17 +35,17 @@ void server::pre_session_over(const std::shared_ptr<pre_session>& _pre, bool suc
 	{
 		if (_pre->get_port() != port_null)
 			inter.free_rand_port(static_cast<port_type>(_pre->get_port()));
-		connectedKeys.erase(_pre->get_key());
+		connected_keys.erase(_pre->get_key());
 	}
 	pre_sessions.erase(_pre);
 }
 
-void server::join(const session_ptr& _user)
+void server::join(const session_ptr& _user, user_id_type& uid)
 {
 	user_id_type newID = nextID;
 	nextID++;
 	sessions.emplace(newID, _user);
-	_user->uid = newID;
+	uid = newID;
 
 	try{ inter.on_join(newID, _user->get_key()); }
 	catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
@@ -66,7 +66,7 @@ void server::leave(user_id_type _user)
 	this_session->shutdown();
 	if (this_session->get_port() != port_null)
 		inter.free_rand_port(static_cast<port_type>(this_session->get_port()));
-	connectedKeys.erase(this_session->get_key());
+	connected_keys.erase(this_session->get_key());
 	sessions.erase(itr);
 }
 

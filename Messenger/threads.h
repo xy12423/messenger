@@ -42,7 +42,7 @@ public:
 
 	void write();
 
-	static const int fileBlockLen = 0x80000;
+	static constexpr int fileBlockLen = 0x80000;
 protected:
 	ExitCode Entry();
 private:

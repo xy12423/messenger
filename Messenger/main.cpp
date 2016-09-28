@@ -89,17 +89,17 @@ int plugin_handler_NewVirtualUser(plugin_id_type plugin_id, const char* name)
 			name_str.append(name);
 		}
 
-		std::shared_ptr<msgr_proto::virtual_session> new_session = std::make_shared<msgr_proto::virtual_session>(*srv, name_str);
+		std::shared_ptr<msgr_proto::virtual_session> new_session;
 		if (virtual_msg_handler == nullptr)
-			new_session->set_callback([](const std::string&) {});
+			new_session = std::make_shared<msgr_proto::virtual_session>(*srv, name_str, [](const std::string&) {});
 		else
 		{
-			new_session->set_callback([new_session, virtual_msg_handler](const std::string& data) {
+			new_session = std::make_shared<msgr_proto::virtual_session>(*srv, name_str,
+				[new_session, virtual_msg_handler](const std::string& data)
+			{
 				virtual_msg_handler(new_session->get_id(), data.data(), data.size());
 			});
 		}
-
-		srv->join(new_session);
 		new_session->start();
 		user_id_type new_user_id = new_session->get_id();
 		info.virtual_user_list.emplace(new_user_id);
