@@ -352,6 +352,7 @@ namespace msgr_proto
 		session_list_type sessions;
 		user_id_type nextID = 0;
 
+		std::mutex session_mutex;
 		volatile bool started = false, closing = false;
 	};
 }

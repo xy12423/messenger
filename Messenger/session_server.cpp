@@ -42,6 +42,7 @@ void server::pre_session_over(const std::shared_ptr<pre_session>& _pre, bool suc
 
 void server::join(const session_ptr& _user, user_id_type& uid)
 {
+	std::lock_guard<std::mutex> lock(session_mutex);
 	user_id_type newID = nextID;
 	nextID++;
 	sessions.emplace(newID, _user);
@@ -54,6 +55,7 @@ void server::join(const session_ptr& _user, user_id_type& uid)
 
 void server::leave(user_id_type _user)
 {
+	std::lock_guard<std::mutex> lock(session_mutex);
 	session_list_type::iterator itr(sessions.find(_user));
 	if (itr == sessions.end())
 		return;
