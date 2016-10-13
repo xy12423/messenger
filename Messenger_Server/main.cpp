@@ -10,8 +10,8 @@ const std::string empty_string;
 std::promise<void> exit_promise;
 config_table_tp config_items;
 
-asio::io_service main_io_service, misc_io_service;
-cli_server inter;
+asio::io_service main_iosrv, misc_iosrv;
+std::unique_ptr<cli_server> srv;
 cli_plugin_interface i_plugin;
 plugin_manager m_plugin(i_plugin);
 volatile bool server_on = true;
@@ -23,17 +23,17 @@ const char* privatekeyFile = ".privatekey";
 
 bool cli_plugin_interface::get_id_by_name(const std::string& name, user_id_type& id)
 {
-	return inter.get_id_by_name(name, id);
+	return srv->get_id_by_name(name, id);
 }
 
 void cli_plugin_interface::broadcast_msg(const std::string& msg)
 {
-	inter.broadcast_msg(server_uid, msg);
+	srv->broadcast_msg(server_uid, msg);
 }
 
 void cli_plugin_interface::send_msg(user_id_type id, const std::string& msg)
 {
-	inter.send_msg(id, msg);
+	srv->send_msg(id, msg);
 }
 
 void cli_plugin_interface::send_image(user_id_type id, const std::string& path)
@@ -52,7 +52,7 @@ void cli_plugin_interface::send_image(user_id_type id, const std::string& path)
 	fin.close();
 	insLen(img_buf);
 	img_buf.insert(0, 1, PAC_TYPE_IMAGE);
-	inter.send_data(id, img_buf, msgr_proto::session::priority_msg);
+	srv->send_data(id, img_buf, msgr_proto::session::priority_msg);
 }
 
 bool cli_server::get_id_by_name(const std::string& name, user_id_type& ret)
@@ -244,15 +244,14 @@ void cli_server::on_msg(user_id_type id, std::string& msg)
 					hash(msg, hashed_pass);
 					if (record.passwd == hashed_pass)
 					{
-						broadcast_msg(server_uid, msg_new_user + user.name + '(' + user.addr + ')');
-
-						send_msg(id, msg_welcome);
-
-						user.current_stage = user_ext::LOGGED_IN;
 						record.logged_in = true;
 						record.id = id;
 
+						send_msg(id, msg_welcome);
 						m_plugin.on_new_user(user.name);
+						broadcast_msg(server_uid, msg_new_user + user.name + '(' + user.addr + ')');
+
+						user.current_stage = user_ext::LOGGED_IN;
 					}
 				}
 
@@ -306,7 +305,7 @@ void cli_server::on_image(user_id_type id, const std::string& data)
 void cli_server::on_join(user_id_type id, const std::string& )
 {
 	user_ext &ext = user_exts.emplace(id, user_ext()).first->second;
-	ext.addr = srv->get_session(id)->get_address();
+	ext.addr = get_session(id)->get_address();
 
 	if (mode == CENTER)
 		send_msg(id, msg_input_name);
@@ -362,7 +361,7 @@ void cli_server::broadcast_msg(int src, const std::string& msg)
 		msg_send = user.addr;
 	msg_send.push_back(':');
 	msg_send.append(msg);
-	if (mode == CENTER && !msg.empty())
+	if (mode == CENTER && src == server_uid)
 		m_plugin.on_msg(server_uname, msg);
 
 	insLen(msg_send);
@@ -404,7 +403,7 @@ std::string cli_server::process_command(std::string& cmd, user_record& user)
 			if (itr != user_records.end())
 			{
 				itr->second.group = user_record::ADMIN;
-				main_io_service.post([this]() {
+				main_iosrv.post([this]() {
 					write_data();
 				});
 				ret = "Opped " + itr->second.name;
@@ -429,7 +428,7 @@ std::string cli_server::process_command(std::string& cmd, user_record& user)
 				if (itr == user_records.end())
 				{
 					user_records.emplace(cmd, user_record(cmd, hashed_passwd, user_record::USER));
-					main_io_service.post([this]() {
+					main_iosrv.post([this]() {
 						write_data();
 					});
 					ret = "Registered " + cmd;
@@ -445,7 +444,7 @@ std::string cli_server::process_command(std::string& cmd, user_record& user)
 			if (itr != user_records.end())
 			{
 				user_records.erase(itr);
-				main_io_service.post([this]() {
+				main_iosrv.post([this]() {
 					write_data();
 				});
 				ret = "Unregistered " + args;
@@ -456,7 +455,7 @@ std::string cli_server::process_command(std::string& cmd, user_record& user)
 	{
 		user.passwd.clear();
 		hash(args, user.passwd);
-		main_io_service.post([this]() {
+		main_iosrv.post([this]() {
 			write_data();
 		});
 		ret = "Password changed";
@@ -466,7 +465,7 @@ std::string cli_server::process_command(std::string& cmd, user_record& user)
 		if (group >= user_record::ADMIN)
 		{
 			ret = "Connecting";
-			srv->connect(args, portConnect);
+			connect(args, portConnect);
 		}
 	}
 	else if (cmd == "list")
@@ -540,6 +539,8 @@ int main(int argc, char *argv[])
 	try
 	{
 #endif
+		initKey();
+
 		for (int i = 1; i < argc; i++)
 		{
 			std::string arg(argv[i]);
@@ -556,18 +557,6 @@ int main(int argc, char *argv[])
 
 		try
 		{
-			std::string &arg = config_items.at("mode");
-			if (arg == "center" || arg == "centre")
-				inter.set_mode(CENTER);
-			else if (arg == "relay")
-				inter.set_mode(RELAY);
-			else
-				throw(std::out_of_range(""));
-			std::cout << "Mode set to " << arg << std::endl;
-		}
-		catch (std::out_of_range &) {}
-		try
-		{
 			std::string &arg = config_items.at("port");
 			portListener = static_cast<port_type>(std::stoi(arg));
 			std::cout << "Listening " << arg << std::endl;
@@ -576,11 +565,34 @@ int main(int argc, char *argv[])
 		catch (std::invalid_argument &) { portListener = 4826; }
 		try
 		{
+			config_items.at("usev6");
+			use_v6 = true;
+			std::cout << "Using IPv6 for listening" << std::endl;
+		}
+		catch (std::out_of_range &) {}
+
+		srv = std::make_unique<cli_server>
+			(main_iosrv, misc_iosrv, asio::ip::tcp::endpoint((use_v6 ? asio::ip::tcp::v6() : asio::ip::tcp::v4()), portListener));
+
+		try
+		{
+			std::string &arg = config_items.at("mode");
+			if (arg == "center" || arg == "centre")
+				srv->set_mode(CENTER);
+			else if (arg == "relay")
+				srv->set_mode(RELAY);
+			else
+				throw(std::out_of_range(""));
+			std::cout << "Mode set to " << arg << std::endl;
+		}
+		catch (std::out_of_range &) {}
+		try
+		{
 			std::string &arg = config_items.at("ports");
 			size_t pos = arg.find('-');
 			if (pos == std::string::npos)
 			{
-				inter.set_static_port(static_cast<port_type>(std::stoi(arg)));
+				srv->set_static_port(static_cast<port_type>(std::stoi(arg)));
 				portsBegin = 1;
 				portsEnd = 0;
 				std::cout << "Connecting port set to " << arg << std::endl;
@@ -590,19 +602,12 @@ int main(int argc, char *argv[])
 				std::string ports_begin = arg.substr(0, pos), ports_end = arg.substr(pos + 1);
 				portsBegin = static_cast<port_type>(std::stoi(ports_begin));
 				portsEnd = static_cast<port_type>(std::stoi(ports_end));
-				inter.set_static_port(-1);
+				srv->set_static_port(-1);
 				std::cout << "Connecting ports set to " << arg << std::endl;
 			}
 		}
 		catch (std::out_of_range &) { portsBegin = 5000, portsEnd = 9999; }
 		catch (std::invalid_argument &) { portsBegin = 5000, portsEnd = 9999; }
-		try
-		{
-			config_items.at("usev6");
-			use_v6 = true;
-			std::cout << "Using IPv6 for listening" << std::endl;
-		}
-		catch (std::out_of_range &) {}
 
 		m_plugin.new_plugin<msg_logger>();
 		m_plugin.new_plugin<server_mail>();
@@ -610,7 +615,7 @@ int main(int argc, char *argv[])
 
 		std::srand(static_cast<unsigned int>(std::time(NULL)));
 		for (; portsBegin <= portsEnd; portsBegin++)
-			inter.free_rand_port(portsBegin);
+			srv->free_rand_port(portsBegin);
 
 		auto iosrv_thread = [](asio::io_service *iosrv) {
 			bool abnormally_exit;
@@ -624,15 +629,15 @@ int main(int argc, char *argv[])
 				catch (...) { abnormally_exit = true; }
 			} while (abnormally_exit);
 		};
-		std::shared_ptr<asio::io_service::work> main_iosrv_work = std::make_shared<asio::io_service::work>(main_io_service);
-		std::shared_ptr<asio::io_service::work> misc_iosrv_work = std::make_shared<asio::io_service::work>(misc_io_service);
-		std::thread main_iosrv_thread(iosrv_thread, &main_io_service);
+		std::shared_ptr<asio::io_service::work> main_iosrv_work = std::make_shared<asio::io_service::work>(main_iosrv);
+		std::shared_ptr<asio::io_service::work> misc_iosrv_work = std::make_shared<asio::io_service::work>(misc_iosrv);
+		std::thread main_iosrv_thread(iosrv_thread, &main_iosrv);
 		main_iosrv_thread.detach();
-		std::thread misc_iosrv_thread(iosrv_thread, &misc_io_service);
+		std::thread misc_iosrv_thread(iosrv_thread, &misc_iosrv);
 		misc_iosrv_thread.detach();
 
-		std::unique_ptr<msgr_proto::server> srv = std::make_unique<msgr_proto::server>
-			(main_io_service, misc_io_service, inter, asio::ip::tcp::endpoint((use_v6 ? asio::ip::tcp::v6() : asio::ip::tcp::v4()), portListener));
+		srv->start();
+
 		std::thread input_thread([]() {
 			user_record user_root;
 			user_root.name = "Server";
@@ -641,7 +646,7 @@ int main(int argc, char *argv[])
 			while (server_on)
 			{
 				std::getline(std::cin, command);
-				std::string ret = inter.process_command(command, user_root);
+				std::string ret = srv->process_command(command, user_root);
 				if (!ret.empty())
 					std::cout << ret << std::endl;
 			}
@@ -652,13 +657,15 @@ int main(int argc, char *argv[])
 		future.wait();
 
 		misc_iosrv_work.reset();
-		misc_io_service.stop();
+		misc_iosrv.stop();
 
 		main_iosrv_work.reset();
-		main_io_service.stop();
+		misc_iosrv.stop();
 
-		inter.on_exit();
+		srv->on_exit();
 		m_plugin.on_exit();
+
+		srv.reset();
 #ifdef NDEBUG
 	}
 	catch (std::exception& e)

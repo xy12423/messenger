@@ -22,40 +22,32 @@ void insLen(std::string& data);
 namespace msgr_proto
 {
 	class server;
-}
-
-class msgr_inter
-{
-public:
-	virtual void on_data(user_id_type id, const std::string& data) = 0;
-
-	virtual void on_join(user_id_type id, const std::string& key) = 0;
-	virtual void on_leave(user_id_type id) = 0;
-
-	virtual bool new_rand_port(port_type& port) = 0;
-	virtual void free_rand_port(port_type port) = 0;
-
-	void set_server(msgr_proto::server *_srv) { srv = _srv; }
-protected:
-	msgr_proto::server *srv;
-};
-
-namespace msgr_proto
-{
-	struct proto_kit
-	{
-		CryptoPP::CBC_Mode<CryptoPP::AES>::Encryption e;
-		CryptoPP::CBC_Mode<CryptoPP::AES>::Decryption d;
-		CryptoPP::ECIES<CryptoPP::ECP>::Encryptor e1;
-		session_id_type session_id;
-		rand_num_type rand_num_send, rand_num_recv;
-	};
 
 	//Exceptions that can be safely ignored
 	class msgr_proto_error :public std::runtime_error
 	{
 	public:
 		msgr_proto_error() :std::runtime_error("Error in msgr_proto") {};
+		msgr_proto_error(const char* err) :std::runtime_error(err) {};
+		msgr_proto_error(const std::string& err) :std::runtime_error(err) {};
+	};
+
+	class proto_kit
+	{
+	public:
+		void enc(std::string& data);
+		void dec(std::string& data);
+
+		friend class pre_session;
+	private:
+		inline rand_num_type get_rand_num_send() { if (rand_num_send == std::numeric_limits<rand_num_type>::max()) rand_num_send = 0; else rand_num_send++; return rand_num_send; };
+		inline rand_num_type get_rand_num_recv() { if (rand_num_recv == std::numeric_limits<rand_num_type>::max()) rand_num_recv = 0; else rand_num_recv++; return rand_num_recv; };
+
+		CryptoPP::CBC_Mode<CryptoPP::AES>::Encryption e;
+		CryptoPP::CBC_Mode<CryptoPP::AES>::Decryption d;
+		CryptoPP::ECIES<CryptoPP::ECP>::Encryptor e1;
+		session_id_type session_id;
+		rand_num_type rand_num_send, rand_num_recv;
 	};
 
 	class pre_session : public std::enable_shared_from_this<pre_session>
@@ -158,20 +150,22 @@ namespace msgr_proto
 		virtual void sid_packet_done();
 	};
 
-	class session_base : public std::enable_shared_from_this<session_base>
+	class session_base :public std::enable_shared_from_this<session_base>
 	{
 	public:
-		static const int priority_sys = 30;
-		static const int priority_msg = 20;
-		static const int priority_plugin = 15;
-		static const int priority_file = 10;
+		static constexpr int priority_sys = 30;
+		static constexpr int priority_msg = 20;
+		static constexpr int priority_plugin = 15;
+		static constexpr int priority_file = 10;
 
 		typedef std::function<void()> write_callback;
 
 		session_base(server& _srv, port_type_l _local_port, const std::string& _key_string)
 			:srv(_srv), local_port(_local_port), key_string(_key_string)
-		{}
+		{};
 		session_base(const session_base&) = delete;
+
+		void join();
 
 		virtual void start() = 0;
 		virtual void shutdown() = 0;
@@ -183,8 +177,6 @@ namespace msgr_proto
 		user_id_type get_id() const { return uid; }
 		port_type_l get_port() const { return local_port; }
 		const std::string& get_key() const { return key_string; }
-
-		friend class server;
 	protected:
 		std::string key_string;
 		user_id_type uid;
@@ -228,12 +220,9 @@ namespace msgr_proto
 			asio::io_service& _main_iosrv, asio::io_service& _misc_iosrv, socket_ptr&& _socket)
 			:session_base(_srv, _local_port, _key_string),
 			main_iosrv(_main_iosrv), misc_iosrv(_misc_iosrv), socket(std::move(_socket)),
-			proto_data(std::move(_proto_data)),
-			e(proto_data->e), d(proto_data->d), e1(proto_data->e1),
-			session_id(proto_data->session_id), rand_num_send(proto_data->rand_num_send), rand_num_recv(proto_data->rand_num_recv),
+			crypto_kit(std::move(_proto_data)),
 			read_buffer(std::make_unique<char[]>(read_buffer_size))
-		{
-		}
+		{}
 
 		~session()
 		{
@@ -260,21 +249,13 @@ namespace msgr_proto
 		void process_data(const std::shared_ptr<std::string>& buf);
 		void write();
 
-		inline rand_num_type get_rand_num_send() { if (rand_num_send == std::numeric_limits<rand_num_type>::max()) rand_num_send = 0; else rand_num_send++; return rand_num_send; };
-		inline rand_num_type get_rand_num_recv() { if (rand_num_recv == std::numeric_limits<rand_num_type>::max()) rand_num_recv = 0; else rand_num_recv++; return rand_num_recv; };
-
-		std::shared_ptr<proto_kit> proto_data;
-		CryptoPP::CBC_Mode<CryptoPP::AES>::Encryption &e;
-		CryptoPP::CBC_Mode<CryptoPP::AES>::Decryption &d;
-		CryptoPP::ECIES<CryptoPP::ECP>::Encryptor &e1;
-		session_id_type &session_id;
-		rand_num_type &rand_num_send, &rand_num_recv;
+		std::shared_ptr<proto_kit> crypto_kit;
 
 		asio::io_service &main_iosrv, &misc_iosrv;
 		socket_ptr socket;
 
 		std::unique_ptr<char[]> read_buffer;
-		static const size_t read_buffer_size = 0x4000;
+		static constexpr size_t read_buffer_size = 0x4000;
 
 		struct write_task {
 			write_task() {};
@@ -295,32 +276,23 @@ namespace msgr_proto
 	public:
 		server(asio::io_service& _main_io_service,
 			asio::io_service& _misc_io_service,
-			msgr_inter& _inter,
 			asio::ip::tcp::endpoint _local_endpoint)
 			:main_io_service(_main_io_service),
 			misc_io_service(_misc_io_service),
 			acceptor(main_io_service, _local_endpoint),
 			resolver(main_io_service),
-			inter(_inter),
 			e0str(getPublicKey())
-		{
-			inter.set_server(this);
-			start();
-		}
+		{}
 
 		server(asio::io_service& _main_io_service,
-			asio::io_service& _misc_io_service,
-			msgr_inter& _inter
-		)
+			asio::io_service& _misc_io_service
+			)
 			: main_io_service(_main_io_service),
 			misc_io_service(_misc_io_service),
 			acceptor(main_io_service),
 			resolver(main_io_service),
-			inter(_inter),
 			e0str(getPublicKey())
-		{
-			inter.set_server(this);
-		}
+		{}
 
 		~server()
 		{
@@ -331,7 +303,9 @@ namespace msgr_proto
 			sessions.clear();
 		}
 
-		void on_data(user_id_type id, std::shared_ptr<std::string> data);
+		void start() { if (!started) { started = true; do_start(); } };
+
+		void on_recv_data(user_id_type id, std::shared_ptr<std::string> data);
 
 		bool send_data(user_id_type id, const std::string& data, int priority);
 		bool send_data(user_id_type id, const std::string& data, int priority, const std::string& message);
@@ -341,7 +315,7 @@ namespace msgr_proto
 		bool send_data(user_id_type id, std::string&& data, int priority, session::write_callback&& callback);
 
 		void pre_session_over(const std::shared_ptr<pre_session>& _pre, bool successful = false);
-		void join(const session_ptr& _user);
+		void join(const session_ptr& _user, user_id_type& uid);
 		void leave(user_id_type id);
 
 		void connect(const std::string& addr, port_type remote_port);
@@ -351,9 +325,18 @@ namespace msgr_proto
 		const session_ptr& get_session(user_id_type id) const { return sessions.at(id); }
 		const std::string& get_public_key() const { return e0str; }
 
-		bool check_key_connected(const std::string& key) { if (connectedKeys.find(key) == connectedKeys.end()) { connectedKeys.emplace(key); return false; } else return true; };
+		bool check_key_connected(const std::string& key) { if (connected_keys.find(key) == connected_keys.end()) { connected_keys.emplace(key); return false; } else return true; };
+
+		virtual void on_data(user_id_type id, const std::string& data) = 0;
+
+		virtual void on_join(user_id_type id, const std::string& key) = 0;
+		virtual void on_leave(user_id_type id) = 0;
+
+		virtual bool new_rand_port(port_type& port) = 0;
+		virtual void free_rand_port(port_type port) = 0;
+
 	private:
-		void start();
+		void do_start();
 
 		void connect(const asio::ip::tcp::endpoint& remote_endpoint);
 		void connect(const asio::ip::tcp::resolver::query& query);
@@ -363,14 +346,14 @@ namespace msgr_proto
 		asio::ip::tcp::resolver resolver;
 
 		std::string e0str;
-		std::unordered_set<std::string> connectedKeys;
+		std::unordered_set<std::string> connected_keys;
 
 		std::unordered_set<std::shared_ptr<pre_session>> pre_sessions;
 		session_list_type sessions;
 		user_id_type nextID = 0;
 
-		msgr_inter &inter;
-		volatile bool closing = false;
+		std::mutex session_mutex;
+		volatile bool started = false, closing = false;
 	};
 }
 

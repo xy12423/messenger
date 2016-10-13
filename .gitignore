@@ -255,6 +255,7 @@ MessengerGUI/
 *.config
 *.data
 plugins.txt
+Messenger_Server/log
 
 # Object files
 *.o

@@ -10,7 +10,7 @@ void insLen(std::string& data)
 	data.insert(0, reinterpret_cast<const char*>(&len), sizeof(data_size_type));
 }
 
-void server::start()
+void server::do_start()
 {
 	if (closing)
 		return;
@@ -25,7 +25,7 @@ void server::start()
 			pre_sessions.emplace(pre_session_s_ptr);
 		}
 
-		start();
+		do_start();
 	});
 }
 
@@ -34,47 +34,49 @@ void server::pre_session_over(const std::shared_ptr<pre_session>& _pre, bool suc
 	if (!successful)
 	{
 		if (_pre->get_port() != port_null)
-			inter.free_rand_port(static_cast<port_type>(_pre->get_port()));
-		connectedKeys.erase(_pre->get_key());
+			free_rand_port(static_cast<port_type>(_pre->get_port()));
+		connected_keys.erase(_pre->get_key());
 	}
 	pre_sessions.erase(_pre);
 }
 
-void server::join(const session_ptr& _user)
+void server::join(const session_ptr& _user, user_id_type& uid)
 {
+	std::lock_guard<std::mutex> lock(session_mutex);
 	user_id_type newID = nextID;
 	nextID++;
 	sessions.emplace(newID, _user);
-	_user->uid = newID;
+	uid = newID;
 
-	try{ inter.on_join(newID, _user->get_key()); }
+	try{ on_join(newID, _user->get_key()); }
 	catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
 	catch (...) {}
 }
 
 void server::leave(user_id_type _user)
 {
+	std::lock_guard<std::mutex> lock(session_mutex);
 	session_list_type::iterator itr(sessions.find(_user));
 	if (itr == sessions.end())
 		return;
 	session_ptr this_session = itr->second;
 
-	try { inter.on_leave(_user); }
+	try { on_leave(_user); }
 	catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
 	catch (...) {}
 
 	this_session->shutdown();
 	if (this_session->get_port() != port_null)
-		inter.free_rand_port(static_cast<port_type>(this_session->get_port()));
-	connectedKeys.erase(this_session->get_key());
+		free_rand_port(static_cast<port_type>(this_session->get_port()));
+	connected_keys.erase(this_session->get_key());
 	sessions.erase(itr);
 }
 
-void server::on_data(user_id_type id, std::shared_ptr<std::string> data)
+void server::on_recv_data(user_id_type id, std::shared_ptr<std::string> data)
 {
 	session_ptr this_session = sessions[id];
 	misc_io_service.post([this, id, data, this_session]() {
-		try { inter.on_data(id, *data); }
+		try { on_data(id, *data); }
 		catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
 		catch (...) {}
 	});
@@ -133,7 +135,7 @@ void server::connect(unsigned long addr_ulong, port_type remote_port)
 void server::connect(const asio::ip::tcp::endpoint& remote_endpoint)
 {
 	port_type local_port;
-	if (!inter.new_rand_port(local_port))
+	if (!new_rand_port(local_port))
 		std::cerr << "Socket:No port available" << std::endl;
 	else
 	{
@@ -153,7 +155,7 @@ void server::connect(const asio::ip::tcp::endpoint& remote_endpoint)
 			else
 			{
 				std::cerr << "Socket Error:" << ec.message() << std::endl;
-				inter.free_rand_port(local_port);
+				free_rand_port(local_port);
 			}
 		});
 	}
@@ -162,7 +164,7 @@ void server::connect(const asio::ip::tcp::endpoint& remote_endpoint)
 void server::connect(const asio::ip::tcp::resolver::query& query)
 {
 	port_type local_port;
-	if (!inter.new_rand_port(local_port))
+	if (!new_rand_port(local_port))
 		std::cerr << "Socket:No port available" << std::endl;
 	else
 	{
@@ -172,7 +174,7 @@ void server::connect(const asio::ip::tcp::resolver::query& query)
 			if (ec)
 			{
 				std::cerr << "Socket Error:" << ec.message() << std::endl;
-				inter.free_rand_port(local_port);
+				free_rand_port(local_port);
 				return;
 			}
 			socket_ptr socket = std::make_shared<asio::ip::tcp::socket>(main_io_service);
@@ -196,7 +198,7 @@ void server::connect(const asio::ip::tcp::resolver::query& query)
 				else
 				{
 					std::cerr << "Socket Error:" << ec.message() << std::endl;
-					inter.free_rand_port(local_port);
+					free_rand_port(local_port);
 				}
 			});
 		});
