@@ -18,13 +18,14 @@ public:
 private:
 	enum itemID{
 		ID_FRAME,
-		ID_LISTUSER, ID_BUTTONADD, ID_BUTTONDEL,
+		ID_LABELLISTUSER, ID_LISTUSER, ID_BUTTONADD, ID_BUTTONDEL,
 		ID_TEXTMSG, ID_TEXTINPUT, ID_BUTTONSEND, ID_BUTTONSENDIMAGE, ID_BUTTONSENDFILE, ID_BUTTONCANCELSEND,
 		ID_TEXTINFO
 	};
 
 	wxPanel *panel;
 
+	wxStaticText *labelListUser;
 	wxListBox *listUser;
 	wxButton *buttonAdd, *buttonDel;
 	void listUser_SelectedIndexChanged(wxCommandEvent& event);
@@ -41,6 +42,7 @@ private:
 
 	void thread_Message(wxThreadEvent& event);
 
+	void mainFrame_Resize(wxSizeEvent& event);
 	void mainFrame_Close(wxCloseEvent& event);
 
 	wxTextCtrl *textInfo;
@@ -89,10 +91,12 @@ public:
 	wx_srv_interface_error() :std::runtime_error("Error in wx_srv_interface") {};
 };
 
-class wx_srv_interface :public msgr_inter
+class wx_srv_interface :public msgr_proto::server
 {
 public:
-	wx_srv_interface();
+	wx_srv_interface(asio::io_service& _main_io_service,
+		asio::io_service& _misc_io_service,
+		asio::ip::tcp::endpoint _local_endpoint);
 	~wx_srv_interface();
 
 	virtual void on_data(user_id_type id, const std::string& data);
