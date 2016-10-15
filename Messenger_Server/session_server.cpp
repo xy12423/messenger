@@ -48,9 +48,11 @@ void server::join(const session_ptr& _user, user_id_type& uid)
 	sessions.emplace(newID, _user);
 	uid = newID;
 
-	try{ on_join(newID, _user->get_key()); }
-	catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
-	catch (...) {}
+	misc_io_service.post([this, newID, _user]() {
+		try { on_join(newID, _user->get_key()); }
+		catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
+		catch (...) {}
+	});
 }
 
 void server::leave(user_id_type _user)
@@ -61,9 +63,11 @@ void server::leave(user_id_type _user)
 		return;
 	session_ptr this_session = itr->second;
 
-	try { on_leave(_user); }
-	catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
-	catch (...) {}
+	misc_io_service.post([this, _user]() {
+		try { on_leave(_user); }
+		catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
+		catch (...) {}
+	});
 
 	this_session->shutdown();
 	if (this_session->get_port() != port_null)
@@ -74,7 +78,10 @@ void server::leave(user_id_type _user)
 
 void server::on_recv_data(user_id_type id, std::shared_ptr<std::string> data)
 {
-	session_ptr this_session = sessions[id];
+	session_list_type::iterator itr(sessions.find(id));
+	if (itr == sessions.end())
+		return;
+	session_ptr this_session = itr->second;
 	misc_io_service.post([this, id, data, this_session]() {
 		try { on_data(id, *data); }
 		catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
@@ -136,7 +143,7 @@ void server::connect(const asio::ip::tcp::endpoint& remote_endpoint)
 {
 	port_type local_port;
 	if (!new_rand_port(local_port))
-		std::cerr << "Socket:No port available" << std::endl;
+		on_exception("Socket:No port available");
 	else
 	{
 		socket_ptr socket = std::make_shared<asio::ip::tcp::socket>(main_io_service);
@@ -154,7 +161,7 @@ void server::connect(const asio::ip::tcp::endpoint& remote_endpoint)
 			}
 			else
 			{
-				std::cerr << "Socket Error:" << ec.message() << std::endl;
+				on_exception("Socket Error:" + ec.message());
 				free_rand_port(local_port);
 			}
 		});
@@ -165,7 +172,7 @@ void server::connect(const asio::ip::tcp::resolver::query& query)
 {
 	port_type local_port;
 	if (!new_rand_port(local_port))
-		std::cerr << "Socket:No port available" << std::endl;
+		on_exception("Socket:No port available");
 	else
 	{
 		resolver.async_resolve(query,
@@ -173,7 +180,7 @@ void server::connect(const asio::ip::tcp::resolver::query& query)
 		{
 			if (ec)
 			{
-				std::cerr << "Socket Error:" << ec.message() << std::endl;
+				on_exception("Socket Error:" + ec.message());
 				free_rand_port(local_port);
 				return;
 			}
@@ -197,7 +204,7 @@ void server::connect(const asio::ip::tcp::resolver::query& query)
 				}
 				else
 				{
-					std::cerr << "Socket Error:" << ec.message() << std::endl;
+					on_exception("Socket Error:" + ec.message());
 					free_rand_port(local_port);
 				}
 			});

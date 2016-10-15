@@ -64,7 +64,7 @@ void pre_session::read_key_header()
 		{
 			if (!exiting)
 			{
-				std::cerr << ex.what() << std::endl;
+				srv.on_exception(ex);
 				srv.pre_session_over(shared_from_this());
 			}
 		}
@@ -97,7 +97,7 @@ void pre_session::read_key()
 		{
 			if (!exiting)
 			{
-				std::cerr << ex.what() << std::endl;
+				srv.on_exception(ex);
 				srv.pre_session_over(shared_from_this());
 			}
 		}
@@ -127,7 +127,7 @@ void pre_session::write_secret()
 			{
 				if (!exiting)
 				{
-					std::cerr << ex.what() << std::endl;
+					srv.on_exception(ex);
 					srv.pre_session_over(shared_from_this());
 				}
 			}
@@ -153,7 +153,7 @@ void pre_session::read_secret_header()
 		{
 			if (!exiting)
 			{
-				std::cerr << ex.what() << std::endl;
+				srv.on_exception(ex);
 				srv.pre_session_over(shared_from_this());
 			}
 		}
@@ -192,7 +192,7 @@ void pre_session::read_secret()
 		{
 			if (!exiting)
 			{
-				std::cerr << "Socket Error:" << ec.message() << std::endl;
+				srv.on_exception("Socket Error:" + ec.message());
 				srv.pre_session_over(shared_from_this());
 			}
 		}
@@ -217,7 +217,7 @@ void pre_session::write_iv()
 		{
 			if (!exiting)
 			{
-				std::cerr << ex.what() << std::endl;
+				srv.on_exception(ex);
 				srv.pre_session_over(shared_from_this());
 			}
 		}
@@ -242,7 +242,7 @@ void pre_session::read_iv()
 		{
 			if (!exiting)
 			{
-				std::cerr << ex.what() << std::endl;
+				srv.on_exception(ex);
 				srv.pre_session_over(shared_from_this());
 			}
 		}
@@ -269,7 +269,7 @@ void pre_session::read_session_id(int check_level, bool ignore_error)
 			if (!exiting)
 			{
 				if (!ignore_error)
-					std::cerr << ex.what() << std::endl;
+					srv.on_exception(ex);
 				srv.pre_session_over(shared_from_this());
 			}
 		}
@@ -369,7 +369,7 @@ void pre_session::read_session_id_body(int check_level)
 		{
 			if (!exiting)
 			{
-				std::cerr << "Socket Error:" << ec.message() << std::endl;
+				srv.on_exception("Error:Checking failed");
 				srv.pre_session_over(shared_from_this());
 			}
 		}
@@ -406,7 +406,7 @@ void pre_session::write_session_id()
 			{
 				if (!exiting)
 				{
-					std::cerr << ex.what() << std::endl;
+					srv.on_exception(ex);
 					srv.pre_session_over(shared_from_this());
 				}
 			}
@@ -434,7 +434,7 @@ void pre_session_s::start()
 		{
 			if (!exiting)
 			{
-				std::cerr << ex.what() << std::endl;
+				srv.on_exception(ex);
 				srv.pre_session_over(shared_from_this());
 			}
 		}
@@ -454,7 +454,7 @@ void pre_session_s::stage1()
 	{
 		if (!exiting)
 		{
-			std::cerr << ex.what() << std::endl;
+			srv.on_exception(ex);
 			srv.pre_session_over(shared_from_this());
 		}
 	}
@@ -478,7 +478,7 @@ void pre_session_s::stage2()
 	{
 		if (!exiting)
 		{
-			std::cerr << ex.what() << std::endl;
+			srv.on_exception(ex);
 			srv.pre_session_over(shared_from_this());
 		}
 	}
@@ -521,7 +521,7 @@ void pre_session_s::sid_packet_done()
 	}
 	catch (std::exception &ex)
 	{
-		std::cerr << ex.what() << std::endl;
+		srv.on_exception(ex);
 		main_io_service.post([this]() {
 			if (!exiting)
 				srv.pre_session_over(shared_from_this());
@@ -549,7 +549,7 @@ void pre_session_c::start()
 		{
 			if (!exiting)
 			{
-				std::cerr << ex.what() << std::endl;
+				srv.on_exception(ex);
 				srv.pre_session_over(shared_from_this());
 			}
 		}
@@ -569,7 +569,7 @@ void pre_session_c::stage1()
 	{
 		if (!exiting)
 		{
-			std::cerr << ex.what() << std::endl;
+			srv.on_exception(ex);
 			srv.pre_session_over(shared_from_this());
 		}
 	}
@@ -586,7 +586,7 @@ void pre_session_c::stage2()
 	{
 		if (!exiting)
 		{
-			std::cerr << ex.what() << std::endl;
+			srv.on_exception(ex);
 			srv.pre_session_over(shared_from_this());
 		}
 	}
@@ -635,7 +635,7 @@ void pre_session_c::sid_packet_done()
 	}
 	catch (std::exception &ex)
 	{
-		std::cerr << ex.what() << std::endl;
+		srv.on_exception(ex);
 		main_io_service.post([this]() {
 			if (!exiting)
 				srv.pre_session_over(shared_from_this());
@@ -776,7 +776,7 @@ void session::read_header()
 				if (!exiting)
 				{
 					if (size != 0)
-						std::cerr << ex.what() << std::endl;
+						srv.on_exception(ex);
 					srv.leave(uid);
 				}
 			}
@@ -786,7 +786,7 @@ void session::read_header()
 	{
 		if (!exiting)
 		{
-			std::cerr << ex.what() << std::endl;
+			srv.on_exception(ex);
 			srv.leave(uid);
 		}
 	}
@@ -815,7 +815,7 @@ void session::read_data(size_t size_last, const std::shared_ptr<std::string>& bu
 				{
 					if (!exiting)
 					{
-						std::cerr << ex.what() << std::endl;
+						srv.on_exception(ex);
 						srv.leave(uid);
 					}
 				}
@@ -840,7 +840,7 @@ void session::read_data(size_t size_last, const std::shared_ptr<std::string>& bu
 				{
 					if (!exiting)
 					{
-						std::cerr << ex.what() << std::endl;
+						srv.on_exception(ex);
 						srv.leave(uid);
 					}
 				}
@@ -851,7 +851,7 @@ void session::read_data(size_t size_last, const std::shared_ptr<std::string>& bu
 	{
 		if (!exiting)
 		{
-			std::cerr << ex.what() << std::endl;
+			srv.on_exception(ex);
 			srv.leave(uid);
 		}
 	}
@@ -873,7 +873,7 @@ void session::process_data(const std::shared_ptr<std::string>& buf)
 		{
 			std::shared_ptr<std::string> what = std::make_shared<std::string>(ex.what());
 			main_iosrv.post([this, self, what]() {
-				std::cerr << *what << std::endl;
+				srv.on_exception(std::move(*what));
 				srv.leave(uid);
 				return;
 			});
@@ -901,7 +901,7 @@ void session::write()
 	{
 		if (!exiting)
 		{
-			std::cerr << ex.what() << std::endl;
+			srv.on_exception(ex);
 			srv.leave(uid);
 		}
 	}
@@ -937,7 +937,7 @@ void session::write()
 			{
 				if (!exiting)
 				{
-					std::cerr << ex.what() << std::endl;
+					srv.on_exception(ex);
 					srv.leave(uid);
 				}
 			}

@@ -327,6 +327,11 @@ namespace msgr_proto
 
 		bool check_key_connected(const std::string& key) { if (connected_keys.find(key) == connected_keys.end()) { connected_keys.emplace(key); return false; } else return true; };
 
+		void on_exception(const char* _ex) { std::string ex(_ex); misc_io_service.post([ex]() {std::cerr << ex << std::endl; }); }
+		void on_exception(const std::string& ex) { misc_io_service.post([ex]() {std::cerr << ex << std::endl; }); }
+		void on_exception(std::string&& ex) { misc_io_service.post([ex]() {std::cerr << ex << std::endl; }); }
+		void on_exception(std::exception& ex) { misc_io_service.post([ex]() {std::cerr << ex.what() << std::endl; }); }
+
 		virtual void on_data(user_id_type id, const std::string& data) = 0;
 
 		virtual void on_join(user_id_type id, const std::string& key) = 0;

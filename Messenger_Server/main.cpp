@@ -521,7 +521,11 @@ void cli_server::on_exit()
 	{
 		for (const std::pair<int, user_ext> &p : user_exts)
 		{
-			m_plugin.on_del_user(p.second.name);
+			try
+			{
+				m_plugin.on_del_user(p.second.name);
+			}
+			catch (...) {}
 		}
 	}
 	catch (...) {}
