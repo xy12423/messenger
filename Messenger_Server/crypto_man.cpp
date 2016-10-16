@@ -50,9 +50,9 @@ void server::stop()
 {
 	iosrv.post([this]() {
 		tasks.clear();
-		for (std::unordered_map<id_type, worker>::iterator itr = workers.begin(), itr_end = workers.end(); itr != itr_end; itr++)
-			itr->second.stop();
 	});
+	for (std::unordered_map<id_type, worker>::iterator itr = workers.begin(), itr_end = workers.end(); itr != itr_end; itr++)
+		itr->second.stop();
 }
 
 void server::del_session(id_type id)
