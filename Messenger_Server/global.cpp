@@ -7,7 +7,7 @@ void ltrim(std::string& str)
 		return;
 	std::string::iterator itr = str.begin(), itrEnd = str.end();
 	for (; itr != itrEnd; itr++)
-		if (!isspace(*itr))
+		if (!isspace(static_cast<unsigned char>(*itr)))
 			break;
 	str.erase(str.begin(), itr);
 }
@@ -16,7 +16,7 @@ void rtrim(std::string& str)
 {
 	if (str.empty())
 		return;
-	while (isspace(str.back()))
+	while (isspace(static_cast<unsigned char>(str.back())))
 		str.pop_back();
 }
 

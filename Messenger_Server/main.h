@@ -44,16 +44,21 @@ public:
 	cli_server_error() :std::runtime_error("Internal server error") {};
 };
 
-const int server_uid = -1;
-class cli_server :public msgr_inter
+constexpr int server_uid = -1;
+const char *config_file = ".config";
+const char *data_file = ".data";
+class cli_server :public msgr_proto::server
 {
 public:
-	cli_server(){
-		read_config();
+	cli_server(asio::io_service& _main_io_service,
+		asio::io_service& _misc_io_service,
+		asio::ip::tcp::endpoint _local_endpoint,
+		crypto::server& _crypto_srv)
+		:msgr_proto::server(_main_io_service, _misc_io_service, _local_endpoint, _crypto_srv)
+	{
 		read_data();
 		user_exts[server_uid].name = user_exts[server_uid].addr = server_uname;
 		user_exts[server_uid].current_stage = user_ext::LOGGED_IN;
-		initKey();
 	}
 	~cli_server() {
 		write_data();
@@ -68,8 +73,6 @@ public:
 	virtual void free_rand_port(port_type port) { ports.push_back(port); };
 
 	void send_msg(user_id_type id, const std::string& msg);
-	inline void send_data(user_id_type id, const std::string& data, int priority) { srv->send_data(id, data, priority); };
-	inline void send_data(user_id_type id, std::string&& data, int priority) { srv->send_data(id, std::move(data), priority); };
 	void broadcast_msg(int id, const std::string& msg);
 	void broadcast_data(int id, const std::string& data, int priority);
 	std::string process_command(std::string& cmd, user_record& user);
@@ -82,14 +85,13 @@ public:
 
 	void set_mode(modes _mode) { mode = _mode; }
 	void set_static_port(port_type port) { static_port = port; };
+
+	static void read_config();
 private:
 	void read_data();
 	void write_data();
-	void read_config();
 
-	const char *config_file = ".config";
-	const char *data_file = ".data";
-	const uint32_t data_ver = 0x00;
+	static constexpr uint32_t data_ver = 0x00;
 
 	int static_port = -1;
 	std::list<port_type> ports;
