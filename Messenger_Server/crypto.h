@@ -11,13 +11,14 @@ extern size_t dh_priv_block_size, dh_pub_block_size, dh_agree_block_size;
 
 void genKey();
 void initKey();
-std::string getPublicKey();
-std::string getUserIDGlobal();
+const CryptoPP::ECIES<CryptoPP::ECP>::Decryptor& GetPublicKey();
+std::string GetPublicKeyString();
+std::string GetUserIDGlobal();
 
 void encrypt(const std::string& src, std::string& dst, const CryptoPP::ECIES<CryptoPP::ECP>::Encryptor& e1);
 void encrypt(const byte* src, size_t src_size, std::string& dst, const CryptoPP::ECIES<CryptoPP::ECP>::Encryptor& e1);
-void decrypt(const std::string& src, std::string& dst);
-void decrypt(const byte* src, size_t src_size, CryptoPP::SecByteBlock& dst);
+void decrypt(const std::string& src, std::string& dst, const CryptoPP::ECIES<CryptoPP::ECP>::Decryptor& d0);
+void decrypt(const byte* src, size_t src_size, CryptoPP::SecByteBlock& dst, const CryptoPP::ECIES<CryptoPP::ECP>::Decryptor& d0);
 void hash(const std::string& src, std::string& dst, size_t input_shift = 0);
 void hash_short(const std::string& src, std::string& dst);
 
