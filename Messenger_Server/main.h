@@ -44,16 +44,18 @@ public:
 	cli_server_error() :std::runtime_error("Internal server error") {};
 };
 
-const int server_uid = -1;
+constexpr int server_uid = -1;
+const char *config_file = ".config";
+const char *data_file = ".data";
 class cli_server :public msgr_proto::server
 {
 public:
 	cli_server(asio::io_service& _main_io_service,
 		asio::io_service& _misc_io_service,
-		asio::ip::tcp::endpoint _local_endpoint)
-		:msgr_proto::server(_main_io_service, _misc_io_service, _local_endpoint)
+		asio::ip::tcp::endpoint _local_endpoint,
+		crypto::server& _crypto_srv)
+		:msgr_proto::server(_main_io_service, _misc_io_service, _local_endpoint, _crypto_srv)
 	{
-		read_config();
 		read_data();
 		user_exts[server_uid].name = user_exts[server_uid].addr = server_uname;
 		user_exts[server_uid].current_stage = user_ext::LOGGED_IN;
@@ -83,14 +85,13 @@ public:
 
 	void set_mode(modes _mode) { mode = _mode; }
 	void set_static_port(port_type port) { static_port = port; };
+
+	static void read_config();
 private:
 	void read_data();
 	void write_data();
-	void read_config();
 
-	const char *config_file = ".config";
-	const char *data_file = ".data";
-	const uint32_t data_ver = 0x00;
+	static constexpr uint32_t data_ver = 0x00;
 
 	int static_port = -1;
 	std::list<port_type> ports;

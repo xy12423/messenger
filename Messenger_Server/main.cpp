@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "global.h"
 #include "crypto.h"
+#include "crypto_man.h"
 #include "session.h"
 #include "plugin.h"
 #include "main.h"
@@ -10,7 +11,8 @@ const std::string empty_string;
 std::promise<void> exit_promise;
 config_table_tp config_items;
 
-asio::io_service main_iosrv, misc_iosrv;
+asio::io_service main_iosrv, misc_iosrv, cryp_iosrv;
+std::unique_ptr<crypto::server> crypto_srv;
 std::unique_ptr<cli_server> srv;
 cli_plugin_interface i_plugin;
 plugin_manager m_plugin(i_plugin);
@@ -517,6 +519,7 @@ bool cli_server::new_rand_port(port_type& ret)
 
 void cli_server::on_exit()
 {
+	broadcast_msg(server_uid, "Stopping");
 	try
 	{
 		for (const std::pair<int, user_ext> &p : user_exts)
@@ -545,6 +548,7 @@ int main(int argc, char *argv[])
 #endif
 		initKey();
 
+		cli_server::read_config();
 		for (int i = 1; i < argc; i++)
 		{
 			std::string arg(argv[i]);
@@ -558,6 +562,7 @@ int main(int argc, char *argv[])
 		port_type portListener = 4826;
 		port_type portsBegin = 5000, portsEnd = 9999;
 		bool use_v6 = false;
+		int crypto_worker = 1;
 
 		try
 		{
@@ -574,9 +579,17 @@ int main(int argc, char *argv[])
 			std::cout << "Using IPv6 for listening" << std::endl;
 		}
 		catch (std::out_of_range &) {}
+		try
+		{
+			std::string &arg = config_items.at("crypto_worker");
+			crypto_worker = std::stoi(arg);
+			std::cout << "Using " << crypto_worker << " crypto worker(s)" << std::endl;
+		}
+		catch (std::out_of_range &) {}
 
+		crypto_srv = std::make_unique<crypto::server>(cryp_iosrv, crypto_worker);
 		srv = std::make_unique<cli_server>
-			(main_iosrv, misc_iosrv, asio::ip::tcp::endpoint((use_v6 ? asio::ip::tcp::v6() : asio::ip::tcp::v4()), portListener));
+			(main_iosrv, misc_iosrv, asio::ip::tcp::endpoint((use_v6 ? asio::ip::tcp::v6() : asio::ip::tcp::v4()), portListener), *crypto_srv.get());
 
 		try
 		{
@@ -635,10 +648,13 @@ int main(int argc, char *argv[])
 		};
 		std::shared_ptr<asio::io_service::work> main_iosrv_work = std::make_shared<asio::io_service::work>(main_iosrv);
 		std::shared_ptr<asio::io_service::work> misc_iosrv_work = std::make_shared<asio::io_service::work>(misc_iosrv);
+		std::shared_ptr<asio::io_service::work> cryp_iosrv_work = std::make_shared<asio::io_service::work>(cryp_iosrv);
 		std::thread main_iosrv_thread(iosrv_thread, &main_iosrv);
 		main_iosrv_thread.detach();
 		std::thread misc_iosrv_thread(iosrv_thread, &misc_iosrv);
 		misc_iosrv_thread.detach();
+		std::thread cryp_iosrv_thread(iosrv_thread, &cryp_iosrv);
+		cryp_iosrv_thread.detach();
 
 		srv->start();
 
@@ -660,15 +676,20 @@ int main(int argc, char *argv[])
 		std::future<void> future = exit_promise.get_future();
 		future.wait();
 
+		cryp_iosrv_work.reset();
+		cryp_iosrv.stop();
+
 		misc_iosrv_work.reset();
 		misc_iosrv.stop();
 
 		main_iosrv_work.reset();
-		misc_iosrv.stop();
+		main_iosrv.stop();
 
+		crypto_srv->stop();
 		srv->on_exit();
 		m_plugin.on_exit();
 
+		crypto_srv.reset();
 		srv.reset();
 #ifdef NDEBUG
 	}

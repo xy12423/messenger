@@ -38,7 +38,12 @@ void initKey()
 	dh_agree_block_size = dh.AgreedValueLength();
 }
 
-std::string getPublicKey()
+const CryptoPP::ECIES<CryptoPP::ECP>::Decryptor& GetPublicKey()
+{
+	return d0;
+}
+
+std::string GetPublicKeyString()
 {
 	std::string ret;
 	StringSink buf(ret);
@@ -48,7 +53,7 @@ std::string getPublicKey()
 	return ret;
 }
 
-std::string getUserIDGlobal()
+std::string GetUserIDGlobal()
 {
 	std::string ret;
 	StringSink buf(ret);
@@ -76,15 +81,15 @@ void encrypt(const byte* src, size_t src_size, std::string& dst, const CryptoPP:
 	StringSource ss1(src, src_size, true, new PK_EncryptorFilter(prng, e1, new StringSink(dst)));
 }
 
-void decrypt(const std::string& src, std::string& dst)
+void decrypt(const std::string& src, std::string& dst, const CryptoPP::ECIES<CryptoPP::ECP>::Decryptor& _d0)
 {
 	dst.clear();
-	StringSource ss1(src, true, new PK_DecryptorFilter(prng, d0, new StringSink(dst)));
+	StringSource ss1(src, true, new PK_DecryptorFilter(prng, _d0, new StringSink(dst)));
 }
 
-void decrypt(const byte* src, size_t src_size, CryptoPP::SecByteBlock& dst)
+void decrypt(const byte* src, size_t src_size, CryptoPP::SecByteBlock& dst, const CryptoPP::ECIES<CryptoPP::ECP>::Decryptor& _d0)
 {
-	d0.Decrypt(prng, src, src_size, dst);
+	_d0.Decrypt(prng, src, src_size, dst);
 }
 
 void init_sym_encryption(CBC_Mode<AES>::Encryption& e, const SecByteBlock& key, SecByteBlock& iv)

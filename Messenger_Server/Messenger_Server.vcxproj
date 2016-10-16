@@ -157,6 +157,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="crypto.h" />
+    <ClInclude Include="crypto_man.h" />
     <ClInclude Include="global.h" />
     <ClInclude Include="plugin.h" />
     <ClInclude Include="session.h" />
@@ -165,6 +166,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="crypto.cpp" />
+    <ClCompile Include="crypto_man.cpp" />
     <ClCompile Include="global.cpp" />
     <ClCompile Include="plugin.cpp" />
     <ClCompile Include="session_server.cpp" />
