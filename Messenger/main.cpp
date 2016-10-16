@@ -1,5 +1,4 @@
 #include "stdafx.h"
-#include "crypto.h"
 #include "session.h"
 #include "threads.h"
 #include "plugin.h"
@@ -38,14 +37,17 @@ const int _GUI_SIZE_Y = 540;
 #endif
 
 fileSendThread *threadFileSend;
-iosrvThread *threadNetwork, *threadMisc;
+iosrvThread *threadNetwork, *threadMisc, *threadCrypto;
 
-asio::io_service main_io_service, misc_io_service;
+asio::io_service main_io_service, misc_io_service, cryp_io_service;
+std::unique_ptr<crypto::server> crypto_srv;
 std::unique_ptr<wx_srv_interface> srv;
 
 std::unordered_map<user_id_type, user_ext_type> user_ext;
 std::unordered_map<plugin_id_type, plugin_info_type> plugin_info;
 std::unordered_set<user_id_type> virtual_users;
+
+std::string empty_string;
 
 void plugin_handler_SendData(plugin_id_type plugin_id, int to, const char* data, size_t size)
 {
@@ -269,7 +271,7 @@ mainFrame::mainFrame(const wxString& title)
 	if (fs::exists(plugin_file_name))
 	{
 		plugin_init();
-		uid_global.assign(getUserIDGlobal());
+		uid_global.assign(GetUserIDGlobal());
 		set_method("GetUserID", reinterpret_cast<void*>(plugin_method_GetUserID));
 		set_method("Print", reinterpret_cast<void*>(plugin_method_Print));
 
@@ -509,6 +511,18 @@ bool MyApp::OnInit()
 	int stage = 0;
 	try
 	{
+		std::unordered_map<std::string, std::string> config_items;
+		
+		for (int i = 1; i < argc; i++)
+		{
+			std::string arg(argv[i]);
+			size_t pos = arg.find('=');
+			if (pos == std::string::npos)
+				config_items[std::move(arg)] = empty_string;
+			else
+				config_items[arg.substr(0, pos)] = arg.substr(pos + 1);
+		}
+
 		wxImage::AddHandler(new wxPNGHandler);
 		wxImage::AddHandler(new wxJPEGHandler);
 		wxImage::AddHandler(new wxGIFHandler);
@@ -518,51 +532,63 @@ bool MyApp::OnInit()
 
 		port_type portsBegin = 5000, portsEnd = 9999;
 		bool use_v6 = false;
+		int crypto_worker = 1;
 
 		threadNetwork = new iosrvThread(main_io_service);
 		stage = 1;
 		threadMisc = new iosrvThread(misc_io_service);
 		stage = 2;
+		threadCrypto = new iosrvThread(cryp_io_service);
+		stage = 3;
 
 		initKey();
 
-		srv = std::make_unique<wx_srv_interface>(main_io_service, misc_io_service,
-			asio::ip::tcp::endpoint((use_v6 ? asio::ip::tcp::v6() : asio::ip::tcp::v4()), portListen));
-
-		for (int i = 1; i < argc; i++)
+		try
 		{
-			std::string arg(argv[i]);
-			if (arg.substr(0, 5) == "port=")
+			std::string &arg = config_items.at("port");
+			portListen = static_cast<port_type>(std::stoi(arg));
+		}
+		catch (std::out_of_range &) { portListen = portListenDefault; }
+		catch (std::invalid_argument &) { portListen = portListenDefault; }
+		try
+		{
+			config_items.at("usev6");
+			use_v6 = true;
+		}
+		catch (std::out_of_range &) {}
+		try
+		{
+			std::string &arg = config_items.at("crypto_worker");
+			crypto_worker = std::stoi(arg);
+		}
+		catch (std::out_of_range &) { crypto_worker = 1; }
+
+		crypto_srv = std::make_unique<crypto::server>(cryp_io_service, crypto_worker);
+		srv = std::make_unique<wx_srv_interface>(main_io_service, misc_io_service,
+			asio::ip::tcp::endpoint((use_v6 ? asio::ip::tcp::v6() : asio::ip::tcp::v4()), portListen),
+			*crypto_srv.get());
+		
+		try
+		{
+			std::string &arg = config_items.at("ports");
+			size_t pos = arg.find('-');
+			if (pos == std::string::npos)
 			{
-				portListen = static_cast<port_type>(std::stoi(arg.substr(5)));
-			}
-			else if (arg.substr(0, 6) == "ports=")
-			{
-				int pos = arg.find('-', 6);
-				if (pos == std::string::npos)
-				{
-					srv->set_static_port(static_cast<port_type>(std::stoi(arg.substr(6))));
-					portsBegin = 1;
-					portsEnd = 0;
-				}
-				else
-				{
-					std::string ports_begin = arg.substr(6, pos - 6), ports_end = arg.substr(pos + 1);
-					portsBegin = static_cast<port_type>(std::stoi(ports_begin));
-					portsEnd = static_cast<port_type>(std::stoi(ports_end));
-					srv->set_static_port(-1);
-				}
-			}
-			else if (arg == "usev6")
-			{
-				use_v6 = true;
+				srv->set_static_port(static_cast<port_type>(std::stoi(arg)));
+				portsBegin = 1;
+				portsEnd = 0;
 			}
 			else
 			{
-				throw(std::invalid_argument("Invalid argument:" + arg));
+				std::string ports_begin = arg.substr(0, pos), ports_end = arg.substr(pos + 1);
+				portsBegin = static_cast<port_type>(std::stoi(ports_begin));
+				portsEnd = static_cast<port_type>(std::stoi(ports_end));
+				srv->set_static_port(-1);
 			}
 		}
-		
+		catch (std::out_of_range &) { portsBegin = 5000, portsEnd = 9999; }
+		catch (std::invalid_argument &) { portsBegin = 5000, portsEnd = 9999; }
+
 		std::srand(static_cast<unsigned int>(std::time(NULL)));
 		for (; portsBegin <= portsEnd; portsBegin++)
 			srv->free_rand_port(portsBegin);
@@ -570,7 +596,7 @@ bool MyApp::OnInit()
 		srv->start();
 
 		threadFileSend = new fileSendThread(*srv);
-		stage = 3;
+		stage = 4;
 
 		form = new mainFrame(wxT("Messenger"));
 		form->Show();
@@ -586,6 +612,11 @@ bool MyApp::OnInit()
 			delete threadMisc;
 			throw(std::runtime_error("Can't run iosrvThread"));
 		}
+		if (threadCrypto->Run() != wxTHREAD_NO_ERROR)
+		{
+			delete threadNetwork;
+			throw(std::runtime_error("Can't run iosrvThread"));
+		}
 		if (threadFileSend->Run() != wxTHREAD_NO_ERROR)
 		{
 			delete threadFileSend;
@@ -596,8 +627,10 @@ bool MyApp::OnInit()
 	{
 		switch (stage)
 		{
-			case 3:
+			case 4:
 				threadFileSend->Delete();
+			case 3:
+				threadCrypto->Delete();
 			case 2:
 				threadMisc->Delete();
 			case 1:
@@ -617,10 +650,14 @@ int MyApp::OnExit()
 {
 	try
 	{
+		crypto_srv->stop();
+
 		threadFileSend->Delete();
+		threadCrypto->Delete();
 		threadMisc->Delete();
 		threadNetwork->Delete();
 
+		crypto_srv.reset();
 		srv.reset();
 
 		fs::remove_all(IMG_TMP_PATH_NAME);

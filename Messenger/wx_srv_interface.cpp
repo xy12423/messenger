@@ -1,5 +1,4 @@
 #include "stdafx.h"
-#include "crypto.h"
 #include "session.h"
 #include "plugin.h"
 #include "main.h"
@@ -14,8 +13,9 @@ const char* publickeysFile = ".publickey";
 
 wx_srv_interface::wx_srv_interface(asio::io_service& _main_io_service,
 	asio::io_service& _misc_io_service,
-	asio::ip::tcp::endpoint _local_endpoint)
-	:msgr_proto::server(_main_io_service, _misc_io_service, _local_endpoint)
+	asio::ip::tcp::endpoint _local_endpoint,
+	crypto::server& _crypto_srv)
+	:msgr_proto::server(_main_io_service, _misc_io_service, _local_endpoint, _crypto_srv)
 {
 	if (fs::exists(publickeysFile))
 	{
