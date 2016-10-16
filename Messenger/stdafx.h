@@ -48,7 +48,6 @@ namespace asio = boost::asio;
 #ifndef WX_PRECOMP
 #	include <wx/wx.h>
 #endif
-#include <wx/mstream.h>
 #include <wx/richtext/richtextctrl.h>
 #include <wx/dynlib.h>
 #ifdef _MSC_VER
