@@ -96,7 +96,8 @@ class wx_srv_interface :public msgr_proto::server
 public:
 	wx_srv_interface(asio::io_service& _main_io_service,
 		asio::io_service& _misc_io_service,
-		asio::ip::tcp::endpoint _local_endpoint);
+		asio::ip::tcp::endpoint _local_endpoint,
+		crypto::server& _crypto_srv);
 	~wx_srv_interface();
 
 	virtual void on_data(user_id_type id, const std::string& data);

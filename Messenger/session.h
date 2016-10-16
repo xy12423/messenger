@@ -4,6 +4,7 @@
 #define _H_SESSION
 
 #include "crypto.h"
+#include "crypto_man.h"
 
 typedef uint16_t key_size_type;
 typedef uint32_t data_size_type;
@@ -32,11 +33,16 @@ namespace msgr_proto
 		msgr_proto_error(const std::string& err) :std::runtime_error(err) {};
 	};
 
-	class proto_kit
+	class proto_kit :public crypto::session
 	{
 	public:
-		void enc(std::string& data);
-		void dec(std::string& data);
+		proto_kit(crypto::server& _srv, asio::io_service& _iosrv, crypto::id_type _id)
+			:crypto::session(_srv, _iosrv, _id),
+			d0(GetPublicKey())
+		{}
+
+		virtual void do_enc() override;
+		virtual void do_dec() override;
 
 		friend class pre_session;
 	private:
@@ -46,17 +52,20 @@ namespace msgr_proto
 		CryptoPP::CBC_Mode<CryptoPP::AES>::Encryption e;
 		CryptoPP::CBC_Mode<CryptoPP::AES>::Decryption d;
 		CryptoPP::ECIES<CryptoPP::ECP>::Encryptor e1;
+		CryptoPP::ECIES<CryptoPP::ECP>::Decryptor d0;
 		session_id_type session_id;
 		rand_num_type rand_num_send, rand_num_recv;
+
+		std::string empty_string;
 	};
 
 	class pre_session : public std::enable_shared_from_this<pre_session>
 	{
 	public:
-		pre_session(server& _srv, port_type_l _local_port, asio::io_service& main_io_srv, asio::io_service& misc_io_srv, const socket_ptr& _socket)
+		pre_session(server& _srv, crypto::server& _crypto_srv, port_type_l _local_port, asio::io_service& main_io_srv, asio::io_service& misc_io_srv, const socket_ptr& _socket)
 			:srv(_srv), main_io_service(main_io_srv), misc_io_service(misc_io_srv), socket(_socket),
 			priv(dh_priv_block_size), pubA(dh_pub_block_size), pubB(dh_pub_block_size), key(sym_key_size),
-			proto_data(std::make_shared<proto_kit>()),
+			proto_data(std::dynamic_pointer_cast<proto_kit>(_crypto_srv.new_session<proto_kit>())),
 			session_id(proto_data->session_id), rand_num_send(proto_data->rand_num_send), rand_num_recv(proto_data->rand_num_recv),
 			e(proto_data->e), d(proto_data->d), e1(proto_data->e1)
 		{
@@ -121,8 +130,8 @@ namespace msgr_proto
 	class pre_session_s :public pre_session
 	{
 	public:
-		pre_session_s(port_type_l local_port, const socket_ptr& _socket, server& _srv, asio::io_service& main_io_srv, asio::io_service& misc_io_srv)
-			:pre_session(_srv, local_port, main_io_srv, misc_io_srv, _socket)
+		pre_session_s(port_type_l local_port, const socket_ptr& _socket, server& _srv, crypto::server& _crypto_srv, asio::io_service& main_io_srv, asio::io_service& misc_io_srv)
+			:pre_session(_srv, _crypto_srv, local_port, main_io_srv, misc_io_srv, _socket)
 		{
 			start();
 		}
@@ -137,8 +146,8 @@ namespace msgr_proto
 	class pre_session_c :public pre_session
 	{
 	public:
-		pre_session_c(port_type_l local_port, const socket_ptr& _socket, server& _srv, asio::io_service& main_io_srv, asio::io_service& misc_io_srv)
-			:pre_session(_srv, local_port, main_io_srv, misc_io_srv, _socket)
+		pre_session_c(port_type_l local_port, const socket_ptr& _socket, server& _srv, crypto::server& _crypto_srv, asio::io_service& main_io_srv, asio::io_service& misc_io_srv)
+			:pre_session(_srv, _crypto_srv, local_port, main_io_srv, misc_io_srv, _socket)
 		{
 			start();
 		}
@@ -276,22 +285,25 @@ namespace msgr_proto
 	public:
 		server(asio::io_service& _main_io_service,
 			asio::io_service& _misc_io_service,
-			asio::ip::tcp::endpoint _local_endpoint)
+			asio::ip::tcp::endpoint _local_endpoint,
+			crypto::server& _crypto_srv)
 			:main_io_service(_main_io_service),
 			misc_io_service(_misc_io_service),
 			acceptor(main_io_service, _local_endpoint),
 			resolver(main_io_service),
-			e0str(getPublicKey())
+			crypto_srv(_crypto_srv),
+			e0str(GetPublicKeyString())
 		{}
 
 		server(asio::io_service& _main_io_service,
-			asio::io_service& _misc_io_service
-			)
+			asio::io_service& _misc_io_service,
+			crypto::server& _crypto_srv)
 			: main_io_service(_main_io_service),
 			misc_io_service(_misc_io_service),
 			acceptor(main_io_service),
 			resolver(main_io_service),
-			e0str(getPublicKey())
+			crypto_srv(_crypto_srv),
+			e0str(GetPublicKeyString())
 		{}
 
 		~server()
@@ -327,6 +339,11 @@ namespace msgr_proto
 
 		bool check_key_connected(const std::string& key) { if (connected_keys.find(key) == connected_keys.end()) { connected_keys.emplace(key); return false; } else return true; };
 
+		void on_exception(const char* _ex) { std::string ex(_ex); misc_io_service.post([ex]() {std::cerr << ex << std::endl; }); }
+		void on_exception(const std::string& ex) { misc_io_service.post([ex]() {std::cerr << ex << std::endl; }); }
+		void on_exception(std::string&& ex) { misc_io_service.post([ex]() {std::cerr << ex << std::endl; }); }
+		void on_exception(std::exception& ex) { misc_io_service.post([ex]() {std::cerr << ex.what() << std::endl; }); }
+
 		virtual void on_data(user_id_type id, const std::string& data) = 0;
 
 		virtual void on_join(user_id_type id, const std::string& key) = 0;
@@ -345,6 +362,7 @@ namespace msgr_proto
 		asio::ip::tcp::acceptor acceptor;
 		asio::ip::tcp::resolver resolver;
 
+		crypto::server& crypto_srv;
 		std::string e0str;
 		std::unordered_set<std::string> connected_keys;
 

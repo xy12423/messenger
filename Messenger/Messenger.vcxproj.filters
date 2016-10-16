@@ -36,6 +36,9 @@
     <ClInclude Include="frmAddrInput.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="crypto_man.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp">
@@ -63,6 +66,9 @@
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="wx_srv_interface.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="crypto_man.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>

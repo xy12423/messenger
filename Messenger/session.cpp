@@ -1,11 +1,13 @@
 #include "stdafx.h"
 #include "crypto.h"
+#include "crypto_man.h"
 #include "session.h"
 
 using namespace msgr_proto;
 
-void proto_kit::enc(std::string& data)
+void proto_kit::do_enc()
 {
+	std::string &data = enc_task_que.front().data;
 	std::string &write_raw = data, write_data;
 	rand_num_type rand_num = get_rand_num_send();
 	write_raw.reserve(sizeof(session_id_type) + sizeof(rand_num_type) + write_raw.size() + hash_size);
@@ -16,13 +18,16 @@ void proto_kit::enc(std::string& data)
 	sym_encrypt(write_raw, write_data, e);
 	encrypt(write_data, write_raw, e1);
 	insLen(write_raw);
+
+	enc_task_que.front().callback(true, empty_string);
 }
 
-void proto_kit::dec(std::string& data)
+void proto_kit::do_dec()
 {
+	std::string &data = dec_task_que.front().data;
 	std::string decrypted_data;
 
-	decrypt(data, decrypted_data);
+	decrypt(data, decrypted_data, d0);
 	sym_decrypt(decrypted_data, data, d);
 
 	const char *itr = data.data() + data.size() - hash_size;
@@ -30,20 +35,29 @@ void proto_kit::dec(std::string& data)
 	std::string hash_real;
 	hash(data, hash_real, hash_size);
 	
-	std::string hash_recv(itr, hash_size);
-	if (hash_real != hash_recv)
-		throw(msgr_proto_error("Error:Hashing failed"));
+	try
+	{
+		std::string hash_recv(itr, hash_size);
+		if (hash_real != hash_recv)
+			throw(msgr_proto_error("Error:Hashing failed"));
 
-	itr -= sizeof(rand_num_type);
-	rand_num_type rand_num = boost::endian::native_to_little(get_rand_num_recv());
-	if (*reinterpret_cast<const rand_num_type*>(itr) != rand_num)
-		throw(msgr_proto_error("Error:Checking failed"));
+		itr -= sizeof(rand_num_type);
+		rand_num_type rand_num = boost::endian::native_to_little(get_rand_num_recv());
+		if (*reinterpret_cast<const rand_num_type*>(itr) != rand_num)
+			throw(msgr_proto_error("Error:Checking failed"));
 
-	itr -= sizeof(session_id_type);
-	if (*reinterpret_cast<const session_id_type*>(itr) != session_id)
-		throw(msgr_proto_error("Error:Checking failed"));
+		itr -= sizeof(session_id_type);
+		if (*reinterpret_cast<const session_id_type*>(itr) != session_id)
+			throw(msgr_proto_error("Error:Checking failed"));
+	}
+	catch (msgr_proto_error& ex)
+	{
+		dec_task_que.front().callback(false, std::string(ex.what()));
+		return;
+	}
 
 	data.erase(data.size() - (sizeof(session_id_type) + sizeof(rand_num_type) + hash_size));
+	dec_task_que.front().callback(true, empty_string);
 }
 
 void pre_session::read_key_header()
@@ -64,7 +78,7 @@ void pre_session::read_key_header()
 		{
 			if (!exiting)
 			{
-				std::cerr << ex.what() << std::endl;
+				srv.on_exception(ex);
 				srv.pre_session_over(shared_from_this());
 			}
 		}
@@ -97,7 +111,7 @@ void pre_session::read_key()
 		{
 			if (!exiting)
 			{
-				std::cerr << ex.what() << std::endl;
+				srv.on_exception(ex);
 				srv.pre_session_over(shared_from_this());
 			}
 		}
@@ -127,7 +141,7 @@ void pre_session::write_secret()
 			{
 				if (!exiting)
 				{
-					std::cerr << ex.what() << std::endl;
+					srv.on_exception(ex);
 					srv.pre_session_over(shared_from_this());
 				}
 			}
@@ -153,7 +167,7 @@ void pre_session::read_secret_header()
 		{
 			if (!exiting)
 			{
-				std::cerr << ex.what() << std::endl;
+				srv.on_exception(ex);
 				srv.pre_session_over(shared_from_this());
 			}
 		}
@@ -173,7 +187,7 @@ void pre_session::read_secret()
 			misc_io_service.post([this]() {
 				try
 				{
-					decrypt(reinterpret_cast<byte*>(pubB_buffer.get()), pubB_size, pubB);
+					decrypt(reinterpret_cast<byte*>(pubB_buffer.get()), pubB_size, pubB, GetPublicKey());
 					if (!dhAgree(key, priv, pubB))
 						throw(std::runtime_error("Failed to reach shared secret"));
 					write_iv();
@@ -192,7 +206,7 @@ void pre_session::read_secret()
 		{
 			if (!exiting)
 			{
-				std::cerr << "Socket Error:" << ec.message() << std::endl;
+				srv.on_exception("Socket Error:" + ec.message());
 				srv.pre_session_over(shared_from_this());
 			}
 		}
@@ -217,7 +231,7 @@ void pre_session::write_iv()
 		{
 			if (!exiting)
 			{
-				std::cerr << ex.what() << std::endl;
+				srv.on_exception(ex);
 				srv.pre_session_over(shared_from_this());
 			}
 		}
@@ -242,7 +256,7 @@ void pre_session::read_iv()
 		{
 			if (!exiting)
 			{
-				std::cerr << ex.what() << std::endl;
+				srv.on_exception(ex);
 				srv.pre_session_over(shared_from_this());
 			}
 		}
@@ -269,7 +283,7 @@ void pre_session::read_session_id(int check_level, bool ignore_error)
 			if (!exiting)
 			{
 				if (!ignore_error)
-					std::cerr << ex.what() << std::endl;
+					srv.on_exception(ex);
 				srv.pre_session_over(shared_from_this());
 			}
 		}
@@ -290,7 +304,7 @@ void pre_session::read_session_id_body(int check_level)
 				try
 				{
 					std::string raw_data, data(sid_packet_buffer.get(), sid_packet_size);
-					decrypt(data, raw_data);
+					decrypt(data, raw_data, GetPublicKey());
 					sym_decrypt(raw_data, data, d);
 					
 					std::string hash_recv(data, data.size() - hash_size), hash_real;
@@ -369,7 +383,7 @@ void pre_session::read_session_id_body(int check_level)
 		{
 			if (!exiting)
 			{
-				std::cerr << "Socket Error:" << ec.message() << std::endl;
+				srv.on_exception("Error:Checking failed");
 				srv.pre_session_over(shared_from_this());
 			}
 		}
@@ -406,7 +420,7 @@ void pre_session::write_session_id()
 			{
 				if (!exiting)
 				{
-					std::cerr << ex.what() << std::endl;
+					srv.on_exception(ex);
 					srv.pre_session_over(shared_from_this());
 				}
 			}
@@ -434,7 +448,7 @@ void pre_session_s::start()
 		{
 			if (!exiting)
 			{
-				std::cerr << ex.what() << std::endl;
+				srv.on_exception(ex);
 				srv.pre_session_over(shared_from_this());
 			}
 		}
@@ -454,7 +468,7 @@ void pre_session_s::stage1()
 	{
 		if (!exiting)
 		{
-			std::cerr << ex.what() << std::endl;
+			srv.on_exception(ex);
 			srv.pre_session_over(shared_from_this());
 		}
 	}
@@ -478,7 +492,7 @@ void pre_session_s::stage2()
 	{
 		if (!exiting)
 		{
-			std::cerr << ex.what() << std::endl;
+			srv.on_exception(ex);
 			srv.pre_session_over(shared_from_this());
 		}
 	}
@@ -521,7 +535,7 @@ void pre_session_s::sid_packet_done()
 	}
 	catch (std::exception &ex)
 	{
-		std::cerr << ex.what() << std::endl;
+		srv.on_exception(ex);
 		main_io_service.post([this]() {
 			if (!exiting)
 				srv.pre_session_over(shared_from_this());
@@ -549,7 +563,7 @@ void pre_session_c::start()
 		{
 			if (!exiting)
 			{
-				std::cerr << ex.what() << std::endl;
+				srv.on_exception(ex);
 				srv.pre_session_over(shared_from_this());
 			}
 		}
@@ -569,7 +583,7 @@ void pre_session_c::stage1()
 	{
 		if (!exiting)
 		{
-			std::cerr << ex.what() << std::endl;
+			srv.on_exception(ex);
 			srv.pre_session_over(shared_from_this());
 		}
 	}
@@ -586,7 +600,7 @@ void pre_session_c::stage2()
 	{
 		if (!exiting)
 		{
-			std::cerr << ex.what() << std::endl;
+			srv.on_exception(ex);
 			srv.pre_session_over(shared_from_this());
 		}
 	}
@@ -635,7 +649,7 @@ void pre_session_c::sid_packet_done()
 	}
 	catch (std::exception &ex)
 	{
-		std::cerr << ex.what() << std::endl;
+		srv.on_exception(ex);
 		main_io_service.post([this]() {
 			if (!exiting)
 				srv.pre_session_over(shared_from_this());
@@ -691,6 +705,7 @@ void session::shutdown()
 		}
 		catch (...) {}
 	}
+	crypto_kit->stop();
 }
 
 void session::send(const std::string& data, int priority, write_callback&& callback)
@@ -776,7 +791,7 @@ void session::read_header()
 				if (!exiting)
 				{
 					if (size != 0)
-						std::cerr << ex.what() << std::endl;
+						srv.on_exception(ex);
 					srv.leave(uid);
 				}
 			}
@@ -786,7 +801,7 @@ void session::read_header()
 	{
 		if (!exiting)
 		{
-			std::cerr << ex.what() << std::endl;
+			srv.on_exception(ex);
 			srv.leave(uid);
 		}
 	}
@@ -815,7 +830,7 @@ void session::read_data(size_t size_last, const std::shared_ptr<std::string>& bu
 				{
 					if (!exiting)
 					{
-						std::cerr << ex.what() << std::endl;
+						srv.on_exception(ex);
 						srv.leave(uid);
 					}
 				}
@@ -840,7 +855,7 @@ void session::read_data(size_t size_last, const std::shared_ptr<std::string>& bu
 				{
 					if (!exiting)
 					{
-						std::cerr << ex.what() << std::endl;
+						srv.on_exception(ex);
 						srv.leave(uid);
 					}
 				}
@@ -851,7 +866,7 @@ void session::read_data(size_t size_last, const std::shared_ptr<std::string>& bu
 	{
 		if (!exiting)
 		{
-			std::cerr << ex.what() << std::endl;
+			srv.on_exception(ex);
 			srv.leave(uid);
 		}
 	}
@@ -861,22 +876,17 @@ void session::process_data(const std::shared_ptr<std::string>& buf)
 {
 	session_ptr self = shared_from_this();
 
-	misc_iosrv.post([this, self, buf]() {
-		try
+	crypto_kit->dec(*buf, [this, self, buf](bool success, const std::string& ex) {
+		if (success)
 		{
-			crypto_kit->dec(*buf);
 			main_iosrv.post([this, self, buf]() {
 				srv.on_recv_data(uid, buf);
 			});
 		}
-		catch (msgr_proto_error& ex)
+		else
 		{
-			std::shared_ptr<std::string> what = std::make_shared<std::string>(ex.what());
-			main_iosrv.post([this, self, what]() {
-				std::cerr << *what << std::endl;
-				srv.leave(uid);
-				return;
-			});
+			srv.on_exception(ex);
+			srv.leave(uid);
 		}
 	});
 }
@@ -901,23 +911,20 @@ void session::write()
 	{
 		if (!exiting)
 		{
-			std::cerr << ex.what() << std::endl;
+			srv.on_exception(ex);
 			srv.leave(uid);
 		}
 	}
 
-	misc_iosrv.post([this, self, write_itr]() {
-		try
-		{
-			crypto_kit->enc(write_itr->data);
-		}
-		catch (std::exception &ex)
+	crypto_kit->enc(write_itr->data, [this, self, write_itr](bool success, const std::string& ex) {
+		if (!success)
 		{
 			if (!exiting)
 			{
-				std::cerr << ex.what() << std::endl;
+				srv.on_exception(ex);
 				srv.leave(uid);
 			}
+			return;
 		}
 
 		asio::async_write(*socket,
@@ -937,7 +944,7 @@ void session::write()
 			{
 				if (!exiting)
 				{
-					std::cerr << ex.what() << std::endl;
+					srv.on_exception(ex);
 					srv.leave(uid);
 				}
 			}
