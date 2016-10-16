@@ -161,6 +161,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="crypto.h" />
+    <ClInclude Include="crypto_man.h" />
     <ClInclude Include="frmAddrInput.h" />
     <ClInclude Include="main.h" />
     <ClInclude Include="plugin.h" />
@@ -170,6 +171,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="crypto.cpp" />
+    <ClCompile Include="crypto_man.cpp" />
     <ClCompile Include="frmAddrInput.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="plugin.cpp" />
