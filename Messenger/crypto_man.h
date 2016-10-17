@@ -88,7 +88,7 @@ namespace crypto
 
 		id_type next_id = 0;
 		asio::io_service& iosrv;
-		std::unordered_map<id_type, worker> workers;
+		std::unordered_map<id_type, std::unique_ptr<worker>> workers;
 		std::unordered_map<id_type, session_ptr> sessions;
 		std::list<std::pair<id_type, task_type>> tasks;
 	};

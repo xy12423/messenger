@@ -43,7 +43,7 @@ server::server(asio::io_service& _iosrv, int worker_count)
 	:iosrv(_iosrv)
 {
 	for (int i = 0; i < worker_count; i++)
-		workers.try_emplace(i);
+		workers.emplace(i, std::make_unique<worker>());
 }
 
 void server::stop()
@@ -51,8 +51,8 @@ void server::stop()
 	iosrv.post([this]() {
 		tasks.clear();
 	});
-	for (std::unordered_map<id_type, worker>::iterator itr = workers.begin(), itr_end = workers.end(); itr != itr_end; itr++)
-		itr->second.stop();
+	for (std::unordered_map<id_type, std::unique_ptr<worker>>::iterator itr = workers.begin(), itr_end = workers.end(); itr != itr_end; itr++)
+		itr->second->stop();
 }
 
 void server::del_session(id_type id)
@@ -77,14 +77,14 @@ void server::new_task(id_type id, task_type type)
 	if (!self->available(type))
 		return;
 
-	for (const std::unordered_map<id_type, worker>::value_type& pair : workers)
-		if (!pair.second.working)
+	for (const std::unordered_map<id_type, std::unique_ptr<worker>>::value_type& pair : workers)
+		if (!pair.second->working)
 			run_task(pair.first);
 }
 
 void server::run_task(id_type id)
 {
-	worker &w = workers.at(id);
+	worker &w = *workers.at(id);
 	
 	task_list_tp::iterator task_itr = tasks.begin(), task_itr_end = tasks.end();
 	for (; task_itr != task_itr_end; task_itr++)
@@ -108,7 +108,7 @@ void server::run_task(id_type id)
 					self->enc_finished();
 				else
 					self->dec_finished();
-				workers.at(id).working = false;
+				workers.at(id)->working = false;
 				run_task(id);
 			}
 			catch (...) {}
