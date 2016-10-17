@@ -12,9 +12,9 @@
 #include <fstream>
 #include <sstream>
 
-#include <string>
 #include <list>
 #include <vector>
+#include <string>
 #include <set>
 #include <map>
 #include <unordered_set>
@@ -22,9 +22,11 @@
 
 #include <algorithm>
 #include <functional>
+#include <future>
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <thread>
 #include <utility>
 
 #include <boost/filesystem.hpp>
@@ -46,7 +48,6 @@ namespace asio = boost::asio;
 #ifndef WX_PRECOMP
 #	include <wx/wx.h>
 #endif
-#include <wx/mstream.h>
 #include <wx/richtext/richtextctrl.h>
 #include <wx/dynlib.h>
 #ifdef _MSC_VER

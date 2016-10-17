@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cassert>
 #include <cstdint>
 #include <cstring>
 #include <cctype>
@@ -22,6 +23,7 @@
 #include <algorithm>
 #include <functional>
 #include <future>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <thread>
