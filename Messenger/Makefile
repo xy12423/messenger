@@ -1,4 +1,4 @@
-objects = crypto.o session.o session_server.o threads.o plugin.o wx_srv_interface.o frmAddrInput.o main.o
+objects = crypto.o crypto_man.o session.o session_server.o threads.o plugin.o wx_srv_interface.o frmAddrInput.o main.o
 wx_cppflag = `wx-config --cppflags std,richtext`
 wx_lflag = `wx-config --libs std,richtext`
 
@@ -8,14 +8,14 @@ ifeq ($(shell sh -c 'uname -s'), Darwin)
     CXX = clang++
 else
     cppflag = -c $(wx_cppflag) -pthread -I ~/boost -Wno-deprecated-declarations -std=c++14
-    lflag = -pthread -L ~/boost/stage/lib $(wx_lflag) -lboost_filesystem-mt-s -lboost_system-mt-s -lcryptopp
+    lflag = -pthread -L ~/boost/stage/lib $(wx_lflag) -lboost_filesystem -lboost_system -lcryptopp
     CXX = g++
 endif
 
 ifeq ($(RELEASE), 1)
     cppflag += -O2 -g0 -DNDEBUG
 else
-    cppflag += -g -O0 -D_DEBUG
+    cppflag += -O0 -g3 -D_DEBUG
 endif
 
 ifeq ($(NOWARNING), 1)
@@ -28,6 +28,8 @@ messenger : $(objects)
 	$(CXX) $(objects) $(lflag) -o messenger
 crypto.o : stdafx.h crypto.h crypto.cpp
 	$(CXX) crypto.cpp $(cppflag) -o crypto.o
+crypto_man.o : stdafx.h crypto.h crypto_man.h crypto_man.cpp
+	$(CXX) crypto_man.cpp $(cppflag) -o crypto_man.o
 session.o : stdafx.h crypto.h session.h session.cpp
 	$(CXX) session.cpp $(cppflag) -o session.o
 session_server.o : stdafx.h crypto.h session.h session_server.cpp

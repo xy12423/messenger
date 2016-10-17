@@ -1,5 +1,4 @@
 #include "stdafx.h"
-#include "crypto.h"
 #include "session.h"
 #include "plugin.h"
 #include "main.h"
@@ -12,10 +11,12 @@ const char* IMG_TMP_FILE_NAME = ".messenger_tmp_";
 const char* privatekeyFile = ".privatekey";
 const char* publickeysFile = ".publickey";
 
-wx_srv_interface::wx_srv_interface()
+wx_srv_interface::wx_srv_interface(asio::io_service& _main_io_service,
+	asio::io_service& _misc_io_service,
+	asio::ip::tcp::endpoint _local_endpoint,
+	crypto::server& _crypto_srv)
+	:msgr_proto::server(_main_io_service, _misc_io_service, _local_endpoint, _crypto_srv)
 {
-	initKey();
-
 	if (fs::exists(publickeysFile))
 	{
 		size_t pubCount = 0, keyLen = 0;
@@ -51,25 +52,41 @@ wx_srv_interface::~wx_srv_interface()
 	publicOut.close();
 }
 
-#define checkErr(x) if (dataItr + (x) > dataEnd) throw(wx_srv_interface_error())
-#define read_len(x)													\
-	checkErr(sizeof_data_size);										\
-	memcpy(reinterpret_cast<char*>(&(x)), dataItr, sizeof_data_size);	\
-	dataItr += sizeof_data_size
+struct data_view
+{
+	data_view(const char* _data, size_t _size)
+		:data(_data), size(_size)
+	{}
+	data_view(const std::string &_data)
+		:data(_data.data()), size(_data.size())
+	{}
 
+	template <typename _Ty>
+	inline void read(_Ty &ret) {
+		if (size < sizeof(_Ty))
+			throw(wx_srv_interface_error());
+		size -= sizeof(_Ty);
+		ret = boost::endian::little_to_native(*reinterpret_cast<const _Ty*>(data));
+		data += sizeof(_Ty);
+	}
+	inline void read(char* dst, size_t _size) { if (size < _size) throw(wx_srv_interface_error()); memcpy(dst, data, _size); data += _size; size -= _size; }
+	inline void read(std::string& dst, size_t _size) { if (size < _size) throw(wx_srv_interface_error()); dst.append(data, _size); data += _size; size -= _size; }
+	inline void check(size_t count) { if (size < count) throw(wx_srv_interface_error()); }
+	inline void skip(size_t count) { if (size < count) throw(wx_srv_interface_error()); data += count; size -= count; }
 
-void wx_srv_interface::on_data(user_id_type id, const std::string& data)
+	const char* data;
+	size_t size;
+};
+
+void wx_srv_interface::on_data(user_id_type id, const std::string& _data)
 {
 	try
 	{
-		const size_t sizeof_data_size = sizeof(data_size_type);
-		const char *dataItr = data.data(), *dataEnd = data.data() + data.size();
+		data_view data(_data.data(), _data.size());
 		user_ext_type &usr = user_ext.at(id);
 
 		byte type;
-		checkErr(1);
-		type = *dataItr;
-		dataItr += 1;
+		data.read(type);
 		switch (type)
 		{
 			case PAC_TYPE_MSG:
@@ -78,11 +95,9 @@ void wx_srv_interface::on_data(user_id_type id, const std::string& data)
 					throw(wx_srv_interface_error());
 
 				data_size_type msg_size;
-				read_len(msg_size);
-
-				checkErr(msg_size);
-				std::string msg_utf8(dataItr, msg_size);
-				dataItr += msg_size;
+				data.read(msg_size);
+				std::string msg_utf8;
+				data.read(msg_utf8, msg_size);
 
 				wxString msg(usr.addr + ':' + wxConvUTF8.cMB2WC(msg_utf8.c_str()) + '\n');
 
@@ -112,19 +127,16 @@ void wx_srv_interface::on_data(user_id_type id, const std::string& data)
 			}
 			case PAC_TYPE_FILE_H:
 			{
-				data_size_type recvLE;
-				read_len(recvLE);
-				data_size_type blockCountAll = boost::endian::little_to_native(static_cast<data_size_type>(recvLE));
-
-				read_len(recvLE);
-				data_size_type fNameLen = boost::endian::little_to_native(static_cast<data_size_type>(recvLE));
+				data_size_type blockCountAll, fNameLen;
+				data.read(blockCountAll);
+				data.read(fNameLen);
 
 				std::wstring fName;
 				{
 					size_t tmp;
-					checkErr(fNameLen);
-					wxWCharBuffer wbuf = wxConvUTF8.cMB2WC(dataItr, fNameLen, &tmp);
-					dataItr += fNameLen;
+					data.check(fNameLen);
+					wxWCharBuffer wbuf = wxConvUTF8.cMB2WC(data.data, fNameLen, &tmp);
+					data.skip(fNameLen);
 					fName = std::wstring(wbuf, tmp);
 				}
 
@@ -148,17 +160,16 @@ void wx_srv_interface::on_data(user_id_type id, const std::string& data)
 			}
 			case PAC_TYPE_FILE_B:
 			{
-				data_size_type recvLE;
-				read_len(recvLE);
-				data_size_type dataSize = boost::endian::little_to_native(static_cast<data_size_type>(recvLE));
+				data_size_type dataSize;
+				data.read(dataSize);
 
-				checkErr(dataSize);
+				data.check(dataSize);
 
 				if (usr.blockLast > 0)
 				{
 					std::ofstream fout(usr.recvFile, std::ios::out | std::ios::binary | std::ios::app);
-					fout.write(dataItr, dataSize);
-					dataItr += dataSize;
+					fout.write(data.data, dataSize);
+					data.skip(dataSize);
 					fout.close();
 					usr.blockLast--;
 
@@ -176,7 +187,7 @@ void wx_srv_interface::on_data(user_id_type id, const std::string& data)
 					throw(wx_srv_interface_error());
 
 				data_size_type image_size;
-				read_len(image_size);
+				data.read(image_size);
 
 				int next_image_id;
 				new_image_id(next_image_id);
@@ -184,11 +195,11 @@ void wx_srv_interface::on_data(user_id_type id, const std::string& data)
 				image_path /= std::to_string(id);
 				image_path /= ".messenger_tmp_" + std::to_string(next_image_id);
 
-				checkErr(image_size);
+				data.check(image_size);
 				std::ofstream fout(image_path.string(), std::ios_base::out | std::ios_base::binary);
-				fout.write(dataItr, image_size);
+				fout.write(data.data, image_size);
 				fout.close();
-				dataItr += image_size;
+				data.skip(image_size);
 
 				wxImage image(image_path.native(), wxBITMAP_TYPE_ANY);
 				if (image.IsOk())
@@ -226,7 +237,7 @@ void wx_srv_interface::on_data(user_id_type id, const std::string& data)
 			default:
 			{
 				if ((type & 0x80) != 0)
-					plugin_on_data(id, type, dataItr, dataEnd - dataItr);
+					plugin_on_data(id, type, data.data, data.size);
 				break;
 			}
 		}
@@ -242,16 +253,13 @@ void wx_srv_interface::on_data(user_id_type id, const std::string& data)
 	}
 }
 
-#undef checkErr
-#undef read_uint
-
 void wx_srv_interface::on_join(user_id_type id, const std::string& key)
 {
 	if (frm == nullptr)
 		return;
 
 	user_ext_type &ext = user_ext.emplace(id, user_ext_type()).first->second;
-	ext.addr = wxConvLocal.cMB2WC(srv->get_session(id)->get_address().c_str());
+	ext.addr = wxConvLocal.cMB2WC(get_session(id)->get_address().c_str());
 
 	fs::path tmp_path = IMG_TMP_PATH_NAME;
 	tmp_path /= std::to_string(id);
@@ -271,7 +279,7 @@ void wx_srv_interface::on_join(user_id_type id, const std::string& key)
 		{
 			int answer = wxMessageBox(wxT("The public key from ") + addr + wxT(" hasn't shown before.Trust it?"), wxT("Confirm"), wxYES_NO | wxCANCEL);
 			if (answer == wxNO)
-				srv->disconnect(id);
+				disconnect(id);
 			else
 			{
 				if (answer == wxYES)

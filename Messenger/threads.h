@@ -36,13 +36,14 @@ public:
 	wxThreadError Delete(ExitCode *rc = NULL, wxThreadWait waitMode = wxTHREAD_WAIT_DEFAULT) { stop_thread(); return wxThread::Delete(); }
 	
 	void start(user_id_type uID, const fs::path& path);
+	void send_header(fileSendTask &task);
 	void stop(user_id_type uID);
 
 	void stop_thread() { iosrv_work.reset(); iosrv.stop(); }
 
 	void write();
 
-	static const int fileBlockLen = 0x80000;
+	static constexpr int fileBlockLen = 0x80000;
 protected:
 	ExitCode Entry();
 private:

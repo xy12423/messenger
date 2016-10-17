@@ -1,5 +1,4 @@
 #include "stdafx.h"
-#include "crypto.h"
 #include "session.h"
 #include "threads.h"
 #include "plugin.h"
@@ -24,6 +23,7 @@ EVT_BUTTON(ID_BUTTONCANCELSEND, mainFrame::buttonCancelSend_Click)
 
 EVT_THREAD(wxID_ANY, mainFrame::thread_Message)
 
+EVT_SIZE(mainFrame::mainFrame_Resize)
 EVT_CLOSE(mainFrame::mainFrame_Close)
 
 wxEND_EVENT_TABLE()
@@ -37,15 +37,17 @@ const int _GUI_SIZE_Y = 540;
 #endif
 
 fileSendThread *threadFileSend;
-iosrvThread *threadNetwork, *threadMisc;
+iosrvThread *threadNetwork, *threadMisc, *threadCrypto;
 
-asio::io_service main_io_service, misc_io_service;
-std::unique_ptr<msgr_proto::server> srv;
-wx_srv_interface inter;
+asio::io_service main_io_service, misc_io_service, cryp_io_service;
+std::unique_ptr<crypto::server> crypto_srv;
+std::unique_ptr<wx_srv_interface> srv;
 
 std::unordered_map<user_id_type, user_ext_type> user_ext;
 std::unordered_map<plugin_id_type, plugin_info_type> plugin_info;
 std::unordered_set<user_id_type> virtual_users;
+
+std::string empty_string;
 
 void plugin_handler_SendData(plugin_id_type plugin_id, int to, const char* data, size_t size)
 {
@@ -97,8 +99,7 @@ int plugin_handler_NewVirtualUser(plugin_id_type plugin_id, const char* name)
 				virtual_msg_handler(new_session->get_id(), data.data(), data.size());
 			});
 		}
-
-		srv->join(new_session);
+		new_session->join();
 		new_session->start();
 		user_id_type new_user_id = new_session->get_id();
 		info.virtual_user_list.emplace(new_user_id);
@@ -157,72 +158,101 @@ void plugin_method_Print(plugin_id_type plugin_id, const char* msg)
 	catch (...) {}
 }
 
+const wxPoint itemPos[] = {
+	{},
+	{ 12,  12  },	//LABEL_LISTUSER
+	{ 12,  39  },	//LISTUSER
+	{ 12,  321 },	//BUTTONADD
+	{ 12,  369 },	//BUTTONDEL
+	{ 180, 12  },	//TEXTMSG
+	{ 180, 321 },	//TEXTINPUT
+	{ 180, 369 },	//BUTTONSEND
+	{ 284, 369 },	//BUTTONSENDIMAGE
+	{ 389, 369 },	//BUTTONSENDFILE
+	{ 494, 369 },	//BUTTONCANCELSEND
+	{ 12,  417 },	//TEXTINFO
+};
+
+const wxSize itemSize[] = {
+	{},
+	{ 162, 21  },	//LABEL_LISTUSER
+	{ 162, 276 },	//LISTUSER
+	{ 162, 42  },	//BUTTONADD
+	{ 162, 42  },	//BUTTONDEL
+	{ 412, 303 },	//TEXTMSG
+	{ 412, 42  },	//TEXTINPUT
+	{ 98,  42  },	//BUTTONSEND
+	{ 99,  42  },	//BUTTONSENDIMAGE
+	{ 99,  42  },	//BUTTONSENDFILE
+	{ 98,  42  },	//BUTTONCANCELSEND
+	{ 580, 92  },	//TEXTINFO
+};
+
 mainFrame::mainFrame(const wxString& title)
 	: wxFrame(NULL, ID_FRAME, title, wxDefaultPosition, wxSize(_GUI_SIZE_X, _GUI_SIZE_Y))
 {
 	Center();
 
-	panel = new wxPanel(this);
-	wxStaticText *label;
+	panel = new wxPanel(this, wxID_ANY, wxPoint(0, 0), wxSize(_GUI_SIZE_X, _GUI_SIZE_Y));
 
-	label = new wxStaticText(panel, wxID_ANY,
+	labelListUser = new wxStaticText(panel, ID_LABELLISTUSER,
 		wxT("User list"),
-		wxPoint(12, 12),
-		wxSize(162, 21)
+		itemPos[ID_LABELLISTUSER],
+		itemSize[ID_LABELLISTUSER]
 		);
 	listUser = new wxListBox(panel, ID_LISTUSER,
-		wxPoint(12, 39),
-		wxSize(162, 276),
+		itemPos[ID_LISTUSER],
+		itemSize[ID_LISTUSER],
 		wxArrayString()
 		);
 	buttonAdd = new wxButton(panel, ID_BUTTONADD,
 		wxT("Connect to"),
-		wxPoint(12, 321),
-		wxSize(162, 42)
+		itemPos[ID_BUTTONADD],
+		itemSize[ID_BUTTONADD]
 		);
 	buttonDel = new wxButton(panel, ID_BUTTONDEL,
 		wxT("Disconnect"),
-		wxPoint(12, 369),
-		wxSize(162, 42)
+		itemPos[ID_BUTTONDEL],
+		itemSize[ID_BUTTONDEL]
 		);
 
 	textMsg = new wxRichTextCtrl(panel, ID_TEXTMSG,
 		wxEmptyString,
-		wxPoint(180, 12),
-		wxSize(412, 303),
+		itemPos[ID_TEXTMSG],
+		itemSize[ID_TEXTMSG],
 		wxTE_MULTILINE | wxTE_READONLY
 		);
 	textInput = new wxTextCtrl(panel, ID_TEXTINPUT,
 		wxEmptyString,
-		wxPoint(180, 321),
-		wxSize(412, 42),
+		itemPos[ID_TEXTINPUT],
+		itemSize[ID_TEXTINPUT],
 		wxTE_MULTILINE
 		);
 	buttonSend = new wxButton(panel, ID_BUTTONSEND,
 		wxT("Send"),
-		wxPoint(180, 369),
-		wxSize(98, 42)
+		itemPos[ID_BUTTONSEND],
+		itemSize[ID_BUTTONSEND]
 		);
 	buttonSendImage = new wxButton(panel, ID_BUTTONSENDIMAGE,
 		wxT("Image"),
-		wxPoint(284, 369),
-		wxSize(99, 42)
+		itemPos[ID_BUTTONSENDIMAGE],
+		itemSize[ID_BUTTONSENDIMAGE]
 		);
 	buttonSendFile = new wxButton(panel, ID_BUTTONSENDFILE,
 		wxT("File"),
-		wxPoint(389, 369),
-		wxSize(99, 42)
+		itemPos[ID_BUTTONSENDFILE],
+		itemSize[ID_BUTTONSENDFILE]
 		);
 	buttonCancelSend = new wxButton(panel, ID_BUTTONCANCELSEND,
 		wxT("Cancel"),
-		wxPoint(494, 369),
-		wxSize(98, 42)
+		itemPos[ID_BUTTONCANCELSEND],
+		itemSize[ID_BUTTONCANCELSEND]
 		);
 
 	textInfo = new wxTextCtrl(panel, ID_TEXTINFO,
 		wxEmptyString,
-		wxPoint(12, 417),
-		wxSize(580, 92),
+		itemPos[ID_TEXTINFO],
+		itemSize[ID_TEXTINFO],
 		wxTE_MULTILINE | wxTE_READONLY
 		);
 
@@ -241,7 +271,7 @@ mainFrame::mainFrame(const wxString& title)
 	if (fs::exists(plugin_file_name))
 	{
 		plugin_init();
-		uid_global.assign(getUserIDGlobal());
+		uid_global.assign(GetUserIDGlobal());
 		set_method("GetUserID", reinterpret_cast<void*>(plugin_method_GetUserID));
 		set_method("Print", reinterpret_cast<void*>(plugin_method_Print));
 
@@ -273,6 +303,44 @@ mainFrame::mainFrame(const wxString& title)
 		}
 	}
 }
+
+#define REPOSITION(control, id) (control)->SetPosition(wxPoint(static_cast<int>(itemPos[id].x * ratio_x), static_cast<int>(itemPos[id].y * ratio_y)))
+#define RESIZE(control, id) (control)->SetSize(wxSize(static_cast<int>(itemSize[id].x * ratio_x), static_cast<int>(itemSize[id].y * ratio_y)))
+
+void mainFrame::mainFrame_Resize(wxSizeEvent& event)
+{
+	panel->SetSize(wxSize(event.GetSize().GetWidth(), event.GetSize().GetHeight()));
+	double ratio_x = event.GetSize().GetWidth(), ratio_y = event.GetSize().GetHeight();
+	ratio_x /= _GUI_SIZE_X;
+	ratio_y /= _GUI_SIZE_Y;
+
+	REPOSITION(labelListUser, ID_LABELLISTUSER);
+	REPOSITION(listUser, ID_LISTUSER);
+	REPOSITION(buttonAdd, ID_BUTTONADD);
+	REPOSITION(buttonDel, ID_BUTTONDEL);
+	REPOSITION(textMsg, ID_TEXTMSG);
+	REPOSITION(textInput, ID_TEXTINPUT);
+	REPOSITION(buttonSend, ID_BUTTONSEND);
+	REPOSITION(buttonSendImage, ID_BUTTONSENDIMAGE);
+	REPOSITION(buttonSendFile, ID_BUTTONSENDFILE);
+	REPOSITION(buttonCancelSend, ID_BUTTONCANCELSEND);
+	REPOSITION(textInfo, ID_TEXTINFO);
+
+	RESIZE(labelListUser, ID_LABELLISTUSER);
+	RESIZE(listUser, ID_LISTUSER);
+	RESIZE(buttonAdd, ID_BUTTONADD);
+	RESIZE(buttonDel, ID_BUTTONDEL);
+	RESIZE(textMsg, ID_TEXTMSG);
+	RESIZE(textInput, ID_TEXTINPUT);
+	RESIZE(buttonSend, ID_BUTTONSEND);
+	RESIZE(buttonSendImage, ID_BUTTONSENDIMAGE);
+	RESIZE(buttonSendFile, ID_BUTTONSENDFILE);
+	RESIZE(buttonCancelSend, ID_BUTTONCANCELSEND);
+	RESIZE(textInfo, ID_TEXTINFO);
+}
+
+#undef RESIZE
+#undef REPOSITION
 
 void mainFrame::listUser_SelectedIndexChanged(wxCommandEvent& event)
 {
@@ -351,7 +419,7 @@ void mainFrame::buttonSendImage_Click(wxCommandEvent& event)
 				return;
 			}
 			int next_image_id;
-			inter.new_image_id(next_image_id);
+			srv->new_image_id(next_image_id);
 			fs::path image_path = IMG_TMP_PATH_NAME;
 			image_path /= std::to_string(uID);
 			image_path /= ".messenger_tmp_" + std::to_string(next_image_id);
@@ -427,7 +495,7 @@ void mainFrame::mainFrame_Close(wxCloseEvent& event)
 		std::cerr.rdbuf(cerr_orig);
 		delete textStrm;
 
-		inter.set_frame(nullptr);
+		srv->set_frame(nullptr);
 	}
 	catch (std::exception &ex)
 	{
@@ -443,6 +511,18 @@ bool MyApp::OnInit()
 	int stage = 0;
 	try
 	{
+		std::unordered_map<std::string, std::string> config_items;
+		
+		for (int i = 1; i < argc; i++)
+		{
+			std::string arg(argv[i]);
+			size_t pos = arg.find('=');
+			if (pos == std::string::npos)
+				config_items[std::move(arg)] = empty_string;
+			else
+				config_items[arg.substr(0, pos)] = arg.substr(pos + 1);
+		}
+
 		wxImage::AddHandler(new wxPNGHandler);
 		wxImage::AddHandler(new wxJPEGHandler);
 		wxImage::AddHandler(new wxGIFHandler);
@@ -452,58 +532,75 @@ bool MyApp::OnInit()
 
 		port_type portsBegin = 5000, portsEnd = 9999;
 		bool use_v6 = false;
+		int crypto_worker = 1;
 
 		threadNetwork = new iosrvThread(main_io_service);
 		stage = 1;
 		threadMisc = new iosrvThread(misc_io_service);
 		stage = 2;
+		threadCrypto = new iosrvThread(cryp_io_service);
+		stage = 3;
 
-		for (int i = 1; i < argc; i++)
+		initKey();
+
+		try
 		{
-			std::string arg(argv[i]);
-			if (arg.substr(0, 5) == "port=")
+			std::string &arg = config_items.at("port");
+			portListen = static_cast<port_type>(std::stoi(arg));
+		}
+		catch (std::out_of_range &) { portListen = portListenDefault; }
+		catch (std::invalid_argument &) { portListen = portListenDefault; }
+		try
+		{
+			config_items.at("usev6");
+			use_v6 = true;
+		}
+		catch (std::out_of_range &) {}
+		try
+		{
+			std::string &arg = config_items.at("crypto_worker");
+			crypto_worker = std::stoi(arg);
+		}
+		catch (std::out_of_range &) { crypto_worker = 1; }
+
+		crypto_srv = std::make_unique<crypto::server>(cryp_io_service, crypto_worker);
+		srv = std::make_unique<wx_srv_interface>(main_io_service, misc_io_service,
+			asio::ip::tcp::endpoint((use_v6 ? asio::ip::tcp::v6() : asio::ip::tcp::v4()), portListen),
+			*crypto_srv.get());
+		
+		try
+		{
+			std::string &arg = config_items.at("ports");
+			size_t pos = arg.find('-');
+			if (pos == std::string::npos)
 			{
-				portListen = static_cast<port_type>(std::stoi(arg.substr(5)));
-			}
-			else if (arg.substr(0, 6) == "ports=")
-			{
-				int pos = arg.find('-', 6);
-				if (pos == std::string::npos)
-				{
-					inter.set_static_port(static_cast<port_type>(std::stoi(arg.substr(6))));
-					portsBegin = 1;
-					portsEnd = 0;
-				}
-				else
-				{
-					std::string ports_begin = arg.substr(6, pos - 6), ports_end = arg.substr(pos + 1);
-					portsBegin = static_cast<port_type>(std::stoi(ports_begin));
-					portsEnd = static_cast<port_type>(std::stoi(ports_end));
-					inter.set_static_port(-1);
-				}
-			}
-			else if (arg == "usev6")
-			{
-				use_v6 = true;
+				srv->set_static_port(static_cast<port_type>(std::stoi(arg)));
+				portsBegin = 1;
+				portsEnd = 0;
 			}
 			else
 			{
-				throw(std::invalid_argument("Invalid argument:" + arg));
+				std::string ports_begin = arg.substr(0, pos), ports_end = arg.substr(pos + 1);
+				portsBegin = static_cast<port_type>(std::stoi(ports_begin));
+				portsEnd = static_cast<port_type>(std::stoi(ports_end));
+				srv->set_static_port(-1);
 			}
 		}
-		
+		catch (std::out_of_range &) { portsBegin = 5000, portsEnd = 9999; }
+		catch (std::invalid_argument &) { portsBegin = 5000, portsEnd = 9999; }
+
 		std::srand(static_cast<unsigned int>(std::time(NULL)));
 		for (; portsBegin <= portsEnd; portsBegin++)
-			inter.free_rand_port(portsBegin);
-		srv = std::make_unique<msgr_proto::server>(main_io_service, misc_io_service, inter,
-			asio::ip::tcp::endpoint((use_v6 ? asio::ip::tcp::v6() : asio::ip::tcp::v4()), portListen));
+			srv->free_rand_port(portsBegin);
+
+		srv->start();
 
 		threadFileSend = new fileSendThread(*srv);
-		stage = 3;
+		stage = 4;
 
 		form = new mainFrame(wxT("Messenger"));
 		form->Show();
-		inter.set_frame(form);
+		srv->set_frame(form);
 
 		if (threadNetwork->Run() != wxTHREAD_NO_ERROR)
 		{
@@ -513,6 +610,11 @@ bool MyApp::OnInit()
 		if (threadMisc->Run() != wxTHREAD_NO_ERROR)
 		{
 			delete threadMisc;
+			throw(std::runtime_error("Can't run iosrvThread"));
+		}
+		if (threadCrypto->Run() != wxTHREAD_NO_ERROR)
+		{
+			delete threadNetwork;
 			throw(std::runtime_error("Can't run iosrvThread"));
 		}
 		if (threadFileSend->Run() != wxTHREAD_NO_ERROR)
@@ -525,8 +627,10 @@ bool MyApp::OnInit()
 	{
 		switch (stage)
 		{
-			case 3:
+			case 4:
 				threadFileSend->Delete();
+			case 3:
+				threadCrypto->Delete();
 			case 2:
 				threadMisc->Delete();
 			case 1:
@@ -546,10 +650,14 @@ int MyApp::OnExit()
 {
 	try
 	{
+		crypto_srv->stop();
+
 		threadFileSend->Delete();
+		threadCrypto->Delete();
 		threadMisc->Delete();
 		threadNetwork->Delete();
 
+		crypto_srv.reset();
 		srv.reset();
 
 		fs::remove_all(IMG_TMP_PATH_NAME);
