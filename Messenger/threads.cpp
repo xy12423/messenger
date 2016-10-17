@@ -40,19 +40,6 @@ void fileSendThread::start(user_id_type uID, const fs::path& path)
 			else
 				blockCountAll = blockCountAll / fileBlockLen + 1;
 			newTask.blockCountAll = blockCountAll;
-
-			std::wstring fileName = path.leaf().wstring();
-			data_size_type blockCountAll_LE = wxUINT32_SWAP_ON_BE(blockCountAll);
-			std::string head(1, PAC_TYPE_FILE_H);
-			head.append(reinterpret_cast<const char*>(&blockCountAll_LE), sizeof(data_size_type));
-			std::string name(wxConvUTF8.cWC2MB(fileName.c_str()));
-			insLen(name);
-			head.append(name);
-
-			wxCharBuffer msgBuf = wxConvLocal.cWC2MB(
-				(wxT("Sending file ") + fileName + wxT(" To ") + user_ext[uID].addr).c_str()
-				);
-			srv.send_data(uID, std::move(head), msgr_proto::session::priority_file, std::string(msgBuf.data(), msgBuf.length()));
 			
 			if (write_not_in_progress)
 				write();
@@ -63,6 +50,22 @@ void fileSendThread::start(user_id_type uID, const fs::path& path)
 			return;
 		}
 	});
+}
+
+void fileSendThread::send_header(fileSendTask &task)
+{
+	std::wstring fileName = fs::path(task.fileName).leaf().wstring();
+	data_size_type blockCountAll_LE = wxUINT32_SWAP_ON_BE(task.blockCountAll);
+	std::string head(1, PAC_TYPE_FILE_H);
+	head.append(reinterpret_cast<const char*>(&blockCountAll_LE), sizeof(data_size_type));
+	std::string name(wxConvUTF8.cWC2MB(fileName.c_str()));
+	insLen(name);
+	head.append(name);
+
+	wxCharBuffer msgBuf = wxConvLocal.cWC2MB(
+		(wxT("Sending file ") + fileName + wxT(" To ") + user_ext[task.uID].addr).c_str()
+	);
+	srv.send_data(task.uID, std::move(head), msgr_proto::session::priority_file, std::string(msgBuf.data(), msgBuf.length()));
 }
 
 void fileSendThread::stop(user_id_type uID)
@@ -83,6 +86,9 @@ void fileSendThread::write()
 	std::string sendBuf;
 
 	fileSendTask &task = tasks.front();
+	if (task.blockCount == 1)
+		send_header(task);
+
 	task.fin.read(block.get(), fileBlockLen);
 	std::streamsize sizeRead = task.fin.gcount();
 	sendBuf.push_back(PAC_TYPE_FILE_B);
