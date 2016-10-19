@@ -57,6 +57,26 @@ void cli_plugin_interface::send_image(user_id_type id, const std::string& path)
 	srv->send_data(id, img_buf, msgr_proto::session::priority_msg);
 }
 
+void cli_plugin_interface::send_data(user_id_type id, const std::string& data)
+{
+	srv->send_data(id, data, msgr_proto::session::priority_file);
+}
+
+void cli_plugin_interface::send_data(user_id_type id, const std::string& data, std::function<void()>&& callback)
+{
+	srv->send_data(id, data, msgr_proto::session::priority_file, std::move(callback));
+}
+
+void cli_plugin_interface::send_data(user_id_type id, std::string&& data)
+{
+	srv->send_data(id, std::move(data), msgr_proto::session::priority_file);
+}
+
+void cli_plugin_interface::send_data(user_id_type id, std::string&& data, std::function<void()>&& callback)
+{
+	srv->send_data(id, std::move(data), msgr_proto::session::priority_file, std::move(callback));
+}
+
 bool cli_server::get_id_by_name(const std::string& name, user_id_type& ret)
 {
 	try
@@ -192,6 +212,16 @@ void cli_server::on_data(user_id_type id, const std::string& data)
 				on_image(id, data);
 				break;
 			}
+			case PAC_TYPE_FILE_H:
+			{
+				on_file_h(id, data);
+				break;
+			}
+			case PAC_TYPE_FILE_B:
+			{
+				on_file_b(id, data);
+				break;
+			}
 			default:
 			{
 				user_ext &user = user_exts.at(id);
@@ -213,8 +243,8 @@ void cli_server::on_data(user_id_type id, const std::string& data)
 	}
 }
 
-#undef checkErr
 #undef read_uint
+#undef checkErr
 
 void cli_server::on_msg(user_id_type id, std::string& msg)
 {
@@ -295,12 +325,39 @@ void cli_server::on_image(user_id_type id, const std::string& data)
 
 	if (mode != CENTER || user.current_stage == user_ext::LOGGED_IN)
 	{
-		if (mode != CENTER || user.current_stage == user_ext::LOGGED_IN)
-		{
-			broadcast_msg(id, empty_string);
-			broadcast_data(id, data, msgr_proto::session::priority_msg);
-			m_plugin.on_img(user.name, data.data() + 1 + sizeof(data_size_type), data.size() - (1 + sizeof(data_size_type)));
-		}
+		broadcast_msg(id, empty_string);
+		broadcast_data(id, data, msgr_proto::session::priority_msg);
+		m_plugin.on_img(user.name, data.data() + 1 + sizeof(data_size_type), data.size() - (1 + sizeof(data_size_type)));
+	}
+}
+
+void cli_server::on_file_h(user_id_type id, const std::string& data)
+{
+	user_ext &user = user_exts.at(id);
+
+	if (mode != CENTER)
+	{
+		broadcast_data(id, data, msgr_proto::session::priority_file);
+	}
+	else if (user.current_stage == user_ext::LOGGED_IN)
+	{
+		broadcast_data(id, data, msgr_proto::session::priority_file);
+		m_plugin.on_file_h(user.name, data.data() + 1, data.size() - 1);
+	}
+}
+
+void cli_server::on_file_b(user_id_type id, const std::string& data)
+{
+	user_ext &user = user_exts.at(id);
+
+	if (mode != CENTER)
+	{
+		broadcast_data(id, data, msgr_proto::session::priority_file);
+	}
+	else if (user.current_stage == user_ext::LOGGED_IN)
+	{
+		broadcast_data(id, data, msgr_proto::session::priority_file);
+		m_plugin.on_file_b(user.name, data.data() + 1, data.size() - 1);
 	}
 }
 
@@ -628,6 +685,7 @@ int main(int argc, char *argv[])
 
 		m_plugin.new_plugin<msg_logger>();
 		m_plugin.new_plugin<server_mail>();
+		m_plugin.new_plugin<file_storage>();
 		m_plugin.init(config_items);
 
 		std::srand(static_cast<unsigned int>(std::time(NULL)));
@@ -689,8 +747,8 @@ int main(int argc, char *argv[])
 		srv->on_exit();
 		m_plugin.on_exit();
 
-		crypto_srv.reset();
 		srv.reset();
+		crypto_srv.reset();
 #ifdef NDEBUG
 	}
 	catch (std::exception& e)
