@@ -319,12 +319,14 @@ namespace msgr_proto
 
 		void on_recv_data(user_id_type id, std::shared_ptr<std::string> data);
 
-		bool send_data(user_id_type id, const std::string& data, int priority);
-		bool send_data(user_id_type id, const std::string& data, int priority, const std::string& message);
 		bool send_data(user_id_type id, const std::string& data, int priority, session::write_callback&& callback);
-		bool send_data(user_id_type id, std::string&& data, int priority);
-		bool send_data(user_id_type id, std::string&& data, int priority, const std::string& message);
 		bool send_data(user_id_type id, std::string&& data, int priority, session::write_callback&& callback);
+
+		bool send_data(user_id_type id, const std::string& data, int priority) { return send_data(id, data, priority, []() {}); };
+		bool send_data(user_id_type id, const std::string& data, int priority, const std::string& message) { return send_data(id, data, priority, [message]() {std::cout << message << std::endl; }); };
+		bool send_data(user_id_type id, std::string&& data, int priority) { return send_data(id, std::move(data), priority, []() {}); };
+		bool send_data(user_id_type id, std::string&& data, int priority, const std::string& message) { return send_data(id, std::move(data), priority, [message]() {std::cout << message << std::endl; }); };
+		
 
 		void pre_session_over(const std::shared_ptr<pre_session>& _pre, bool successful = false);
 		void join(const session_ptr& _user, user_id_type& uid);

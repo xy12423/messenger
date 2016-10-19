@@ -36,7 +36,7 @@ const int _GUI_SIZE_X = 600;
 const int _GUI_SIZE_Y = 540;
 #endif
 
-fileSendThread *threadFileSend;
+FileSendThread *threadFileSend;
 iosrvThread *threadNetwork, *threadMisc, *threadCrypto;
 
 asio::io_service main_io_service, misc_io_service, cryp_io_service;
@@ -440,10 +440,10 @@ void mainFrame::buttonSendImage_Click(wxCommandEvent& event)
 				std::shared_ptr<std::string> img_buf = std::make_shared<std::string>();
 
 				std::ifstream fin(path.ToStdString(), std::ios_base::in | std::ios_base::binary);
-				std::unique_ptr<char[]> read_buf = std::make_unique<char[]>(fileSendThread::fileBlockLen);
+				std::unique_ptr<char[]> read_buf = std::make_unique<char[]>(FileSendThread::FileBlockLen);
 				while (!fin.eof())
 				{
-					fin.read(read_buf.get(), fileSendThread::fileBlockLen);
+					fin.read(read_buf.get(), FileSendThread::FileBlockLen);
 					img_buf->append(read_buf.get(), fin.gcount());
 				}
 				fin.close();
@@ -595,7 +595,7 @@ bool MyApp::OnInit()
 
 		srv->start();
 
-		threadFileSend = new fileSendThread(*srv);
+		threadFileSend = new FileSendThread(*srv);
 		stage = 4;
 
 		form = new mainFrame(wxT("Messenger"));
