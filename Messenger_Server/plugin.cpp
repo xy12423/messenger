@@ -379,7 +379,7 @@ void file_storage::on_file_b(const std::string& name, const char *_data, size_t 
 {
 	if (!enabled)
 		return;
-	std::unordered_map<std::string, recv_task>::iterator selected = recv_tasks.find(name);
+	recv_tasks_tp::iterator selected = recv_tasks.find(name);
 	if (selected == recv_tasks.end())
 		return;
 	recv_task &task = selected->second;

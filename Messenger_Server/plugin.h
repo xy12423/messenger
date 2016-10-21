@@ -139,6 +139,8 @@ private:
 
 	const char *data_file_name = "file_logger.dat";
 	typedef std::unordered_map<std::string, std::string> hashmap_tp;
+	typedef std::unordered_map<user_id_type, send_task> send_tasks_tp;
+	typedef std::unordered_map<std::string, recv_task> recv_tasks_tp;
 public:
 	file_storage(plugin_interface& _inter)
 		:msg_server_plugin(_inter)
@@ -166,9 +168,9 @@ private:
 	bool enabled = false;
 	fs::path files_path;
 
-	std::unordered_map<user_id_type, send_task> send_tasks;
-	std::unordered_map<std::string, recv_task> recv_tasks;
-	std::unordered_map<std::string, std::string> hash_map;
+	send_tasks_tp send_tasks;
+	recv_tasks_tp recv_tasks;
+	hashmap_tp hash_map;
 	asio::io_service iosrv;
 	std::shared_ptr<asio::io_service::work> iosrv_work;
 };
