@@ -90,18 +90,9 @@ void server::on_recv_data(user_id_type id, std::shared_ptr<std::string> data)
 	});
 }
 
-bool server::send_data(user_id_type id, const std::string& data, int priority)
-{
-	return send_data(id, data, priority, []() {});
-}
-
-bool server::send_data(user_id_type id, const std::string& data, int priority, const std::string& message)
-{
-	return send_data(id, data, priority, [message]() {std::cout << message << std::endl; });
-}
-
 bool server::send_data(user_id_type id, const std::string& data, int priority, session::write_callback&& callback)
 {
+	std::lock_guard<std::mutex> lock(session_mutex);
 	session_list_type::iterator itr(sessions.find(id));
 	if (itr == sessions.end())
 		return false;
@@ -110,18 +101,9 @@ bool server::send_data(user_id_type id, const std::string& data, int priority, s
 	return true;
 }
 
-bool server::send_data(user_id_type id, std::string&& data, int priority)
-{
-	return send_data(id, std::move(data), priority, []() {});
-}
-
-bool server::send_data(user_id_type id, std::string&& data, int priority, const std::string& message)
-{
-	return send_data(id, std::move(data), priority, [message]() {std::cout << message << std::endl; });
-}
-
 bool server::send_data(user_id_type id, std::string&& data, int priority, session::write_callback&& callback)
 {
+	std::lock_guard<std::mutex> lock(session_mutex);
 	session_list_type::iterator itr(sessions.find(id));
 	if (itr == sessions.end())
 		return false;
