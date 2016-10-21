@@ -7,11 +7,15 @@ worker::worker()
 {
 	iosrv_work = std::make_shared<asio::io_service::work>(iosrv);
 	std::thread thread([this]() {
-		try
+		while (iosrv_work)
 		{
-			iosrv.run();
+			try
+			{
+				iosrv.run();
+			}
+			catch (...) {}
 		}
-		catch (...) {}
+		stopped = true;
 	});
 	thread.detach();
 }
@@ -48,6 +52,7 @@ server::server(asio::io_service& _iosrv, int worker_count)
 
 void server::stop()
 {
+	stopping = true;
 	iosrv.post([this]() {
 		tasks.clear();
 	});
@@ -84,8 +89,10 @@ void server::new_task(id_type id, task_type type)
 
 void server::run_task(id_type id)
 {
+	if (stopping)
+		return;
 	worker &w = *workers.at(id);
-
+	
 	task_list_tp::iterator task_itr = tasks.begin(), task_itr_end = tasks.end();
 	for (; task_itr != task_itr_end; task_itr++)
 		if (sessions.at(task_itr->first)->available(task_itr->second))
@@ -100,6 +107,8 @@ void server::run_task(id_type id)
 
 	w.iosrv.post([this, self, id, type]() {
 		self->do_one(type);
+		if (stopping)
+			return;
 
 		iosrv.post([this, self, id, type]() {
 			try

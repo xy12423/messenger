@@ -30,6 +30,8 @@ void sym_decrypt(const std::string& src, std::string& dst, CryptoPP::CBC_Mode<Cr
 void dhGen(CryptoPP::SecByteBlock& priv, CryptoPP::SecByteBlock& pub);
 bool dhAgree(CryptoPP::SecByteBlock& agree, const CryptoPP::SecByteBlock& priv, const CryptoPP::SecByteBlock& pub);
 
+void base32(std::string& ret, byte* buf, int size);
+
 rand_num_type genRandomNumber();
 
 #endif
