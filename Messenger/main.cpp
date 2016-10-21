@@ -262,11 +262,11 @@ mainFrame::mainFrame(const wxString& title)
 	wxAcceleratorTable accel(entry_count, entries);
 	SetAcceleratorTable(accel);
 
-	textStrm = new textStream(this, textInfo);
+	textStrm.swap(std::make_unique<textStream>(this, textInfo));
 	cout_orig = std::cout.rdbuf();
-	std::cout.rdbuf(textStrm);
+	std::cout.rdbuf(textStrm.get());
 	cerr_orig = std::cerr.rdbuf();
-	std::cerr.rdbuf(textStrm);
+	std::cerr.rdbuf(textStrm.get());
 
 	if (fs::exists(plugin_file_name))
 	{
@@ -493,7 +493,6 @@ void mainFrame::mainFrame_Close(wxCloseEvent& event)
 	{
 		std::cout.rdbuf(cout_orig);
 		std::cerr.rdbuf(cerr_orig);
-		delete textStrm;
 
 		srv->set_frame(nullptr);
 	}
@@ -652,13 +651,18 @@ int MyApp::OnExit()
 	{
 		crypto_srv->stop();
 
+		threadFileSend->stop_thread();
+		threadCrypto->stop();
+		threadMisc->stop();
+		threadNetwork->stop();
+
+		srv.reset();
+		crypto_srv.reset();
+
 		threadFileSend->Delete();
 		threadCrypto->Delete();
 		threadMisc->Delete();
 		threadNetwork->Delete();
-
-		crypto_srv.reset();
-		srv.reset();
 
 		fs::remove_all(IMG_TMP_PATH_NAME);
 	}

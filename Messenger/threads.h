@@ -41,7 +41,7 @@ public:
 	void send_header(FileSendTask &task);
 	void stop(user_id_type uID);
 
-	void stop_thread() { iosrv_work.reset(); iosrv.stop(); }
+	void stop_thread() { stopping = true; iosrv_work.reset(); iosrv.stop(); }
 
 	void write(user_id_type uID);
 
@@ -56,6 +56,8 @@ private:
 	asio::io_service iosrv;
 	msgr_proto::server &srv;
 	std::shared_ptr<asio::io_service::work> iosrv_work;
+
+	bool stopping = false;
 };
 
 struct user_ext_type

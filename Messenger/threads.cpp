@@ -75,6 +75,8 @@ void FileSendThread::send_header(FileSendTask &task)
 
 void FileSendThread::stop(user_id_type uID)
 {
+	if (stopping)
+		return;
 	iosrv.post([this, uID]() {
 		task_list.erase(uID);
 	});
@@ -109,6 +111,8 @@ void FileSendThread::write(user_id_type uID)
 	std::string msg(msgBuf.data(), msgBuf.length());
 	srv.send_data(task.uID, std::move(sendBuf), msgr_proto::session::priority_file, [this, msg, uID]() {
 		std::cout << msg << std::endl;
+		if (stopping)
+			return;
 		iosrv.post([this, uID]() {
 			if (task_list.count(uID) > 0)
 				write(uID);
