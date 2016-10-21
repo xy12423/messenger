@@ -46,7 +46,7 @@ private:
 	void mainFrame_Close(wxCloseEvent& event);
 
 	wxTextCtrl *textInfo;
-	textStream *textStrm;
+	std::unique_ptr<textStream> textStrm;
 	std::streambuf *cout_orig, *cerr_orig;
 
 	std::vector<user_id_type> userIDs;

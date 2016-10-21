@@ -36,7 +36,7 @@ const int _GUI_SIZE_X = 600;
 const int _GUI_SIZE_Y = 540;
 #endif
 
-fileSendThread *threadFileSend;
+FileSendThread *threadFileSend;
 iosrvThread *threadNetwork, *threadMisc, *threadCrypto;
 
 asio::io_service main_io_service, misc_io_service, cryp_io_service;
@@ -262,11 +262,11 @@ mainFrame::mainFrame(const wxString& title)
 	wxAcceleratorTable accel(entry_count, entries);
 	SetAcceleratorTable(accel);
 
-	textStrm = new textStream(this, textInfo);
+	textStrm.swap(std::make_unique<textStream>(this, textInfo));
 	cout_orig = std::cout.rdbuf();
-	std::cout.rdbuf(textStrm);
+	std::cout.rdbuf(textStrm.get());
 	cerr_orig = std::cerr.rdbuf();
-	std::cerr.rdbuf(textStrm);
+	std::cerr.rdbuf(textStrm.get());
 
 	if (fs::exists(plugin_file_name))
 	{
@@ -440,10 +440,10 @@ void mainFrame::buttonSendImage_Click(wxCommandEvent& event)
 				std::shared_ptr<std::string> img_buf = std::make_shared<std::string>();
 
 				std::ifstream fin(path.ToStdString(), std::ios_base::in | std::ios_base::binary);
-				std::unique_ptr<char[]> read_buf = std::make_unique<char[]>(fileSendThread::fileBlockLen);
+				std::unique_ptr<char[]> read_buf = std::make_unique<char[]>(FileSendThread::FileBlockLen);
 				while (!fin.eof())
 				{
-					fin.read(read_buf.get(), fileSendThread::fileBlockLen);
+					fin.read(read_buf.get(), FileSendThread::FileBlockLen);
 					img_buf->append(read_buf.get(), fin.gcount());
 				}
 				fin.close();
@@ -493,7 +493,6 @@ void mainFrame::mainFrame_Close(wxCloseEvent& event)
 	{
 		std::cout.rdbuf(cout_orig);
 		std::cerr.rdbuf(cerr_orig);
-		delete textStrm;
 
 		srv->set_frame(nullptr);
 	}
@@ -595,7 +594,7 @@ bool MyApp::OnInit()
 
 		srv->start();
 
-		threadFileSend = new fileSendThread(*srv);
+		threadFileSend = new FileSendThread(*srv);
 		stage = 4;
 
 		form = new mainFrame(wxT("Messenger"));
@@ -652,13 +651,18 @@ int MyApp::OnExit()
 	{
 		crypto_srv->stop();
 
+		threadFileSend->stop_thread();
+		threadCrypto->stop();
+		threadMisc->stop();
+		threadNetwork->stop();
+
+		srv.reset();
+		crypto_srv.reset();
+
 		threadFileSend->Delete();
 		threadCrypto->Delete();
 		threadMisc->Delete();
 		threadNetwork->Delete();
-
-		crypto_srv.reset();
-		srv.reset();
 
 		fs::remove_all(IMG_TMP_PATH_NAME);
 	}

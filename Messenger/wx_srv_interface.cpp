@@ -3,13 +3,39 @@
 #include "plugin.h"
 #include "main.h"
 
-extern fileSendThread *threadFileSend;
+extern FileSendThread *threadFileSend;
 extern std::unordered_map<user_id_type, user_ext_type> user_ext;
 const char* IMG_TMP_PATH_NAME = ".messenger_tmp";
 const char* IMG_TMP_FILE_NAME = ".messenger_tmp_";
 
 const char* privatekeyFile = ".privatekey";
 const char* publickeysFile = ".publickey";
+
+struct data_view
+{
+	data_view(const char* _data, size_t _size)
+		:data(_data), size(_size)
+	{}
+	data_view(const std::string &_data)
+		:data(_data.data()), size(_data.size())
+	{}
+
+	template <typename _Ty>
+	inline void read(_Ty &ret) {
+		if (size < sizeof(_Ty))
+			throw(wx_srv_interface_error());
+		size -= sizeof(_Ty);
+		ret = boost::endian::little_to_native(*reinterpret_cast<const _Ty*>(data));
+		data += sizeof(_Ty);
+	}
+	inline void read(char* dst, size_t _size) { if (size < _size) throw(wx_srv_interface_error()); memcpy(dst, data, _size); data += _size; size -= _size; }
+	inline void read(std::string& dst, size_t _size) { if (size < _size) throw(wx_srv_interface_error()); dst.append(data, _size); data += _size; size -= _size; }
+	inline void check(size_t count) { if (size < count) throw(wx_srv_interface_error()); }
+	inline void skip(size_t count) { if (size < count) throw(wx_srv_interface_error()); data += count; size -= count; }
+
+	const char* data;
+	size_t size;
+};
 
 wx_srv_interface::wx_srv_interface(asio::io_service& _main_io_service,
 	asio::io_service& _misc_io_service,
@@ -51,32 +77,6 @@ wx_srv_interface::~wx_srv_interface()
 
 	publicOut.close();
 }
-
-struct data_view
-{
-	data_view(const char* _data, size_t _size)
-		:data(_data), size(_size)
-	{}
-	data_view(const std::string &_data)
-		:data(_data.data()), size(_data.size())
-	{}
-
-	template <typename _Ty>
-	inline void read(_Ty &ret) {
-		if (size < sizeof(_Ty))
-			throw(wx_srv_interface_error());
-		size -= sizeof(_Ty);
-		ret = boost::endian::little_to_native(*reinterpret_cast<const _Ty*>(data));
-		data += sizeof(_Ty);
-	}
-	inline void read(char* dst, size_t _size) { if (size < _size) throw(wx_srv_interface_error()); memcpy(dst, data, _size); data += _size; size -= _size; }
-	inline void read(std::string& dst, size_t _size) { if (size < _size) throw(wx_srv_interface_error()); dst.append(data, _size); data += _size; size -= _size; }
-	inline void check(size_t count) { if (size < count) throw(wx_srv_interface_error()); }
-	inline void skip(size_t count) { if (size < count) throw(wx_srv_interface_error()); data += count; size -= count; }
-
-	const char* data;
-	size_t size;
-};
 
 void wx_srv_interface::on_data(user_id_type id, const std::string& _data)
 {

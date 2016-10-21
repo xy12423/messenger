@@ -21,8 +21,9 @@ namespace crypto
 		std::shared_ptr<asio::io_service::work> iosrv_work;
 
 		bool working = false;
+		volatile bool stopped = false;
 
-		void stop() { iosrv_work.reset(); iosrv.stop(); }
+		void stop() { iosrv_work.reset(); iosrv.stop(); while (!stopped); }
 	};
 
 	struct task
@@ -91,6 +92,8 @@ namespace crypto
 		std::unordered_map<id_type, std::unique_ptr<worker>> workers;
 		std::unordered_map<id_type, session_ptr> sessions;
 		std::list<std::pair<id_type, task_type>> tasks;
+
+		bool stopping = false;
 	};
 }
 
