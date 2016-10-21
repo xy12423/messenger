@@ -431,11 +431,15 @@ bool file_storage::load_config(const config_table_tp& config_items)
 
 		iosrv_work = std::make_shared<asio::io_service::work>(iosrv);
 		std::thread thread([this]() {
-			try
+			while (iosrv_work)
 			{
-				iosrv.run();
+				try
+				{
+					iosrv.run();
+				}
+				catch (...) {}
 			}
-			catch (...) {}
+			stopped = true;
 		});
 		thread.detach();
 

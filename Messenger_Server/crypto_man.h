@@ -21,14 +21,15 @@ namespace crypto
 		std::shared_ptr<asio::io_service::work> iosrv_work;
 
 		bool working = false;
+		volatile bool stopped = false;
 
-		void stop() { iosrv_work.reset(); iosrv.stop(); }
+		void stop() { iosrv_work.reset(); iosrv.stop(); while (!stopped); }
 	};
 
 	struct task
 	{
 		task(std::string& _data, crypto_callback&& _callback) :data(_data), callback(std::move(_callback)) {}
-
+		
 		id_type id;
 		std::string &data;
 		crypto_callback callback;
@@ -47,7 +48,7 @@ namespace crypto
 		void dec(std::string& data, crypto_callback&& _callback);
 		void enc_finished() { enc_task_que.pop_front(); busy_flag &= (~ENC); }
 		void dec_finished() { dec_task_que.pop_front(); busy_flag &= (~DEC); }
-		bool available(task_type type) { return (busy_flag & type) == 0; }
+		bool available(task_type type){ return (busy_flag & type) == 0; }
 		void set_busy(task_type type) { busy_flag |= type; }
 		void do_one(task_type type) { if (type == ENC) do_enc(); else do_dec(); }
 
@@ -91,6 +92,8 @@ namespace crypto
 		std::unordered_map<id_type, std::unique_ptr<worker>> workers;
 		std::unordered_map<id_type, session_ptr> sessions;
 		std::list<std::pair<id_type, task_type>> tasks;
+
+		bool stopping = false;
 	};
 }
 

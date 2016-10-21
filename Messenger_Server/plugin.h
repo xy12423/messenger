@@ -154,7 +154,7 @@ public:
 	virtual void on_img(const std::string& name, const char *data, size_t data_size) {};
 	virtual void on_file_h(const std::string& name, const char *data, size_t data_size);
 	virtual void on_file_b(const std::string& name, const char *data, size_t data_size);
-	virtual void on_exit() { if (!enabled) return; save_data(); iosrv_work.reset(); iosrv.stop(); };
+	virtual void on_exit() { if (!enabled) return; save_data(); iosrv_work.reset(); iosrv.stop(); while (!stopped); };
 private:
 	bool load_config(const config_table_tp& config_items);
 	void load_data();
@@ -166,6 +166,7 @@ private:
 	void write(user_id_type uID);
 
 	bool enabled = false;
+	volatile bool stopped = false;
 	fs::path files_path;
 
 	send_tasks_tp send_tasks;

@@ -733,7 +733,9 @@ int main(int argc, char *argv[])
 
 		std::future<void> future = exit_promise.get_future();
 		future.wait();
-
+		
+		crypto_srv->stop();
+		
 		cryp_iosrv_work.reset();
 		cryp_iosrv.stop();
 
@@ -742,8 +744,7 @@ int main(int argc, char *argv[])
 
 		main_iosrv_work.reset();
 		main_iosrv.stop();
-
-		crypto_srv->stop();
+		
 		srv->on_exit();
 		m_plugin.on_exit();
 
