@@ -32,9 +32,6 @@ struct user_ext
 
 	std::string name;
 	std::string addr;
-
-	std::string recvFile;
-	int blockLast;
 };
 typedef std::unordered_map<int, user_ext> user_ext_list;
 
@@ -81,6 +78,8 @@ public:
 
 	void on_msg(user_id_type id, std::string& msg);
 	void on_image(user_id_type id, const std::string& data);
+	void on_file_h(user_id_type id, const std::string& data);
+	void on_file_b(user_id_type id, const std::string& data);
 	void on_exit();
 
 	void set_mode(modes _mode) { mode = _mode; }
@@ -108,6 +107,10 @@ public:
 	virtual void broadcast_msg(const std::string& msg);
 	virtual void send_msg(user_id_type id, const std::string& msg);
 	virtual void send_image(user_id_type id, const std::string& path);
+	virtual void send_data(user_id_type id, const std::string& data);
+	virtual void send_data(user_id_type id, const std::string& data, std::function<void()>&& callback);
+	virtual void send_data(user_id_type id, std::string&& data) override;
+	virtual void send_data(user_id_type id, std::string&& data, std::function<void()>&& callback) override;
 };
 
 #endif
