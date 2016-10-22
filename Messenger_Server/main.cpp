@@ -442,6 +442,12 @@ void cli_server::broadcast_data(int src, const std::string& data, int priority)
 
 std::string cli_server::process_command(std::string& cmd, user_record& user)
 {
+	static const msg_server_plugin::user_type user_type_table[] = {
+		msg_server_plugin::user_type::GUEST,
+		msg_server_plugin::user_type::USER,
+		msg_server_plugin::user_type::ADMIN,
+		msg_server_plugin::user_type::CONSOLE,
+	};
 	user_record::group_type group = user.group;
 	std::string ret;
 
@@ -552,7 +558,7 @@ std::string cli_server::process_command(std::string& cmd, user_record& user)
 	}
 	else
 	{
-		m_plugin.on_cmd(user.name, cmd, args);
+		m_plugin.on_cmd(user.name, user_type_table[group], cmd, args);
 	}
 	return ret;
 }

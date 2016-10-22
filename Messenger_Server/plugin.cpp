@@ -272,7 +272,7 @@ void server_mail::on_new_user(const std::string& name)
 	}
 }
 
-void server_mail::on_cmd(const std::string& name, const std::string& cmd, const std::string& arg)
+void server_mail::on_cmd(const std::string& name, user_type type, const std::string& cmd, const std::string& arg)
 {
 	if (!enabled)
 		return;
@@ -325,17 +325,17 @@ void file_storage::init(const config_table_tp& config_items)
 	enabled = true;
 }
 
-void file_storage::on_cmd(const std::string& name, const std::string& cmd, const std::string& arg)
+void file_storage::on_cmd(const std::string& name, user_type type, const std::string& cmd, const std::string& arg)
 {
 	if (!enabled)
 		return;
-	if (cmd == "file")
+	if (cmd == "file_get")
 	{
 		user_id_type id;
 		inter.get_id_by_name(name, id);
 		start(id, arg);
 	}
-	else if (cmd == "list_file")
+	else if (cmd == "file_list")
 	{
 		user_id_type id;
 		inter.get_id_by_name(name, id);
@@ -345,12 +345,40 @@ void file_storage::on_cmd(const std::string& name, const std::string& cmd, const
 		{
 			msg.append(pair.first);
 			msg.append(":\n");
-			msg.append(pair.second);
+			msg.append(pair.second.file_name);
 			msg.push_back('\n');
 		}
 		msg.pop_back();
 
 		inter.send_msg(id, msg);
+	}
+	else if (cmd == "file_del")
+	{
+		user_id_type id;
+		inter.get_id_by_name(name, id);
+		hashmap_tp::iterator selected = hash_map.find(arg);
+		if (selected == hash_map.end())
+		{
+			inter.send_msg(id, "File not found");
+		}
+		else if (type >= ADMIN || (type == USER && selected->second.upload_user == name))
+		{
+			boost::system::error_code ec;
+			fs::remove(files_path / selected->first, ec);
+			if (ec)
+			{
+				inter.send_msg(id, "Failed to delete");
+			}
+			else
+			{
+				hash_map.erase(selected);
+				inter.send_msg(id, "File deleted");
+			}
+		}
+		else
+		{
+			inter.send_msg(id, "Insufficient privilege");
+		}
 	}
 }
 
@@ -368,7 +396,8 @@ void file_storage::on_file_h(const std::string& name, const char *_data, size_t 
 		data.read(block_count_all);
 		data.read(file_name_len);
 
-		data.read(task.file_name, file_name_len);
+		data.read(task.info.file_name, file_name_len);
+		task.info.upload_user = name;
 
 		task.block_count_all = block_count_all;
 	}
@@ -407,7 +436,7 @@ void file_storage::on_file_b(const std::string& name, const char *_data, size_t 
 			std::string base32_val;
 			base32(base32_val, sha1, hash_short_size);
 			fs::rename(files_path / ("user_" + name), files_path / base32_val);
-			hash_map.emplace(base32_val, task.file_name);
+			hash_map.emplace(base32_val, task.info);
 
 			recv_tasks.erase(selected);
 			save_data();
@@ -459,7 +488,7 @@ void file_storage::load_data()
 
 	std::string line;
 	hashmap_tp::iterator selected;
-	const std::string empty_string;
+	const file_info empty_file_info;
 	std::getline(fin, line);
 	while (!fin.eof())
 	{
@@ -468,7 +497,7 @@ void file_storage::load_data()
 		{
 			if (line.front() == '[' && line.back() == ']')
 			{
-				selected = hash_map.emplace(line.substr(1, line.size() - 2), empty_string).first;
+				selected = hash_map.emplace(line.substr(1, line.size() - 2), empty_file_info).first;
 			}
 			else
 			{
@@ -477,7 +506,9 @@ void file_storage::load_data()
 				rtrim(name);
 				ltrim(val);
 				if (name == "file_name")
-					selected->second = val;
+					selected->second.file_name = val;
+				else if (name == "upload_user")
+					selected->second.upload_user = val;
 			}
 		}
 		std::getline(fin, line);
@@ -491,7 +522,8 @@ void file_storage::save_data()
 	for (const hashmap_tp::value_type &pair : hash_map)
 	{
 		fout << '[' << pair.first << ']' << std::endl;
-		fout << "file_name=" << pair.second << std::endl;
+		fout << "file_name=" << pair.second.file_name << std::endl;
+		fout << "upload_user=" << pair.second.upload_user << std::endl;
 	}
 }
 
@@ -510,7 +542,7 @@ void file_storage::start(user_id_type uID, const std::string& hash)
 			inter.send_msg(uID, "File not found");
 			return;
 		}
-		send_task &new_task = send_tasks.emplace(uID, send_task(uID, selected->second, path)).first->second;
+		send_task &new_task = send_tasks.emplace(uID, send_task(uID, selected->second.file_name, path)).first->second;
 
 		try
 		{
