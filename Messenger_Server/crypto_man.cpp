@@ -53,9 +53,6 @@ server::server(asio::io_service& _iosrv, int worker_count)
 void server::stop()
 {
 	stopping = true;
-	iosrv.post([this]() {
-		tasks.clear();
-	});
 	for (std::unordered_map<id_type, std::unique_ptr<worker>>::iterator itr = workers.begin(), itr_end = workers.end(); itr != itr_end; itr++)
 		itr->second->stop();
 }
@@ -107,8 +104,6 @@ void server::run_task(id_type id)
 
 	w.iosrv.post([this, self, id, type]() {
 		self->do_one(type);
-		if (stopping)
-			return;
 
 		iosrv.post([this, self, id, type]() {
 			try

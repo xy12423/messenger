@@ -735,9 +735,6 @@ int main(int argc, char *argv[])
 		future.wait();
 		
 		crypto_srv->stop();
-		
-		cryp_iosrv_work.reset();
-		cryp_iosrv.stop();
 
 		misc_iosrv_work.reset();
 		misc_iosrv.stop();
@@ -749,6 +746,10 @@ int main(int argc, char *argv[])
 		m_plugin.on_exit();
 
 		srv.reset();
+
+		cryp_iosrv_work.reset();
+		while (!cryp_iosrv.stopped());
+
 		crypto_srv.reset();
 #ifdef NDEBUG
 	}
