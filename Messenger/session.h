@@ -72,7 +72,7 @@ namespace msgr_proto
 			local_port = _local_port;
 		}
 
-		~pre_session() { exiting = true; if (!passed) { socket->close(); } }
+		void shutdown() { exiting = true; if (!passed) { socket->close(); } }
 
 		port_type_l get_port() const { return local_port; }
 		const std::string& get_key() const { return key_string; }
@@ -310,6 +310,7 @@ namespace msgr_proto
 		{
 			closing = true;
 			acceptor.close();
+			for (const auto& pre : pre_sessions) pre->shutdown();
 			pre_sessions.clear();
 			for (const auto& pair : sessions) pair.second->shutdown();
 			sessions.clear();
