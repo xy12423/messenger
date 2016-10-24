@@ -304,43 +304,91 @@ mainFrame::mainFrame(const wxString& title)
 	}
 }
 
-#define REPOSITION(control, id) (control)->SetPosition(wxPoint(static_cast<int>(itemPos[id].x * ratio_x), static_cast<int>(itemPos[id].y * ratio_y)))
-#define RESIZE(control, id) (control)->SetSize(wxSize(static_cast<int>(itemSize[id].x * ratio_x), static_cast<int>(itemSize[id].y * ratio_y)))
-
 void mainFrame::mainFrame_Resize(wxSizeEvent& event)
 {
-	panel->SetSize(wxSize(event.GetSize().GetWidth(), event.GetSize().GetHeight()));
-	double ratio_x = event.GetSize().GetWidth(), ratio_y = event.GetSize().GetHeight();
-	ratio_x /= _GUI_SIZE_X;
-	ratio_y /= _GUI_SIZE_Y;
+	int x_size = GetClientSize().GetWidth(), y_size = GetClientSize().GetHeight();
+	panel->SetSize(wxSize(x_size, y_size));
+	
+	double x_ratio = x_size, y_ratio = y_size;
+	x_ratio /= _GUI_SIZE_X;
+	y_ratio /= _GUI_SIZE_Y;
 
-	REPOSITION(labelListUser, ID_LABELLISTUSER);
-	REPOSITION(listUser, ID_LISTUSER);
-	REPOSITION(buttonAdd, ID_BUTTONADD);
-	REPOSITION(buttonDel, ID_BUTTONDEL);
-	REPOSITION(textMsg, ID_TEXTMSG);
-	REPOSITION(textInput, ID_TEXTINPUT);
-	REPOSITION(buttonSend, ID_BUTTONSEND);
-	REPOSITION(buttonSendImage, ID_BUTTONSENDIMAGE);
-	REPOSITION(buttonSendFile, ID_BUTTONSENDFILE);
-	REPOSITION(buttonCancelSend, ID_BUTTONCANCELSEND);
-	REPOSITION(textInfo, ID_TEXTINFO);
+	constexpr int default_border = 12;
+	constexpr int default_gap = 6;
 
-	RESIZE(labelListUser, ID_LABELLISTUSER);
-	RESIZE(listUser, ID_LISTUSER);
-	RESIZE(buttonAdd, ID_BUTTONADD);
-	RESIZE(buttonDel, ID_BUTTONDEL);
-	RESIZE(textMsg, ID_TEXTMSG);
-	RESIZE(textInput, ID_TEXTINPUT);
-	RESIZE(buttonSend, ID_BUTTONSEND);
-	RESIZE(buttonSendImage, ID_BUTTONSENDIMAGE);
-	RESIZE(buttonSendFile, ID_BUTTONSENDFILE);
-	RESIZE(buttonCancelSend, ID_BUTTONCANCELSEND);
-	RESIZE(textInfo, ID_TEXTINFO);
+	int x_gap, y_gap, x_gap_right_mid;
+	int x_size_left, x_size_right, x_size_info, x_size_button;
+	int y_size_label, y_size_list, y_size_row, y_size_info, y_size_msg;
+
+	x_size_info = x_size - default_border * 2;
+	if (x_ratio >= 1)
+	{
+		x_gap = default_gap;
+		x_size_left = itemSize[ID_LABELLISTUSER].GetWidth();
+	}
+	else
+	{
+		x_gap = default_gap * x_ratio;
+		x_size_left = itemSize[ID_LABELLISTUSER].GetWidth() * x_ratio;
+	}
+	x_size_right = x_size_info - x_size_left - x_gap;
+	x_size_button = (x_size_right - x_gap * 3) / 4;
+	x_gap_right_mid = x_size_right - x_size_button * 4 - x_gap * 2;
+
+	if (y_ratio >= 1)
+	{
+		y_gap = default_gap;
+		y_size_label = itemSize[ID_LABELLISTUSER].GetHeight();
+		y_size_info = itemSize[ID_TEXTINFO].GetHeight() * ((y_ratio - 1) / 2 + 1);
+		y_size_row = itemSize[ID_BUTTONADD].GetHeight();
+	}
+	else
+	{
+		y_gap = default_gap * y_ratio;
+		y_size_label = itemSize[ID_LABELLISTUSER].GetHeight() * y_ratio;
+		y_size_info = itemSize[ID_TEXTINFO].GetHeight() * y_ratio;
+		y_size_row = itemSize[ID_BUTTONADD].GetHeight() * y_ratio;
+	}
+	y_size_msg = y_size - default_border * 2 - y_gap * 3 - y_size_info - y_size_row * 2;
+	y_size_list = y_size_msg - y_size_label - y_gap;
+
+	int x_pos_left = default_border,
+		x_pos_right = x_pos_left + x_size_left + x_gap,
+		x_pos_button_2 = x_pos_right + x_size_button + x_gap,
+		x_pos_button_3 = x_pos_button_2 + x_size_button + x_gap_right_mid,
+		x_pos_button_4 = x_pos_button_3 + x_size_button + x_gap;
+
+	int y_pos_top = default_border,
+		y_pos_list = y_pos_top + y_size_label + y_gap,
+		y_pos_row_1 = y_pos_list + y_size_list + y_gap,
+		y_pos_row_2 = y_pos_row_1 + y_size_row + y_gap,
+		y_pos_info = y_pos_row_2 + y_size_row + y_gap;
+
+	listUser->SetPosition(wxPoint(default_border, y_pos_list));
+	buttonAdd->SetPosition(wxPoint(default_border, y_pos_row_1));
+	buttonDel->SetPosition(wxPoint(default_border, y_pos_row_2));
+	textInfo->SetPosition(wxPoint(default_border, y_pos_info));
+
+	labelListUser->SetSize(wxSize(x_size_left, y_size_label));
+	listUser->SetSize(wxSize(x_size_left, y_size_list));
+	buttonAdd->SetSize(wxSize(x_size_left, y_size_row));
+	buttonDel->SetSize(wxSize(x_size_left, y_size_row));
+	textInfo->SetSize(wxSize(x_size_info, y_size_info));
+
+	textMsg->SetPosition(wxPoint(x_pos_right, y_pos_top));
+	textInput->SetPosition(wxPoint(x_pos_right, y_pos_row_1));
+	buttonSend->SetPosition(wxPoint(x_pos_right, y_pos_row_2));
+	buttonSendImage->SetPosition(wxPoint(x_pos_button_2, y_pos_row_2));
+	buttonSendFile->SetPosition(wxPoint(x_pos_button_3, y_pos_row_2));
+	buttonCancelSend->SetPosition(wxPoint(x_pos_button_4, y_pos_row_2));
+
+	textMsg->SetSize(wxSize(x_size_right, y_size_msg));
+	textInput->SetSize(wxSize(x_size_right, y_size_row));
+	buttonSend->SetSize(wxSize(x_size_button, y_size_row));
+	buttonSendImage->SetSize(wxSize(x_size_button, y_size_row));
+	buttonSendFile->SetSize(wxSize(x_size_button, y_size_row));
+	buttonCancelSend->SetSize(wxSize(x_size_button, y_size_row));
 }
-
-#undef RESIZE
-#undef REPOSITION
 
 void mainFrame::listUser_SelectedIndexChanged(wxCommandEvent& event)
 {
