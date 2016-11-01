@@ -328,7 +328,6 @@ namespace msgr_proto
 		bool send_data(user_id_type id, std::string&& data, int priority) { return send_data(id, std::move(data), priority, []() {}); };
 		bool send_data(user_id_type id, std::string&& data, int priority, const std::string& message) { return send_data(id, std::move(data), priority, [message]() {std::cout << message << std::endl; }); };
 		
-
 		void pre_session_over(const std::shared_ptr<pre_session>& _pre, bool successful = false);
 		void join(const session_ptr& _user, user_id_type& uid);
 		void leave(user_id_type id);

@@ -29,11 +29,15 @@ EVT_CLOSE(mainFrame::mainFrame_Close)
 wxEND_EVENT_TABLE()
 
 #ifdef __WXMSW__
-const int _GUI_SIZE_X = 620;
-const int _GUI_SIZE_Y = 560;
+constexpr int _GUI_SIZE_X = 620;
+constexpr int _GUI_SIZE_Y = 560;
+constexpr int _GUI_SIZE_CLIENT_X = 604;
+constexpr int _GUI_SIZE_CLIENT_Y = 521;
 #else
-const int _GUI_SIZE_X = 600;
-const int _GUI_SIZE_Y = 540;
+constexpr int _GUI_SIZE_X = 600;
+constexpr int _GUI_SIZE_Y = 520;
+constexpr int _GUI_SIZE_CLIENT_X = 600;
+constexpr int _GUI_SIZE_CLIENT_Y = 520;
 #endif
 
 FileSendThread *threadFileSend;
@@ -310,8 +314,8 @@ void mainFrame::mainFrame_Resize(wxSizeEvent& event)
 	panel->SetSize(wxSize(x_size, y_size));
 	
 	double x_ratio = x_size, y_ratio = y_size;
-	x_ratio /= _GUI_SIZE_X;
-	y_ratio /= _GUI_SIZE_Y;
+	x_ratio /= _GUI_SIZE_CLIENT_X;
+	y_ratio /= _GUI_SIZE_CLIENT_Y;
 
 	constexpr int default_border = 12;
 	constexpr int default_gap = 6;
