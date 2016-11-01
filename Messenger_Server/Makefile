@@ -5,7 +5,7 @@ endif
 
 objects = global.o crypto.o crypto_man.o session.o session_server.o plugin.o main.o
 cppflag = -c -pthread -I ~/boost -Wno-deprecated-declarations -std=c++14
-lflag = -pthread -L ~/boost/stage/lib -lboost_filesystem -lboost_system -lcryptopp
+lflag = -pthread -L ~/boost/stage/lib -lboost_filesystem -lboost_system -lcryptopp -static-libstdc++
 
 ifdef RELEASE
   cppflag += -g0 -O2 -DNDEBUG
