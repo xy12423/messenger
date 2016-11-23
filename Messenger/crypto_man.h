@@ -23,7 +23,7 @@ namespace crypto
 		bool working = false;
 		volatile bool stopped = false;
 
-		void stop() { iosrv_work.reset(); iosrv.stop(); while (!stopped); }
+		void stop() { iosrv_work.reset(); while (!stopped); }
 	};
 
 	struct task
@@ -48,7 +48,7 @@ namespace crypto
 		void dec(std::string& data, crypto_callback&& _callback);
 		void enc_finished() { enc_task_que.pop_front(); busy_flag &= (~ENC); }
 		void dec_finished() { dec_task_que.pop_front(); busy_flag &= (~DEC); }
-		bool available(task_type type){ return (busy_flag & type) == 0; }
+		bool available(task_type type) { return (busy_flag & type) == 0 && !stopping; }
 		void set_busy(task_type type) { busy_flag |= type; }
 		void do_one(task_type type) { if (type == ENC) do_enc(); else do_dec(); }
 
@@ -64,6 +64,7 @@ namespace crypto
 		id_type id;
 
 		uint16_t busy_flag = 0;
+		bool stopping = false;
 	};
 	typedef std::shared_ptr<session> session_ptr;
 
@@ -76,7 +77,7 @@ namespace crypto
 		session_ptr new_session(_Ty2&&... val) {
 			id_type id = next_id;
 			next_id++;
-			return sessions.emplace(id, std::make_shared<_Ty1>(*this, iosrv, id)).first->second;
+			return sessions.emplace(id, std::make_shared<_Ty1>(*this, iosrv, id, std::forward<_Ty2>(val)...)).first->second;
 		};
 		void del_session(id_type id);
 		void new_task(id_type id, task_type type);

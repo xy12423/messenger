@@ -7,9 +7,9 @@ class iosrvThread :public wxThread
 {
 public:
 	iosrvThread(asio::io_service& _iosrv) : wxThread(wxTHREAD_DETACHED), iosrv(_iosrv) {};
-	wxThreadError Delete(ExitCode *rc = NULL, wxThreadWait waitMode = wxTHREAD_WAIT_DEFAULT) { stop(); return wxThread::Delete(); };
+	wxThreadError Delete(ExitCode *rc = NULL, wxThreadWait waitMode = wxTHREAD_WAIT_DEFAULT) { stop(true); return wxThread::Delete(); };
 
-	void stop() { iosrv_work.reset(); iosrv.stop(); }
+	void stop(bool force = false) { iosrv_work.reset(); if (force) iosrv.stop(); else while (!iosrv.stopped()); }
 protected:
 	asio::io_service& iosrv;
 	std::shared_ptr<asio::io_service::work> iosrv_work;
@@ -35,13 +35,13 @@ private:
 	typedef std::list<FileSendTask> TaskListTp;
 public:
 	FileSendThread(msgr_proto::server& _srv) : wxThread(wxTHREAD_DETACHED), srv(_srv), block(std::make_unique<char[]>(FileBlockLen)) {}
-	wxThreadError Delete(ExitCode *rc = NULL, wxThreadWait waitMode = wxTHREAD_WAIT_DEFAULT) { stop_thread(); return wxThread::Delete(); }
+	wxThreadError Delete(ExitCode *rc = NULL, wxThreadWait waitMode = wxTHREAD_WAIT_DEFAULT) { if (!stopping) stop_thread(); return wxThread::Delete(); }
 	
 	void start(user_id_type uID, const fs::path& path);
 	void send_header(FileSendTask &task);
 	void stop(user_id_type uID);
 
-	void stop_thread() { stopping = true; iosrv_work.reset(); iosrv.stop(); }
+	void stop_thread() { stopping = true; iosrv_work.reset(); Pause(); }
 
 	void write(user_id_type uID);
 
