@@ -72,7 +72,7 @@ namespace msgr_proto
 			local_port = _local_port;
 		}
 
-		~pre_session() { exiting = true; if (!passed) { socket->close(); } }
+		void shutdown() { exiting = true; if (!passed) { socket->close(); } }
 
 		port_type_l get_port() const { return local_port; }
 		const std::string& get_key() const { return key_string; }
@@ -161,6 +161,8 @@ namespace msgr_proto
 
 	class session_base :public std::enable_shared_from_this<session_base>
 	{
+	private:
+		typedef void(*on_data_handler)(server*, user_id_type, const std::shared_ptr<std::string>&);
 	public:
 		static constexpr int priority_sys = 30;
 		static constexpr int priority_msg = 20;
@@ -191,6 +193,7 @@ namespace msgr_proto
 		user_id_type uid;
 
 		server &srv;
+		on_data_handler on_data;
 		port_type_l local_port;
 	};
 	typedef std::shared_ptr<session_base> session_ptr;
@@ -216,10 +219,10 @@ namespace msgr_proto
 
 		virtual std::string get_address() const { return name; }
 
-		void set_callback(on_data_callback&& _callback) { on_data = std::move(_callback); }
+		void set_callback(on_data_callback&& _callback) { on_recv_data = std::move(_callback); }
 	private:
 		std::string name;
-		on_data_callback on_data;
+		on_data_callback on_recv_data;
 	};
 
 	class session : public session_base
@@ -257,6 +260,7 @@ namespace msgr_proto
 		void read_data(size_t sizeLast, const std::shared_ptr<std::string>& buf);
 		void process_data(const std::shared_ptr<std::string>& buf);
 		void write();
+		void write_shutdown();
 
 		std::shared_ptr<proto_kit> crypto_kit;
 
@@ -282,6 +286,8 @@ namespace msgr_proto
 
 	class server
 	{
+	private:
+		typedef void(*on_data_handler)(server*, user_id_type, const std::shared_ptr<std::string>&);
 	public:
 		server(asio::io_service& _main_io_service,
 			asio::io_service& _misc_io_service,
@@ -308,16 +314,12 @@ namespace msgr_proto
 
 		~server()
 		{
-			closing = true;
-			acceptor.close();
-			pre_sessions.clear();
-			for (const auto& pair : sessions) pair.second->shutdown();
-			sessions.clear();
+			if (!closing)
+				shutdown();
 		}
 
 		void start() { if (!started) { started = true; do_start(); } };
-
-		void on_recv_data(user_id_type id, std::shared_ptr<std::string> data);
+		void shutdown();
 
 		bool send_data(user_id_type id, const std::string& data, int priority, session::write_callback&& callback);
 		bool send_data(user_id_type id, std::string&& data, int priority, session::write_callback&& callback);
@@ -327,9 +329,8 @@ namespace msgr_proto
 		bool send_data(user_id_type id, std::string&& data, int priority) { return send_data(id, std::move(data), priority, []() {}); };
 		bool send_data(user_id_type id, std::string&& data, int priority, const std::string& message) { return send_data(id, std::move(data), priority, [message]() {std::cout << message << std::endl; }); };
 		
-
 		void pre_session_over(const std::shared_ptr<pre_session>& _pre, bool successful = false);
-		void join(const session_ptr& _user, user_id_type& uid);
+		void join(const session_ptr& _user, user_id_type& uid, on_data_handler& handler);
 		void leave(user_id_type id);
 
 		void connect(const std::string& addr, port_type remote_port);
@@ -359,6 +360,8 @@ namespace msgr_proto
 
 		void connect(const asio::ip::tcp::endpoint& remote_endpoint);
 		void connect(const asio::ip::tcp::resolver::query& query);
+
+		static void on_recv_data(server* self, user_id_type id, const std::shared_ptr<std::string>& data);
 
 		asio::io_service &main_io_service, &misc_io_service;
 		asio::ip::tcp::acceptor acceptor;
