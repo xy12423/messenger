@@ -802,19 +802,16 @@ int main(int argc, char *argv[])
 		m_plugin.on_exit();
 		srv->shutdown();
 		
+		crypto_srv->stop();
+
 		misc_iosrv_work.reset();
 		while (!misc_iosrv.stopped());
 
 		main_iosrv_work.reset();
 		while (!main_iosrv.stopped());
 
-		crypto_srv->stop();
-
 		cryp_iosrv_work.reset();
 		while (!cryp_iosrv.stopped());
-
-		srv.reset();
-		crypto_srv.reset();
 #ifdef NDEBUG
 	}
 	catch (std::exception& e)
