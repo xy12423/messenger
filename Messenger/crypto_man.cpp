@@ -40,7 +40,10 @@ void session::dec(std::string& data, crypto_callback&& _callback)
 
 void session::stop()
 {
-	srv.del_session(id);
+	iosrv.post([this]() {
+		stopping = true;
+		srv.del_session(id);
+	});
 }
 
 server::server(asio::io_service& _iosrv, int worker_count)
@@ -59,17 +62,20 @@ void server::stop()
 
 void server::del_session(id_type id)
 {
-	iosrv.post([this, id]() {
-		task_list_tp::iterator task_itr = tasks.begin(), task_itr_end = tasks.end();
-		while (task_itr != task_itr_end)
-		{
-			if (task_itr->first == id)
-				task_itr = tasks.erase(task_itr);
-			else
-				task_itr++;
-		}
-		sessions.erase(id);
-	});
+	std::unordered_map<id_type, session_ptr>::iterator itr = sessions.find(id);
+	if (itr == sessions.end())
+		return;
+
+	task_list_tp::iterator task_itr = tasks.begin(), task_itr_end = tasks.end();
+	while (task_itr != task_itr_end)
+	{
+		if (task_itr->first == id)
+			task_itr = tasks.erase(task_itr);
+		else
+			task_itr++;
+	}
+
+	sessions.erase(itr);
 }
 
 void server::new_task(id_type id, task_type type)

@@ -701,17 +701,19 @@ int MyApp::OnExit()
 {
 	try
 	{
+		srv->shutdown();
 		crypto_srv->stop();
-		threadFileSend->stop_thread();
+
+		threadMisc->stop();
+		threadNetwork->stop();
+		threadCrypto->stop();
 
 		threadMisc->Delete();
 		threadNetwork->Delete();
-
-		srv.reset();
-
 		threadFileSend->Delete();
 		threadCrypto->Delete();
 
+		srv.reset();
 		crypto_srv.reset();
 
 		fs::remove_all(IMG_TMP_PATH_NAME);

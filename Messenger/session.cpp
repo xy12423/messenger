@@ -659,31 +659,31 @@ void pre_session_c::sid_packet_done()
 
 void session_base::join()
 {
-	srv.join(shared_from_this(), uid);
+	srv.join(shared_from_this(), uid, on_data);
 }
 
 void virtual_session::send(const std::string& data, int priority, write_callback&& callback)
 {
-	if (on_data)
-		on_data(data);
+	if (on_recv_data)
+		on_recv_data(data);
 	callback();
 }
 
 void virtual_session::send(std::string&& data, int priority, write_callback&& callback)
 {
-	if (on_data)
-		on_data(data);
+	if (on_recv_data)
+		on_recv_data(data);
 	callback();
 }
 
 void virtual_session::push(const std::string& data)
 {
-	srv.on_recv_data(uid, std::make_shared<std::string>(data));
+	on_data(&srv, uid, std::make_shared<std::string>(data));
 }
 
 void virtual_session::push(std::string&& data)
 {
-	srv.on_recv_data(uid, std::make_shared<std::string>(data));
+	on_data(&srv, uid, std::make_shared<std::string>(data));
 }
 
 void session::start()
@@ -697,19 +697,15 @@ void session::shutdown()
 	boost::system::error_code ec;
 	socket->shutdown(socket->shutdown_both, ec);
 	socket->close(ec);
-	for (const write_task &task : write_que)
-	{
-		try
-		{
-			task.callback();
-		}
-		catch (...) {}
-	}
+
 	crypto_kit->stop();
+	crypto_kit.reset();
 }
 
 void session::send(const std::string& data, int priority, write_callback&& callback)
 {
+	if (exiting)
+		return;
 	session_ptr self = shared_from_this();
 	if (data.empty())
 		return;
@@ -740,6 +736,8 @@ void session::send(const std::string& data, int priority, write_callback&& callb
 
 void session::send(std::string&& data, int priority, write_callback&& callback)
 {
+	if (exiting)
+		return;
 	session_ptr self = shared_from_this();
 	if (data.empty())
 		return;
@@ -877,10 +875,12 @@ void session::process_data(const std::shared_ptr<std::string>& buf)
 	session_ptr self = shared_from_this();
 
 	crypto_kit->dec(*buf, [this, self, buf](bool success, const std::string& ex) {
+		if (exiting)
+			return;
 		if (success)
 		{
-			main_iosrv.post([this, self, buf]() {
-				srv.on_recv_data(uid, buf);
+			main_iosrv.post([this, buf]() {
+				on_data(&srv, uid, buf);
 			});
 		}
 		else
@@ -893,7 +893,13 @@ void session::process_data(const std::shared_ptr<std::string>& buf)
 
 void session::write()
 {
+	if (exiting)
+	{
+		write_shutdown();
+		return;
+	}
 	session_ptr self = shared_from_this();
+
 	write_que_tp::iterator write_itr;
 	try
 	{
@@ -917,13 +923,15 @@ void session::write()
 	}
 
 	crypto_kit->enc(write_itr->data, [this, self, write_itr](bool success, const std::string& ex) {
+		if (exiting)
+		{
+			write_shutdown();
+			return;
+		}
 		if (!success)
 		{
-			if (!exiting)
-			{
-				srv.on_exception(ex);
-				srv.leave(uid);
-			}
+			srv.on_exception(ex);
+			srv.leave(uid);
 			return;
 		}
 
@@ -950,4 +958,17 @@ void session::write()
 			}
 		});
 	});
+}
+
+void session::write_shutdown()
+{
+	for (write_que_tp::iterator itr = write_que.begin(), itr_end = write_que.end(); itr != itr_end; itr = write_que.erase(itr))
+	{
+		try
+		{
+			itr->callback();
+		}
+		catch (...) {}
+	}
+	write_que.clear();
 }
