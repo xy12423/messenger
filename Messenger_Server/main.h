@@ -3,7 +3,7 @@
 #ifndef _H_MAIN
 #define _H_MAIN
 
-enum modes{ RELAY, CENTER };
+enum modes{ EASY, NORMAL, HARD };
 
 const port_type portConnect = 4826;
 
@@ -32,6 +32,8 @@ struct user_ext
 
 	std::string name;
 	std::string addr;
+
+	std::string uploading_key;
 };
 typedef std::unordered_map<int, user_ext> user_ext_list;
 
@@ -90,12 +92,12 @@ private:
 	void read_data();
 	void write_data();
 
-	const uint32_t data_ver = 0x00;
+	static const uint32_t data_ver = 0x00;
 
 	int static_port = -1;
 	std::list<port_type> ports;
 
-	modes mode = RELAY;
+	modes mode = EASY;
 	user_record_list user_records;
 	user_ext_list user_exts;
 };
@@ -109,8 +111,8 @@ public:
 	virtual void send_image(user_id_type id, const std::string& path);
 	virtual void send_data(user_id_type id, const std::string& data);
 	virtual void send_data(user_id_type id, const std::string& data, std::function<void()>&& callback);
-	virtual void send_data(user_id_type id, std::string&& data) override;
-	virtual void send_data(user_id_type id, std::string&& data, std::function<void()>&& callback) override;
+	virtual void send_data(user_id_type id, std::string&& data);
+	virtual void send_data(user_id_type id, std::string&& data, std::function<void()>&& callback);
 };
 
 #endif

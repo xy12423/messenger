@@ -16,10 +16,11 @@ std::unique_ptr<crypto::server> crypto_srv;
 std::unique_ptr<cli_server> srv;
 cli_plugin_interface i_plugin;
 plugin_manager m_plugin(i_plugin);
+key_storage user_key_storage;
 volatile bool server_on = true;
 
 const char *msg_new_user = "New user:", *msg_del_user = "Leaving user:";
-const char *msg_input_name = "Username:", *msg_input_pass = "Password:", *msg_welcome = "Welcome";
+const char *msg_input_name = "Username:", *msg_input_pass = "Password:", *msg_welcome = "Welcome", *msg_unauthed_key = "Key unauthorized";
 
 const char* privatekeyFile = ".privatekey";
 
@@ -226,16 +227,22 @@ void cli_server::on_data(user_id_type id, const std::string& data)
 			{
 				user_ext &user = user_exts.at(id);
 
-				if (mode != CENTER || user.current_stage == user_ext::LOGGED_IN)
+				if (mode < NORMAL || user.current_stage == user_ext::LOGGED_IN)
 					broadcast_data(id, data, msgr_proto::session::priority_file);
 				break;
 			}
 		}
 	}
-	catch (cli_server_error &) {}
+	catch (cli_server_error &)
+	{
+		if (mode > HARD)
+			disconnect(id);
+	}
 	catch (std::exception &ex)
 	{
 		std::cerr << ex.what() << std::endl;
+		if (mode > HARD)
+			disconnect(id);
 	}
 	catch (...)
 	{
@@ -250,7 +257,7 @@ void cli_server::on_msg(user_id_type id, std::string& msg)
 {
 	user_ext &user = user_exts.at(id);
 
-	if (mode != CENTER)
+	if (mode < NORMAL)
 		broadcast_msg(id, msg);
 	else
 	{
@@ -260,9 +267,17 @@ void cli_server::on_msg(user_id_type id, std::string& msg)
 			{
 				trim(msg);
 				user.name = std::move(msg);
-				user.current_stage = user_ext::LOGIN_PASS;
 
-				send_msg(id, msg_input_pass);
+				if (!user_key_storage.on_join(user.name, get_session(id)->get_key()))
+				{
+					send_msg(id, msg_unauthed_key);
+				}
+				else
+				{
+					user.current_stage = user_ext::LOGIN_PASS;
+					send_msg(id, msg_input_pass);
+				}
+
 				break;
 			}
 			case user_ext::LOGIN_PASS:
@@ -276,13 +291,17 @@ void cli_server::on_msg(user_id_type id, std::string& msg)
 					hash(msg, hashed_pass);
 					if (record.passwd == hashed_pass)
 					{
+						//Get user's record linked to id
 						record.logged_in = true;
 						record.id = id;
 
+						//Send welcome messages
 						send_msg(id, msg_welcome);
 						m_plugin.on_new_user(user.name);
+						//Broadcast user join
 						broadcast_msg(server_uid, msg_new_user + user.name + '(' + user.addr + ')');
 
+						//All prepared, mark as LOGGED_IN
 						user.current_stage = user_ext::LOGGED_IN;
 					}
 				}
@@ -301,7 +320,7 @@ void cli_server::on_msg(user_id_type id, std::string& msg)
 				{
 					tmp.erase(0, 1);
 
-					std::string msg_send = process_command(tmp, user_records[user.name]);
+					std::string msg_send = process_command(tmp, user_records.at(user.name));
 					if (!msg_send.empty())
 					{
 						send_msg(id, msg_send);
@@ -323,11 +342,12 @@ void cli_server::on_image(user_id_type id, const std::string& data)
 {
 	user_ext &user = user_exts.at(id);
 
-	if (mode != CENTER || user.current_stage == user_ext::LOGGED_IN)
+	if (mode < NORMAL || user.current_stage == user_ext::LOGGED_IN)
 	{
 		broadcast_msg(id, empty_string);
 		broadcast_data(id, data, msgr_proto::session::priority_msg);
-		m_plugin.on_img(user.name, data.data() + 1 + sizeof(data_size_type), data.size() - (1 + sizeof(data_size_type)));
+		if (user.current_stage == user_ext::LOGGED_IN)
+			m_plugin.on_img(user.name, data.data() + 1 + sizeof(data_size_type), data.size() - (1 + sizeof(data_size_type)));
 	}
 }
 
@@ -335,13 +355,16 @@ void cli_server::on_file_h(user_id_type id, const std::string& data)
 {
 	user_ext &user = user_exts.at(id);
 
-	if (mode != CENTER)
+	if (mode < NORMAL)
 	{
 		broadcast_data(id, data, msgr_proto::session::priority_file);
 	}
+	else if (!user.uploading_key.empty())
+	{
+		user_key_storage.on_file_h(user.uploading_key, data.data() + 1, data.size() - 1);
+	}
 	else if (user.current_stage == user_ext::LOGGED_IN)
 	{
-		broadcast_data(id, data, msgr_proto::session::priority_file);
 		m_plugin.on_file_h(user.name, data.data() + 1, data.size() - 1);
 	}
 }
@@ -350,13 +373,25 @@ void cli_server::on_file_b(user_id_type id, const std::string& data)
 {
 	user_ext &user = user_exts.at(id);
 
-	if (mode != CENTER)
+	if (mode < NORMAL)
 	{
 		broadcast_data(id, data, msgr_proto::session::priority_file);
 	}
+	else if (!user.uploading_key.empty())
+	{
+		int ret = user_key_storage.on_file_b(user.uploading_key, data.data() + 1, data.size() - 1);
+		switch (ret)
+		{
+			case 1:
+				if (mode > HARD)
+					throw(cli_server_error());
+			case -1:
+				user.uploading_key.clear();
+				break;
+		}
+	}
 	else if (user.current_stage == user_ext::LOGGED_IN)
 	{
-		broadcast_data(id, data, msgr_proto::session::priority_file);
 		m_plugin.on_file_b(user.name, data.data() + 1, data.size() - 1);
 	}
 }
@@ -366,7 +401,7 @@ void cli_server::on_join(user_id_type id, const std::string& )
 	user_ext &ext = user_exts.emplace(id, user_ext()).first->second;
 	ext.addr = get_session(id)->get_address();
 
-	if (mode == CENTER)
+	if (mode > EASY)
 		send_msg(id, msg_input_name);
 	else
 		broadcast_msg(server_uid, msg_new_user + ext.addr);
@@ -378,7 +413,7 @@ void cli_server::on_leave(user_id_type id)
 	user_ext &user = itr->second;
 
 	std::string msg_send(msg_del_user);
-	if (mode == CENTER)
+	if (mode > EASY)
 	{
 		if (user.current_stage == user_ext::LOGGED_IN)
 		{
@@ -414,13 +449,14 @@ void cli_server::broadcast_msg(int src, const std::string& msg)
 {
 	std::string msg_send;
 	user_ext &user = user_exts[src];
-	if (mode == CENTER)
+	if (mode > EASY)
 		msg_send = user.name + '(' + user.addr + ')';
 	else
 		msg_send = user.addr;
 	msg_send.push_back(':');
 	msg_send.append(msg);
-	if (mode == CENTER && src == server_uid)
+	//Let plugins log server messages as it won't go through on_msg
+	if (mode > EASY && src == server_uid)
 		m_plugin.on_msg(server_uname, msg);
 
 	insLen(msg_send);
@@ -433,7 +469,7 @@ void cli_server::broadcast_data(int src, const std::string& data, int priority)
 	for (const std::pair<int, user_ext> &p : user_exts)
 	{
 		int target = p.first;
-		if (target != src && (mode != CENTER || p.second.current_stage == user_ext::LOGGED_IN))
+		if (target != src && (mode < NORMAL || p.second.current_stage == user_ext::LOGGED_IN))
 		{
 			send_data(static_cast<user_id_type>(target), data, priority);
 		}
@@ -457,8 +493,8 @@ std::string cli_server::process_command(std::string& cmd, user_record& user)
 	{
 		args.assign(cmd, pos + 1, std::string::npos);
 		cmd.erase(pos);
+		trim(args);
 	}
-	trim(args);
 	
 	if (cmd == "op")
 	{
@@ -497,6 +533,24 @@ std::string cli_server::process_command(std::string& cmd, user_record& user)
 						write_data();
 					});
 					ret = "Registered " + cmd;
+				}
+			}
+		}
+	}
+	else if (cmd == "reg_key")
+	{
+		if (user_key_storage.storage_available())
+		{
+			if (args.empty() || group >= user_record::ADMIN)
+			{
+				if (args.empty())
+					args = user.name;
+				user_record_list::iterator itr = user_records.find(args);
+				if (itr != user_records.end())
+				{
+					user_record &up_user = itr->second;
+					if (up_user.logged_in)
+						user_exts.at(up_user.id).uploading_key = args;
 				}
 			}
 		}
@@ -627,6 +681,7 @@ int main(int argc, char *argv[])
 		bool use_v6 = false;
 		int crypto_worker = 1;
 
+		//Load necessary args for the construction of cli_server
 		try
 		{
 			std::string &arg = config_items.at("port");
@@ -657,10 +712,12 @@ int main(int argc, char *argv[])
 		try
 		{
 			std::string &arg = config_items.at("mode");
-			if (arg == "center" || arg == "centre")
-				srv->set_mode(CENTER);
+			if (arg == "strict")
+				srv->set_mode(HARD);
+			else if (arg == "normal" || arg == "center" || arg == "centre")
+				srv->set_mode(NORMAL);
 			else if (arg == "relay")
-				srv->set_mode(RELAY);
+				srv->set_mode(EASY);
 			else
 				throw(std::out_of_range(""));
 			std::cout << "Mode set to " << arg << std::endl;
@@ -693,6 +750,7 @@ int main(int argc, char *argv[])
 		m_plugin.new_plugin<server_mail>();
 		m_plugin.new_plugin<file_storage>();
 		m_plugin.init(config_items);
+		user_key_storage.init(config_items);
 
 		std::srand(static_cast<unsigned int>(std::time(NULL)));
 		for (; portsBegin <= portsEnd; portsBegin++)
@@ -740,22 +798,22 @@ int main(int argc, char *argv[])
 		std::future<void> future = exit_promise.get_future();
 		future.wait();
 		
-		crypto_srv->stop();
-
-		misc_iosrv_work.reset();
-		misc_iosrv.stop();
-
-		main_iosrv_work.reset();
-		main_iosrv.stop();
-		
 		srv->on_exit();
 		m_plugin.on_exit();
+		srv->shutdown();
+		
+		misc_iosrv_work.reset();
+		while (!misc_iosrv.stopped());
 
-		srv.reset();
+		main_iosrv_work.reset();
+		while (!main_iosrv.stopped());
+
+		crypto_srv->stop();
 
 		cryp_iosrv_work.reset();
 		while (!cryp_iosrv.stopped());
 
+		srv.reset();
 		crypto_srv.reset();
 #ifdef NDEBUG
 	}

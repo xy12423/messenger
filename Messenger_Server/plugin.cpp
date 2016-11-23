@@ -248,6 +248,23 @@ void server_mail::init(const config_table_tp& config_items)
 	enabled = true;
 }
 
+bool server_mail::load_config(const config_table_tp& config_items)
+{
+	try
+	{
+		fs::path _mail_path = config_items.at("mail_path");
+		if (!fs::exists(_mail_path))
+			fs::create_directories(_mail_path);
+		else if (!fs::is_directory(_mail_path))
+			throw(plugin_error());
+		mails_path = std::move(_mail_path);
+		std::cout << "Mail enabled, mail path:" << mails_path << std::endl;
+	}
+	catch (plugin_error &) { return false; }
+	catch (std::out_of_range &) { return false; }
+	return true;
+}
+
 void server_mail::on_new_user(const std::string& name)
 {
 	if (!enabled)
@@ -301,148 +318,11 @@ void server_mail::on_cmd(const std::string& name, user_type type, const std::str
 	}
 }
 
-bool server_mail::load_config(const config_table_tp& config_items)
-{
-	try
-	{
-		fs::path _mail_path = config_items.at("mail_path");
-		if (!fs::exists(_mail_path))
-			fs::create_directories(_mail_path);
-		else if (!fs::is_directory(_mail_path))
-			throw(plugin_error());
-		mails_path = std::move(_mail_path);
-		std::cout << "Mail enabled, mail path:" << mails_path << std::endl;
-	}
-	catch (plugin_error &) { return false; }
-	catch (std::out_of_range &) { return false; }
-	return true;
-}
-
 void file_storage::init(const config_table_tp& config_items)
 {
 	if (!load_config(config_items))
 		return;
 	enabled = true;
-}
-
-void file_storage::on_cmd(const std::string& name, user_type type, const std::string& cmd, const std::string& arg)
-{
-	if (!enabled)
-		return;
-	if (cmd == "file_get")
-	{
-		user_id_type id;
-		inter.get_id_by_name(name, id);
-		start(id, arg);
-	}
-	else if (cmd == "file_list")
-	{
-		user_id_type id;
-		inter.get_id_by_name(name, id);
-		std::string msg;
-
-		for (const hashmap_tp::value_type &pair : hash_map)
-		{
-			msg.append(pair.first);
-			msg.append(":\n");
-			msg.append(pair.second.file_name);
-			msg.push_back('\n');
-		}
-		msg.pop_back();
-
-		inter.send_msg(id, msg);
-	}
-	else if (cmd == "file_del")
-	{
-		user_id_type id;
-		inter.get_id_by_name(name, id);
-		hashmap_tp::iterator selected = hash_map.find(arg);
-		if (selected == hash_map.end())
-		{
-			inter.send_msg(id, "File not found");
-		}
-		else if (type >= ADMIN || (type == USER && selected->second.upload_user == name))
-		{
-			boost::system::error_code ec;
-			fs::remove(files_path / selected->first, ec);
-			if (ec)
-			{
-				inter.send_msg(id, "Failed to delete");
-			}
-			else
-			{
-				hash_map.erase(selected);
-				inter.send_msg(id, "File deleted");
-			}
-		}
-		else
-		{
-			inter.send_msg(id, "Insufficient privilege");
-		}
-	}
-}
-
-void file_storage::on_file_h(const std::string& name, const char *_data, size_t data_size)
-{
-	if (!enabled)
-		return;
-	data_view data(_data, data_size);
-	data_size_type block_count_all, file_name_len;
-	
-	try
-	{
-		recv_task &task = recv_tasks.emplace(name, recv_task(files_path / ("user_" + name))).first->second;
-
-		data.read(block_count_all);
-		data.read(file_name_len);
-
-		data.read(task.info.file_name, file_name_len);
-		task.info.upload_user = name;
-
-		task.block_count_all = block_count_all;
-	}
-	catch (plugin_error &) {}
-}
-
-void file_storage::on_file_b(const std::string& name, const char *_data, size_t data_size)
-{
-	if (!enabled)
-		return;
-	recv_tasks_tp::iterator selected = recv_tasks.find(name);
-	if (selected == recv_tasks.end())
-		return;
-	recv_task &task = selected->second;
-
-	data_view data(_data, data_size);
-	data_size_type dataSize;
-
-	try
-	{
-		data.read(dataSize);
-		data.check(dataSize);
-
-		task.fout.write(data.data, dataSize);
-		task.hasher.Update(reinterpret_cast<const byte*>(data.data), dataSize);
-
-		data.skip(dataSize);
-		task.block_count++;
-
-		if (task.block_count > task.block_count_all)
-		{
-			task.fout.close();
-
-			byte sha1[hash_short_size];
-			task.hasher.Final(sha1);
-			std::string base32_val;
-			base32(base32_val, sha1, hash_short_size);
-			fs::rename(files_path / ("user_" + name), files_path / base32_val);
-			hash_map.emplace(base32_val, task.info);
-
-			recv_tasks.erase(selected);
-			save_data();
-		}
-	}
-	catch (plugin_error &) {}
 }
 
 bool file_storage::load_config(const config_table_tp& config_items)
@@ -524,6 +404,134 @@ void file_storage::save_data()
 		fout << '[' << pair.first << ']' << std::endl;
 		fout << "file_name=" << pair.second.file_name << std::endl;
 		fout << "upload_user=" << pair.second.upload_user << std::endl;
+	}
+}
+
+void file_storage::on_cmd(const std::string& name, user_type type, const std::string& cmd, const std::string& arg)
+{
+	if (!enabled)
+		return;
+	if (cmd == "file_get")
+	{
+		user_id_type id;
+		inter.get_id_by_name(name, id);
+		start(id, arg);
+	}
+	else if (cmd == "file_list")
+	{
+		user_id_type id;
+		inter.get_id_by_name(name, id);
+		std::string msg;
+
+		for (const hashmap_tp::value_type &pair : hash_map)
+		{
+			msg.append(pair.first);
+			msg.append(":\n");
+			msg.append(pair.second.file_name);
+			msg.push_back('\n');
+		}
+		msg.pop_back();
+
+		inter.send_msg(id, msg);
+	}
+	else if (cmd == "file_del")
+	{
+		user_id_type id;
+		inter.get_id_by_name(name, id);
+		hashmap_tp::iterator selected = hash_map.find(arg);
+		if (selected == hash_map.end())
+		{
+			inter.send_msg(id, "File not found");
+		}
+		else if (type >= ADMIN || (type == USER && selected->second.upload_user == name))
+		{
+			boost::system::error_code ec;
+			fs::remove(files_path / selected->first, ec);
+			if (ec)
+			{
+				inter.send_msg(id, "Failed to delete");
+			}
+			else
+			{
+				hash_map.erase(selected);
+				inter.send_msg(id, "File deleted");
+			}
+		}
+		else
+		{
+			inter.send_msg(id, "Insufficient privilege");
+		}
+	}
+}
+
+void file_storage::on_file_h(const std::string& name, const char *_data, size_t data_size)
+{
+	if (!enabled)
+		return;
+	data_view data(_data, data_size);
+	data_size_type block_count_all, file_name_len;
+
+	try
+	{
+		recv_task &task = recv_tasks.emplace(name, recv_task(files_path / ("user_" + name))).first->second;
+
+		data.read(block_count_all);
+		data.read(file_name_len);
+
+		data.read(task.info.file_name, file_name_len);
+		task.info.upload_user = name;
+
+		task.block_count_all = block_count_all;
+	}
+	catch (plugin_error &)
+	{
+		recv_tasks_tp::iterator itr = recv_tasks.find(name);
+		if (itr != recv_tasks.end())
+			recv_tasks.erase(itr);
+	}
+}
+
+void file_storage::on_file_b(const std::string& name, const char *_data, size_t data_size)
+{
+	if (!enabled)
+		return;
+	recv_tasks_tp::iterator selected = recv_tasks.find(name);
+	if (selected == recv_tasks.end())
+		return;
+	recv_task &task = selected->second;
+
+	data_view data(_data, data_size);
+	data_size_type dataSize;
+
+	try
+	{
+		data.read(dataSize);
+		data.check(dataSize);
+
+		task.fout.write(data.data, dataSize);
+		task.hasher.Update(reinterpret_cast<const byte*>(data.data), dataSize);
+
+		data.skip(dataSize);
+		task.block_count++;
+
+		if (task.block_count > task.block_count_all)
+		{
+			task.fout.close();
+
+			byte sha1[hash_short_size];
+			task.hasher.Final(sha1);
+			std::string base32_val;
+			base32(base32_val, sha1, hash_short_size);
+			fs::rename(files_path / ("user_" + name), files_path / base32_val);
+			hash_map.emplace(base32_val, task.info);
+
+			recv_tasks.erase(selected);
+			save_data();
+		}
+	}
+	catch (plugin_error &)
+	{
+		recv_tasks.erase(selected);
 	}
 }
 
@@ -624,4 +632,139 @@ void file_storage::write(user_id_type uID)
 
 	if (task.fin.eof())
 		send_tasks.erase(uID);
+}
+
+void key_storage::init(const config_table_tp& config_items)
+{
+	try
+	{
+		keys_path = config_items.at("keys_path");
+		if (!fs::exists(keys_path))
+			fs::create_directories(keys_path);
+		else if (!fs::is_directory(keys_path))
+			throw(plugin_error());
+		load_data();
+		std::cout << "Key storage enabled" << std::endl;
+		storage_enabled = true;
+	}
+	catch (plugin_error &) { storage_enabled = false; }
+	catch (std::out_of_range &) { storage_enabled = false; }
+	try
+	{
+		const std::string &mode = config_items.at("mode");
+		if (mode == "strict" && storage_enabled)
+		{
+			auth_enabled = true;
+			std::cout << "Key auth enabled" << std::endl;
+		}
+	}
+	catch (plugin_error &) { auth_enabled = false; }
+	catch (std::out_of_range &) { auth_enabled = false; }
+}
+
+void key_storage::load_data()
+{
+	std::vector<char> buf;
+	for (fs::directory_iterator p(keys_path), pEnd; p != pEnd; p++)
+	{
+		std::ifstream fin(p->path().string(), std::ios_base::in | std::ios_base::binary);
+		std::string user = p->path().stem().string();
+		char key_size_buf[sizeof(uint16_t)];
+		fin.read(key_size_buf, sizeof(uint16_t));
+		while (!fin.eof())
+		{
+			buf.resize(static_cast<uint16_t>(key_size_buf[0]) | (key_size_buf[1] << 8));
+			fin.read(buf.data(), buf.size());
+			if (fin.gcount() != buf.size())
+				throw(plugin_error());
+			keys.emplace(user, std::string(buf.data(), buf.size()));
+			fin.read(key_size_buf, sizeof(uint16_t));
+		}
+	}
+}
+
+void key_storage::save_data(const std::string& user)
+{
+	std::ofstream fout((keys_path / user).string(), std::ios_base::out | std::ios_base::binary);
+	std::pair<key_list_tp::const_iterator, key_list_tp::const_iterator> itrs = keys.equal_range(user);
+	key_list_tp::const_iterator &itr = itrs.first, &itr_end = itrs.second;
+	for (; itr != itr_end; itr++)
+	{
+		const std::string &key = itr->second;
+		fout.put(static_cast<char>(key.size()));
+		fout.put(static_cast<char>(key.size() >> 8));
+		fout.write(key.data(), key.size());
+	}
+}
+
+bool key_storage::on_join(const std::string& user, const std::string& key)
+{
+	if (!auth_enabled)
+		return true;
+	std::pair<key_list_tp::const_iterator, key_list_tp::const_iterator> itrs = keys.equal_range(user);
+	key_list_tp::const_iterator &itr = itrs.first, &itr_end = itrs.second;
+	for (; itr != itr_end; itr++)
+		if (itr->second == key)
+			return true;
+	return false;
+}
+
+void key_storage::on_file_h(const std::string& user, const char *_data, size_t data_size)
+{
+	data_view data(_data, data_size);
+	data_size_type block_count_all, file_name_len;
+
+	try
+	{
+		recv_task &task = recv_tasks.emplace(user, recv_task()).first->second;
+
+		data.read(block_count_all);
+		data.read(file_name_len);
+		data.skip(file_name_len);
+
+		task.block_count_all = block_count_all;
+	}
+	catch (plugin_error &)
+	{
+		recv_tasks_tp::iterator itr = recv_tasks.find(user);
+		if (itr != recv_tasks.end())
+			recv_tasks.erase(itr);
+	}
+}
+
+int key_storage::on_file_b(const std::string& user, const char *_data, size_t data_size)
+{
+	recv_tasks_tp::iterator selected = recv_tasks.find(user);
+	if (selected == recv_tasks.end())
+		return 1;
+	recv_task &task = selected->second;
+
+	data_view data(_data, data_size);
+	data_size_type dataSize;
+
+	try
+	{
+		data.read(dataSize);
+		data.check(dataSize);
+
+		data.read(task.buf, dataSize);
+		task.block_count++;
+
+		if (task.block_count > task.block_count_all)
+		{
+			if (storage_enabled)
+			{
+				keys.emplace(user, task.buf);
+				recv_tasks.erase(selected);
+				save_data(user);
+			}
+			return -1;
+		}
+	}
+	catch (plugin_error &)
+	{
+		recv_tasks.erase(selected);
+		return 1;
+	}
+	return 0;
 }

@@ -29,6 +29,19 @@ void server::do_start()
 	});
 }
 
+void server::shutdown()
+{
+	closing = true;
+	std::lock_guard<std::mutex> lock(session_mutex);
+	acceptor.close();
+	for (std::unordered_set<std::shared_ptr<pre_session>>::iterator itr = pre_sessions.begin(), itr_end = pre_sessions.end(); itr != itr_end; itr++)
+		(*itr)->shutdown();
+	pre_sessions.clear();
+	for (session_list_type::iterator itr = sessions.begin(), itr_end = sessions.end(); itr != itr_end; itr++)
+		itr->second->shutdown();
+	sessions.clear();
+}
+
 void server::pre_session_over(const std::shared_ptr<pre_session>& _pre, bool successful)
 {
 	if (!successful)
@@ -40,13 +53,16 @@ void server::pre_session_over(const std::shared_ptr<pre_session>& _pre, bool suc
 	pre_sessions.erase(_pre);
 }
 
-void server::join(const session_ptr& _user, user_id_type& uid)
+void server::join(const session_ptr& _user, user_id_type& uid, on_data_handler& handler)
 {
+	if (closing)
+		return;
 	std::lock_guard<std::mutex> lock(session_mutex);
 	user_id_type newID = nextID;
 	nextID++;
 	sessions.emplace(newID, _user);
 	uid = newID;
+	handler = on_recv_data;
 
 	misc_io_service.post([this, newID, _user]() {
 		try { on_join(newID, _user->get_key()); }
@@ -57,6 +73,8 @@ void server::join(const session_ptr& _user, user_id_type& uid)
 
 void server::leave(user_id_type _user)
 {
+	if (closing)
+		return;
 	std::lock_guard<std::mutex> lock(session_mutex);
 	session_list_type::iterator itr(sessions.find(_user));
 	if (itr == sessions.end())
@@ -76,15 +94,17 @@ void server::leave(user_id_type _user)
 	sessions.erase(itr);
 }
 
-void server::on_recv_data(user_id_type id, std::shared_ptr<std::string> data)
+void server::on_recv_data(server* self, user_id_type id, const std::shared_ptr<std::string>& data)
 {
-	std::lock_guard<std::mutex> lock(session_mutex);
-	session_list_type::iterator itr(sessions.find(id));
-	if (itr == sessions.end())
+	if (self->closing)
+		return;
+	std::lock_guard<std::mutex> lock(self->session_mutex);
+	session_list_type::iterator itr(self->sessions.find(id));
+	if (itr == self->sessions.end())
 		return;
 	session_ptr this_session = itr->second;
-	misc_io_service.post([this, id, data, this_session]() {
-		try { on_data(id, *data); }
+	self->misc_io_service.post([self, id, data, this_session]() {
+		try { self->on_data(id, *data); }
 		catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
 		catch (...) {}
 	});
@@ -92,6 +112,8 @@ void server::on_recv_data(user_id_type id, std::shared_ptr<std::string> data)
 
 bool server::send_data(user_id_type id, const std::string& data, int priority, session::write_callback&& callback)
 {
+	if (closing)
+		return false;
 	std::lock_guard<std::mutex> lock(session_mutex);
 	session_list_type::iterator itr(sessions.find(id));
 	if (itr == sessions.end())
@@ -103,6 +125,8 @@ bool server::send_data(user_id_type id, const std::string& data, int priority, s
 
 bool server::send_data(user_id_type id, std::string&& data, int priority, session::write_callback&& callback)
 {
+	if (closing)
+		return false;
 	std::lock_guard<std::mutex> lock(session_mutex);
 	session_list_type::iterator itr(sessions.find(id));
 	if (itr == sessions.end())

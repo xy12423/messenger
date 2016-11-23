@@ -206,3 +206,34 @@ public:
 private:
 	std::unordered_set<plugin_ptr> plugins;
 };
+
+class key_storage
+{
+private:
+	struct recv_task
+	{
+		data_size_type block_count = 1, block_count_all;
+		std::string buf;
+	};
+	typedef std::unordered_map<std::string, recv_task> recv_tasks_tp;
+
+	typedef std::unordered_multimap<std::string, std::string> key_list_tp;
+public:
+	void init(const config_table_tp& config_items);
+
+	bool on_join(const std::string& user, const std::string& key);
+
+	void on_file_h(const std::string& user, const char *data, size_t data_size);
+	int on_file_b(const std::string& user, const char *data, size_t data_size);
+
+	bool storage_available() { return storage_enabled; }
+private:
+	void load_data();
+	void save_data(const std::string& user);
+
+	bool auth_enabled = false, storage_enabled = false;
+
+	fs::path keys_path;
+	std::unordered_multimap<std::string, std::string> keys;
+	std::unordered_map<std::string, recv_task> recv_tasks;
+};
