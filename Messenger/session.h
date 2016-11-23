@@ -161,8 +161,6 @@ namespace msgr_proto
 
 	class session_base :public std::enable_shared_from_this<session_base>
 	{
-	private:
-		typedef void(*on_data_handler)(server*, user_id_type, const std::shared_ptr<std::string>&);
 	public:
 		static constexpr int priority_sys = 30;
 		static constexpr int priority_msg = 20;
@@ -171,10 +169,9 @@ namespace msgr_proto
 
 		typedef std::function<void()> write_callback;
 
-		session_base(server& _srv, port_type_l _local_port, const std::string& _key_string)
-			:srv(_srv), local_port(_local_port), key_string(_key_string)
-		{};
+		session_base(server& _srv, port_type_l _local_port, const std::string& _key_string);
 		session_base(const session_base&) = delete;
+		~session_base();
 
 		void join();
 
@@ -189,11 +186,13 @@ namespace msgr_proto
 		port_type_l get_port() const { return local_port; }
 		const std::string& get_key() const { return key_string; }
 	protected:
+		template <typename... _Ty>
+		void on_data(_Ty&&... val) { srv.on_recv_data(std::forward<_Ty>(val)...); }
+
 		std::string key_string;
 		user_id_type uid;
 
 		server &srv;
-		on_data_handler on_data;
 		port_type_l local_port;
 	};
 	typedef std::shared_ptr<session_base> session_ptr;
@@ -227,6 +226,31 @@ namespace msgr_proto
 
 	class session : public session_base
 	{
+	private:
+		static constexpr size_t read_buffer_size = 0x4000;
+
+		struct write_task {
+			write_task() {};
+			write_task(const std::string& _data, int _priority, write_callback&& _callback) :data(_data), callback(std::move(_callback)), priority(_priority) {}
+			write_task(std::string&& _data, int _priority, write_callback&& _callback) :data(std::move(_data)), callback(std::move(_callback)), priority(_priority) {}
+			std::string data;
+			write_callback callback;
+			int priority;
+		};
+		typedef std::list<write_task> write_que_tp;
+
+		class write_end_watcher
+		{
+		public:
+			write_end_watcher(session* _ptr) :ptr(_ptr) {};
+			write_end_watcher(const write_end_watcher&) = delete;
+			write_end_watcher(write_end_watcher&&) = delete;
+			~write_end_watcher() { ptr->write_end(); }
+
+		private:
+			session *ptr;
+		};
+		friend class write_end_watcher;
 	public:
 		session(server& _srv, port_type_l _local_port, const std::string& _key_string, std::shared_ptr<proto_kit>&& _proto_data,
 			asio::io_service& _main_iosrv, asio::io_service& _misc_iosrv, socket_ptr&& _socket)
@@ -259,8 +283,8 @@ namespace msgr_proto
 		void read_header();
 		void read_data(size_t sizeLast, const std::shared_ptr<std::string>& buf);
 		void process_data(const std::shared_ptr<std::string>& buf);
-		void write();
-		void write_shutdown();
+		void write(const std::shared_ptr<write_end_watcher>& watcher);
+		void write_end();
 
 		std::shared_ptr<proto_kit> crypto_kit;
 
@@ -268,17 +292,6 @@ namespace msgr_proto
 		socket_ptr socket;
 
 		std::unique_ptr<char[]> read_buffer;
-		static constexpr size_t read_buffer_size = 0x4000;
-
-		struct write_task {
-			write_task() {};
-			write_task(const std::string& _data, int _priority, write_callback&& _callback) :data(_data), callback(std::move(_callback)), priority(_priority) {}
-			write_task(std::string&& _data, int _priority, write_callback&& _callback) :data(std::move(_data)), callback(std::move(_callback)), priority(_priority) {}
-			std::string data;
-			write_callback callback;
-			int priority;
-		};
-		typedef std::list<write_task> write_que_tp;
 		write_que_tp write_que;
 
 		volatile bool exiting = false;
@@ -330,7 +343,7 @@ namespace msgr_proto
 		bool send_data(user_id_type id, std::string&& data, int priority, const std::string& message) { return send_data(id, std::move(data), priority, [message]() {std::cout << message << std::endl; }); };
 		
 		void pre_session_over(const std::shared_ptr<pre_session>& _pre, bool successful = false);
-		void join(const session_ptr& _user, user_id_type& uid, on_data_handler& handler);
+		void join(const session_ptr& _user, user_id_type& uid);
 		void leave(user_id_type id);
 
 		void connect(const std::string& addr, port_type remote_port);
@@ -355,13 +368,14 @@ namespace msgr_proto
 		virtual bool new_rand_port(port_type& port) = 0;
 		virtual void free_rand_port(port_type port) = 0;
 
+		friend class session_base;
 	private:
 		void do_start();
 
 		void connect(const asio::ip::tcp::endpoint& remote_endpoint);
 		void connect(const asio::ip::tcp::resolver::query& query);
 
-		static void on_recv_data(server* self, user_id_type id, const std::shared_ptr<std::string>& data);
+		void on_recv_data(user_id_type id, const std::shared_ptr<std::string>& data);
 
 		asio::io_service &main_io_service, &misc_io_service;
 		asio::ip::tcp::acceptor acceptor;
@@ -374,6 +388,7 @@ namespace msgr_proto
 		std::unordered_set<std::shared_ptr<pre_session>> pre_sessions;
 		session_list_type sessions;
 		user_id_type nextID = 0;
+		volatile user_id_type session_active_count = 0;
 
 		std::mutex session_mutex;
 		volatile bool started = false, closing = false;

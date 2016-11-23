@@ -801,17 +801,13 @@ int main(int argc, char *argv[])
 		srv->on_exit();
 		m_plugin.on_exit();
 		srv->shutdown();
-		
 		crypto_srv->stop();
 
-		misc_iosrv_work.reset();
-		while (!misc_iosrv.stopped());
-
-		main_iosrv_work.reset();
-		while (!main_iosrv.stopped());
-
 		cryp_iosrv_work.reset();
-		while (!cryp_iosrv.stopped());
+		main_iosrv_work.reset();
+		misc_iosrv_work.reset();
+		while (!cryp_iosrv.stopped() || !main_iosrv.stopped() || !misc_iosrv.stopped());
+
 #ifdef NDEBUG
 	}
 	catch (std::exception& e)

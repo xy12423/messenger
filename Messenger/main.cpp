@@ -704,9 +704,10 @@ int MyApp::OnExit()
 		srv->shutdown();
 		crypto_srv->stop();
 
-		threadMisc->stop();
-		threadNetwork->stop();
 		threadCrypto->stop();
+		threadNetwork->stop();
+		threadMisc->stop();
+		while (!threadCrypto->stopped() || !threadNetwork->stopped() || !threadMisc->stopped());
 
 		threadMisc->Delete();
 		threadNetwork->Delete();
