@@ -45,37 +45,38 @@ wx_srv_interface::wx_srv_interface(asio::io_service& _main_io_service,
 {
 	if (fs::exists(publickeysFile))
 	{
-		size_t pubCount = 0, keyLen = 0;
-		std::ifstream publicIn(publickeysFile, std::ios_base::in | std::ios_base::binary);
-		publicIn.read(reinterpret_cast<char*>(&pubCount), sizeof(size_t));
+		std::ifstream fin(publickeysFile, std::ios_base::in | std::ios_base::binary);
 		std::vector<char> buf;
-		for (; pubCount > 0; pubCount--)
+		char key_size_buf[sizeof(uint16_t)];
+		fin.read(key_size_buf, sizeof(uint16_t));
+		while (!fin.eof())
 		{
-			publicIn.read(reinterpret_cast<char*>(&keyLen), sizeof(size_t));
-			buf.resize(keyLen);
-			publicIn.read(buf.data(), keyLen);
-			certifiedKeys.emplace(std::string(buf.data(), keyLen));
+			buf.resize(static_cast<uint16_t>(key_size_buf[0]) | (key_size_buf[1] << 8));
+			fin.read(buf.data(), buf.size());
+			if (fin.gcount() != buf.size())
+				return;
+			certifiedKeys.emplace(std::string(buf.data(), buf.size()));
+			fin.read(key_size_buf, sizeof(uint16_t));
 		}
 
-		publicIn.close();
+		fin.close();
 	}
 }
 
 wx_srv_interface::~wx_srv_interface()
 {
-	size_t pubCount = certifiedKeys.size(), keySize = 0;
-	std::ofstream publicOut(publickeysFile, std::ios_base::out | std::ios_base::binary);
-	publicOut.write(reinterpret_cast<char*>(&pubCount), sizeof(size_t));
+	std::ofstream fout(publickeysFile, std::ios_base::out | std::ios_base::binary);
 
 	std::unordered_set<std::string>::iterator itr = certifiedKeys.begin(), itrEnd = certifiedKeys.end();
 	for (; itr != itrEnd; itr++)
 	{
-		keySize = itr->size();
-		publicOut.write(reinterpret_cast<char*>(&keySize), sizeof(size_t));
-		publicOut.write(itr->data(), keySize);
+		const std::string &key = *itr;
+		fout.put(static_cast<char>(key.size()));
+		fout.put(static_cast<char>(key.size() >> 8));
+		fout.write(key.data(), key.size());
 	}
 
-	publicOut.close();
+	fout.close();
 }
 
 void wx_srv_interface::on_data(user_id_type id, const std::string& _data)
