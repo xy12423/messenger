@@ -80,8 +80,8 @@ void server::del_session(id_type id)
 
 void server::new_task(id_type id, task_type type)
 {
-	tasks.emplace_back(id, type);
 	session_ptr &self = sessions.at(id);
+	tasks.emplace_back(id, type);
 	if (!self->available(type))
 		return;
 
