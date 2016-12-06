@@ -186,8 +186,7 @@ namespace msgr_proto
 		port_type_l get_port() const { return local_port; }
 		const std::string& get_key() const { return key_string; }
 	protected:
-		template <typename... _Ty>
-		void on_data(_Ty&&... val) { srv.on_recv_data(std::forward<_Ty>(val)...); }
+		template <typename... _Ty> void on_data(_Ty&&... val);
 
 		std::string key_string;
 		user_id_type uid;
@@ -393,6 +392,16 @@ namespace msgr_proto
 		std::mutex session_mutex;
 		volatile bool started = false, closing = false;
 	};
+
+	inline void session_base::join()
+	{
+		srv.join(shared_from_this(), uid);
+	}
+
+	template <typename... _Ty> inline void session_base::on_data(_Ty&&... val)
+	{
+		srv.on_recv_data(std::forward<_Ty>(val)...);
+	}
 }
 
 #endif

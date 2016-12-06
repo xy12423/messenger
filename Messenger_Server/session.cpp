@@ -668,11 +668,6 @@ session_base::~session_base()
 	srv.session_active_count--;
 }
 
-void session_base::join()
-{
-	srv.join(shared_from_this(), uid);
-}
-
 void virtual_session::send(const std::string& data, int priority, write_callback&& callback)
 {
 	if (on_recv_data)

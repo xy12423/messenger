@@ -266,7 +266,7 @@ mainFrame::mainFrame(const wxString& title)
 	wxAcceleratorTable accel(entry_count, entries);
 	SetAcceleratorTable(accel);
 
-	textStrm.swap(std::make_unique<textStream>(this, textInfo));
+	textStrm = std::make_unique<textStream>(this, textInfo);
 	cout_orig = std::cout.rdbuf();
 	std::cout.rdbuf(textStrm.get());
 	cerr_orig = std::cerr.rdbuf();
