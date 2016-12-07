@@ -304,7 +304,7 @@ void wx_srv_interface::on_join(user_id_type id, const std::string& key)
 						wxTextEntryDialog dlg(frm, "Set a comment for this key!", "Set comment");
 						if (dlg.ShowModal() != wxID_OK)
 							dlg.SetValue(wxEmptyString);
-						certify_key(key, dlg.GetValue().utf8_str());
+						certify_key(key, std::string(dlg.GetValue().utf8_str()));
 					}
 					itr = certifiedKeys.find(key);
 				}

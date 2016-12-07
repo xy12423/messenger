@@ -222,6 +222,7 @@ private:
 		key_item() {};
 		template <typename _Ty1, typename _Ty2>
 		key_item(_Ty1&& _key, _Ty2&& _ex) :key(std::forward<_Ty1>(_key)), ex(std::forward<_Ty2>(_ex)) {};
+
 		std::string key, ex;
 	};
 

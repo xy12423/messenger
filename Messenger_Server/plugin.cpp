@@ -767,7 +767,7 @@ int key_storage::on_file_b(const std::string& user, const char *_data, size_t da
 		{
 			if (storage_enabled)
 			{
-				keys.emplace(user, task.buf);
+				keys.emplace(user, key_item(task.buf, std::string()));
 				recv_tasks.erase(selected);
 				save_data(user);
 			}
