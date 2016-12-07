@@ -46,17 +46,26 @@ wx_srv_interface::wx_srv_interface(asio::io_service& _main_io_service,
 	if (fs::exists(publickeysFile))
 	{
 		std::ifstream fin(publickeysFile, std::ios_base::in | std::ios_base::binary);
-		std::vector<char> buf;
-		char key_size_buf[sizeof(uint16_t)];
-		fin.read(key_size_buf, sizeof(uint16_t));
+		std::vector<char> buf_key, buf_ex;
+		char size_buf[sizeof(uint16_t)];
+		fin.read(size_buf, sizeof(uint16_t));
 		while (!fin.eof())
 		{
-			buf.resize(static_cast<uint16_t>(key_size_buf[0]) | (key_size_buf[1] << 8));
-			fin.read(buf.data(), buf.size());
-			if (fin.gcount() != buf.size())
-				return;
-			certifiedKeys.emplace(std::string(buf.data(), buf.size()));
-			fin.read(key_size_buf, sizeof(uint16_t));
+			//read key
+			buf_key.resize(static_cast<uint16_t>(size_buf[0]) | (size_buf[1] << 8));
+			fin.read(buf_key.data(), buf_key.size());
+			if (fin.eof())
+				break;
+			//read extra data
+			fin.read(size_buf, sizeof(uint16_t));
+			buf_ex.resize(static_cast<uint16_t>(size_buf[0]) | (size_buf[1] << 8));
+			fin.read(buf_ex.data(), buf_ex.size());
+			if (fin.eof())
+				break;
+			//emplace
+			certifiedKeys.emplace(std::string(buf_key.data(), buf_key.size()), std::string(buf_ex.data(), buf_ex.size()));
+			//read next size
+			fin.read(size_buf, sizeof(uint16_t));
 		}
 
 		fin.close();
@@ -67,13 +76,16 @@ wx_srv_interface::~wx_srv_interface()
 {
 	std::ofstream fout(publickeysFile, std::ios_base::out | std::ios_base::binary);
 
-	std::unordered_set<std::string>::iterator itr = certifiedKeys.begin(), itrEnd = certifiedKeys.end();
+	auto itr = certifiedKeys.begin(), itrEnd = certifiedKeys.end();
 	for (; itr != itrEnd; itr++)
 	{
-		const std::string &key = *itr;
+		const std::string &key = itr->first, &ex = itr->second;
 		fout.put(static_cast<char>(key.size()));
 		fout.put(static_cast<char>(key.size() >> 8));
 		fout.write(key.data(), key.size());
+		fout.put(static_cast<char>(ex.size()));
+		fout.put(static_cast<char>(ex.size() >> 8));
+		fout.write(ex.data(), ex.size());
 	}
 
 	fout.close();
@@ -276,16 +288,36 @@ void wx_srv_interface::on_join(user_id_type id, const std::string& key)
 			frm->listUser->SetSelection(frm->listUser->GetCount() - 1);
 		frm->userIDs.push_back(id);
 
-		if (!key.empty() && certifiedKeys.find(key) == certifiedKeys.end())
+		auto itr = certifiedKeys.end();
+		if (!key.empty())
 		{
-			int answer = wxMessageBox(wxT("The public key from ") + addr + wxT(" hasn't shown before.Trust it?"), wxT("Confirm"), wxYES_NO | wxCANCEL);
-			if (answer == wxNO)
-				disconnect(id);
-			else
+			itr = certifiedKeys.find(key);
+			if (itr == certifiedKeys.end())
 			{
-				if (answer == wxYES)
-					certify_key(key);
+				int answer = wxMessageBox(wxT("The public key from ") + addr + wxT(" hasn't shown before.Trust it?"), wxT("Confirm"), wxYES_NO | wxCANCEL);
+				if (answer == wxNO)
+					disconnect(id);
+				else
+				{
+					if (answer == wxYES)
+					{
+						wxTextEntryDialog dlg(frm, "Set a comment for this key!", "Set comment");
+						if (dlg.ShowModal() != wxID_OK)
+							dlg.SetValue(wxEmptyString);
+						certify_key(key, dlg.GetValue().utf8_str());
+					}
+					itr = certifiedKeys.find(key);
+				}
 			}
+		}
+
+		if (itr != certifiedKeys.end())
+		{
+			wxString new_label = ext.addr;
+			new_label.Append('(');
+			new_label.Append(wxConvUTF8.cMB2WC(itr->second.data()));
+			new_label.Append(')');
+			frm->listUser->SetString(frm->listUser->GetCount() - 1, new_label);
 		}
 	});
 	wxQueueEvent(frm, newEvent);

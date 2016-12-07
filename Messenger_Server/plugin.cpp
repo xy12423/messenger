@@ -664,21 +664,31 @@ void key_storage::init(const config_table_tp& config_items)
 
 void key_storage::load_data()
 {
-	std::vector<char> buf;
+	std::vector<char> key_buf, ex_buf;
+	char size_buf[sizeof(uint16_t)];
 	for (fs::directory_iterator p(keys_path), pEnd; p != pEnd; p++)
 	{
 		std::ifstream fin(p->path().string(), std::ios_base::in | std::ios_base::binary);
 		std::string user = p->path().stem().string();
-		char key_size_buf[sizeof(uint16_t)];
-		fin.read(key_size_buf, sizeof(uint16_t));
+		
+		fin.read(size_buf, sizeof(uint16_t));
 		while (!fin.eof())
 		{
-			buf.resize(static_cast<uint16_t>(key_size_buf[0]) | (key_size_buf[1] << 8));
-			fin.read(buf.data(), buf.size());
-			if (fin.gcount() != buf.size())
+			//read key
+			key_buf.resize(static_cast<uint16_t>(size_buf[0]) | (size_buf[1] << 8));
+			fin.read(key_buf.data(), key_buf.size());
+			if (fin.eof())
 				throw(plugin_error());
-			keys.emplace(user, std::string(buf.data(), buf.size()));
-			fin.read(key_size_buf, sizeof(uint16_t));
+			//read ex
+			fin.read(size_buf, sizeof(uint16_t));
+			ex_buf.resize(static_cast<uint16_t>(size_buf[0]) | (size_buf[1] << 8));
+			fin.read(ex_buf.data(), ex_buf.size());
+			if (fin.eof())
+				throw(plugin_error());
+			//emplace
+			keys.emplace(user, key_item(std::string(key_buf.data(), key_buf.size()), std::string(ex_buf.data(), ex_buf.size())));
+			//read next size
+			fin.read(size_buf, sizeof(uint16_t));
 		}
 	}
 }
@@ -690,10 +700,13 @@ void key_storage::save_data(const std::string& user)
 	key_list_tp::const_iterator &itr = itrs.first, &itr_end = itrs.second;
 	for (; itr != itr_end; itr++)
 	{
-		const std::string &key = itr->second;
+		const std::string &key = itr->second.key, &ex = itr->second.ex;
 		fout.put(static_cast<char>(key.size()));
 		fout.put(static_cast<char>(key.size() >> 8));
 		fout.write(key.data(), key.size());
+		fout.put(static_cast<char>(ex.size()));
+		fout.put(static_cast<char>(ex.size() >> 8));
+		fout.write(ex.data(), ex.size());
 	}
 }
 
@@ -704,7 +717,7 @@ bool key_storage::on_join(const std::string& user, const std::string& key)
 	std::pair<key_list_tp::const_iterator, key_list_tp::const_iterator> itrs = keys.equal_range(user);
 	key_list_tp::const_iterator &itr = itrs.first, &itr_end = itrs.second;
 	for (; itr != itr_end; itr++)
-		if (itr->second == key)
+		if (itr->second.key == key)
 			return true;
 	return false;
 }

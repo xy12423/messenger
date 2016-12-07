@@ -108,14 +108,14 @@ public:
 	virtual bool new_rand_port(port_type& port);
 	virtual void free_rand_port(port_type port) { ports.push_back(port); };
 
-	void certify_key(const std::string& key) { certifiedKeys.emplace(key); }
-	void certify_key(std::string&& key) { certifiedKeys.emplace(key); }
+	template <typename... _Ty>
+	void certify_key(_Ty&&... key) { certifiedKeys.emplace(std::forward<_Ty>(key)...); }
 
 	void set_frame(mainFrame *_frm) { frm = _frm; }
 	void set_static_port(port_type port) { static_port = port; };
 	void new_image_id(int& id) { id = image_id; image_id++; }
 private:
-	std::unordered_set<std::string> certifiedKeys;
+	std::unordered_map<std::string, std::string> certifiedKeys;
 	std::list<port_type> ports;
 	int static_port = -1;
 
