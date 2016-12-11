@@ -59,15 +59,30 @@ namespace msgr_proto
 		std::string empty_string;
 	};
 
+	class proto_kit_watcher
+	{
+	public:
+		proto_kit_watcher(proto_kit& _kit)
+			:kit(_kit)
+		{}
+		proto_kit_watcher(const proto_kit_watcher&) = delete;
+		proto_kit_watcher(proto_kit_watcher&&) = delete;
+		~proto_kit_watcher() { kit.stop(); }
+
+		operator proto_kit&() { return kit; }
+	private:
+		proto_kit& kit;
+	};
+
 	class pre_session : public std::enable_shared_from_this<pre_session>
 	{
 	public:
 		pre_session(server& _srv, crypto::server& _crypto_srv, port_type_l _local_port, asio::io_service& main_io_srv, asio::io_service& misc_io_srv, const socket_ptr& _socket)
 			:srv(_srv), main_io_service(main_io_srv), misc_io_service(misc_io_srv), socket(_socket),
 			priv(dh_priv_block_size), pubA(dh_pub_block_size), pubB(dh_pub_block_size), key(sym_key_size),
-			proto_data(std::dynamic_pointer_cast<proto_kit>(_crypto_srv.new_session<proto_kit>())),
-			session_id(proto_data->session_id), rand_num_send(proto_data->rand_num_send), rand_num_recv(proto_data->rand_num_recv),
-			e(proto_data->e), d(proto_data->d), e1(proto_data->e1)
+			proto_data(_crypto_srv.new_session<proto_kit>()), proto_data_watcher(std::make_shared<proto_kit_watcher>(proto_data)),
+			session_id(proto_data.session_id), rand_num_send(proto_data.rand_num_send), rand_num_recv(proto_data.rand_num_recv),
+			e(proto_data.e), d(proto_data.d), e1(proto_data.e1)
 		{
 			local_port = _local_port;
 		}
@@ -111,7 +126,8 @@ namespace msgr_proto
 		std::unique_ptr<char[]> sid_packet_buffer;
 		int stage = 0;
 
-		std::shared_ptr<proto_kit> proto_data;
+		proto_kit &proto_data;
+		std::shared_ptr<proto_kit_watcher> proto_data_watcher;
 		CryptoPP::CBC_Mode<CryptoPP::AES>::Encryption &e;
 		CryptoPP::CBC_Mode<CryptoPP::AES>::Decryption &d;
 		CryptoPP::ECIES<CryptoPP::ECP>::Encryptor &e1;
@@ -238,24 +254,42 @@ namespace msgr_proto
 		};
 		typedef std::list<write_task> write_que_tp;
 
+		class read_end_watcher
+		{
+		public:
+			read_end_watcher(server& _srv, session& _s) :srv(_srv), s(_s) {};
+			read_end_watcher(const read_end_watcher&) = delete;
+			read_end_watcher(read_end_watcher&&) = delete;
+			~read_end_watcher();
+
+		private:
+			server &srv;
+			session &s;
+		};
+		friend class read_end_watcher;
+
 		class write_end_watcher
 		{
 		public:
-			write_end_watcher(session* _ptr) :ptr(_ptr) {};
+			write_end_watcher(server& _srv, session& _s) :srv(_srv), s(_s) {};
 			write_end_watcher(const write_end_watcher&) = delete;
 			write_end_watcher(write_end_watcher&&) = delete;
-			~write_end_watcher() { ptr->write_end(); }
+			~write_end_watcher();
+
+			void set_normal() { normal_quit = true; }
 
 		private:
-			session *ptr;
+			server &srv;
+			session &s;
+			bool normal_quit = false;
 		};
 		friend class write_end_watcher;
 	public:
-		session(server& _srv, port_type_l _local_port, const std::string& _key_string, std::shared_ptr<proto_kit>&& _proto_data,
+		session(server& _srv, port_type_l _local_port, const std::string& _key_string, std::shared_ptr<proto_kit_watcher>&& _proto_data,
 			asio::io_service& _main_iosrv, asio::io_service& _misc_iosrv, socket_ptr&& _socket)
 			:session_base(_srv, _local_port, _key_string),
 			main_iosrv(_main_iosrv), misc_iosrv(_misc_iosrv), socket(std::move(_socket)),
-			crypto_kit(std::move(_proto_data)),
+			crypto_kit_watcher(std::move(_proto_data)), crypto_kit(*crypto_kit_watcher),
 			read_buffer(std::make_unique<char[]>(read_buffer_size))
 		{}
 
@@ -279,13 +313,16 @@ namespace msgr_proto
 
 		virtual std::string get_address() const { return socket->remote_endpoint().address().to_string(); }
 	private:
-		void read_header();
-		void read_data(size_t sizeLast, const std::shared_ptr<std::string>& buf);
-		void process_data(const std::shared_ptr<std::string>& buf);
+		void read_header(const std::shared_ptr<read_end_watcher>& watcher);
+		void read_data(size_t sizeLast, const std::shared_ptr<std::string>& buf, const std::shared_ptr<read_end_watcher>& watcher);
+		void process_data(const std::shared_ptr<std::string>& buf, const std::shared_ptr<read_end_watcher>& watcher);
+
+		void send(std::shared_ptr<write_task>&& task);
 		void write(const std::shared_ptr<write_end_watcher>& watcher);
 		void write_end();
 
-		std::shared_ptr<proto_kit> crypto_kit;
+		std::shared_ptr<proto_kit_watcher> crypto_kit_watcher;
+		proto_kit &crypto_kit;
 
 		asio::io_service &main_iosrv, &misc_iosrv;
 		socket_ptr socket;
@@ -354,10 +391,10 @@ namespace msgr_proto
 
 		bool check_key_connected(const std::string& key) { if (connected_keys.find(key) == connected_keys.end()) { connected_keys.emplace(key); return false; } else return true; };
 
-		void on_exception(const char* _ex) { std::string ex(_ex); misc_io_service.post([ex]() {std::cerr << ex << std::endl; }); }
-		void on_exception(const std::string& ex) { misc_io_service.post([ex]() {std::cerr << ex << std::endl; }); }
-		void on_exception(std::string&& ex) { misc_io_service.post([ex]() {std::cerr << ex << std::endl; }); }
-		void on_exception(std::exception& ex) { misc_io_service.post([ex]() {std::cerr << ex.what() << std::endl; }); }
+		void on_exception(const char* _ex) { std::string ex(_ex); misc_io_service.post([ex]()  {std::cerr << ex << std::endl; }); }
+		void on_exception(const std::string& ex) { misc_io_service.post([ex]() { std::cerr << ex << std::endl; }); }
+		void on_exception(std::string&& ex) { misc_io_service.post([ex]() { std::cerr << ex << std::endl; }); }
+		void on_exception(std::exception& ex) { misc_io_service.post([ex]() { std::cerr << ex.what() << std::endl; }); }
 
 		virtual void on_data(user_id_type id, const std::string& data) = 0;
 

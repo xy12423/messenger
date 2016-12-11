@@ -23,7 +23,9 @@ worker::worker()
 void session::enc(std::string& data, crypto_callback&& _callback)
 {
 	std::shared_ptr<task> new_task = std::make_shared<task>(data, std::move(_callback));
-	iosrv.post([this, new_task]() {
+	iosrv.post([this, self = shared_from_this(), new_task]() {
+		if (exiting)
+			return;
 		enc_task_que.push_back(std::move(*new_task));
 		srv.new_task(id, ENC);
 	});
@@ -32,7 +34,9 @@ void session::enc(std::string& data, crypto_callback&& _callback)
 void session::dec(std::string& data, crypto_callback&& _callback)
 {
 	std::shared_ptr<task> new_task = std::make_shared<task>(data, std::move(_callback));
-	iosrv.post([this, new_task]() {
+	iosrv.post([this, self = shared_from_this(), new_task]() {
+		if (exiting)
+			return;
 		dec_task_que.push_back(std::move(*new_task));
 		srv.new_task(id, DEC);
 	});
@@ -41,7 +45,7 @@ void session::dec(std::string& data, crypto_callback&& _callback)
 void session::stop()
 {
 	iosrv.post([this]() {
-		stopping = true;
+		exiting = true;
 		srv.del_session(id);
 	});
 }
@@ -75,6 +79,11 @@ void server::del_session(id_type id)
 			task_itr++;
 	}
 
+	if (itr->second->available(ENC))
+		itr->second->enc_finished();
+	if (itr->second->available(DEC))
+		itr->second->dec_finished();
+
 	sessions.erase(itr);
 }
 
@@ -86,15 +95,20 @@ void server::new_task(id_type id, task_type type)
 		return;
 
 	for (const std::unordered_map<id_type, std::unique_ptr<worker>>::value_type& pair : workers)
+	{
 		if (!pair.second->working)
-			run_task(pair.first);
+		{
+			work(pair.first);
+			break;
+		}
+	}
 }
 
-void server::run_task(id_type id)
+void server::work(id_type worker_id)
 {
 	if (stopping)
 		return;
-	worker &w = *workers.at(id);
+	worker &w = *workers.at(worker_id);
 	
 	task_list_tp::iterator task_itr = tasks.begin(), task_itr_end = tasks.end();
 	for (; task_itr != task_itr_end; task_itr++)
@@ -108,18 +122,18 @@ void server::run_task(id_type id)
 	self->set_busy(type);
 	w.working = true;
 
-	w.iosrv.post([this, self, id, type]() {
+	w.iosrv.post([this, self, worker_id, type]() {
 		self->do_one(type);
 
-		iosrv.post([this, self, id, type]() {
+		iosrv.post([this, self, worker_id, type]() {
 			try
 			{
 				if (type == ENC)
 					self->enc_finished();
 				else
 					self->dec_finished();
-				workers.at(id)->working = false;
-				run_task(id);
+				workers.at(worker_id)->working = false;
+				work(worker_id);
 			}
 			catch (...) {}
 		});

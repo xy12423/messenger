@@ -165,7 +165,7 @@ void wx_srv_interface::on_data(user_id_type id, const std::string& _data)
 						throw(std::runtime_error("Failed to open file"));
 					fName = fName + "_" + std::to_string(i);
 				}
-				usr.recvFile = wxConvLocal.cWC2MB(fName.c_str());
+				usr.recvFile = (fs::current_path() / fName).string();
 				usr.blockLast = blockCountAll;
 				std::cout << "Receiving file " << fName << " from " << usr.addr << std::endl;
 

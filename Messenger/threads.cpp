@@ -60,7 +60,7 @@ void FileSendThread::start(user_id_type uID, const fs::path& path)
 
 void FileSendThread::send_header(FileSendTask &task)
 {
-	std::wstring fileName = fs::path(task.file_name).leaf().wstring();
+	std::wstring fileName = fs::path(task.file_name).filename().wstring();
 	data_size_type blockCountAll_LE = wxUINT32_SWAP_ON_BE(task.blockCountAll);
 	std::string head(1, PAC_TYPE_FILE_H);
 	head.append(reinterpret_cast<const char*>(&blockCountAll_LE), sizeof(data_size_type));
