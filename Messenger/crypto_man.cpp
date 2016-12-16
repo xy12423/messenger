@@ -123,7 +123,11 @@ void server::work(id_type worker_id)
 	w.working = true;
 
 	w.iosrv.post([this, self, worker_id, type]() {
-		self->do_one(type);
+		try
+		{
+			self->do_one(type);
+		}
+		catch (...) {};
 
 		iosrv.post([this, self, worker_id, type]() {
 			try

@@ -74,10 +74,10 @@ namespace crypto
 		server(asio::io_service& _iosrv, int worker_count);
 
 		template <typename _Ty1, typename... _Ty2>
-		_Ty1& new_session(_Ty2&&... val) {
+		_Ty1* new_session(_Ty2&&... val) {
 			id_type id = next_id;
 			next_id++;
-			return dynamic_cast<_Ty1&>(*sessions.emplace(id, std::make_shared<_Ty1>(*this, iosrv, id, std::forward<_Ty2>(val)...)).first->second);
+            return dynamic_cast<_Ty1*>(sessions.emplace(id, std::make_shared<_Ty1>(*this, iosrv, id, std::forward<_Ty2>(val)...)).first->second.get());
 		};
 		void del_session(id_type id);
 		void new_task(id_type id, task_type type);

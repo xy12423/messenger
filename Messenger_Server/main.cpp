@@ -268,7 +268,7 @@ void cli_server::on_msg(user_id_type id, std::string& msg)
 				trim(msg);
 				user.name = std::move(msg);
 
-				if (!user_key_storage.on_join(user.name, get_session(id)->get_key()))
+				if (!user_key_storage.on_join(user.name, get_session(id).get_key()))
 				{
 					send_msg(id, msg_unauthed_key);
 				}
@@ -399,7 +399,7 @@ void cli_server::on_file_b(user_id_type id, const std::string& data)
 void cli_server::on_join(user_id_type id, const std::string& )
 {
 	user_ext &ext = user_exts.emplace(id, user_ext()).first->second;
-	ext.addr = get_session(id)->get_address();
+	ext.addr = get_session(id).get_address();
 
 	if (mode > EASY)
 		send_msg(id, msg_input_name);

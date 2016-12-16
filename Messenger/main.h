@@ -57,7 +57,7 @@ private:
 class textStream : public std::streambuf
 {
 public:
-	textStream(mainFrame *_frm, wxTextCtrl *_text) { frm = _frm; text = _text; }
+	textStream(mainFrame *_frm, wxTextCtrl *_text) :frm(_frm), text(_text) {};
 
 protected:
 	int_type overflow(int_type c)

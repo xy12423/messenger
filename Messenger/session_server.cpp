@@ -22,7 +22,10 @@ void server::do_start()
 		if (!ec)
 		{
 			std::shared_ptr<pre_session_s> pre_session_s_ptr(std::make_shared<pre_session_s>(port_null, socket, *this, crypto_srv, main_io_service, misc_io_service));
+			std::unique_lock<std::mutex> lock(pre_session_mutex);
 			pre_sessions.emplace(pre_session_s_ptr);
+			lock.unlock();
+			pre_session_s_ptr->start();
 		}
 
 		do_start();
@@ -43,12 +46,14 @@ void server::shutdown()
 
 void server::pre_session_over(const std::shared_ptr<pre_session>& _pre, bool successful)
 {
+	std::lock_guard<std::mutex> lock(pre_session_mutex);
 	if (!successful)
 	{
 		if (_pre->get_port() != port_null)
 			free_rand_port(static_cast<port_type>(_pre->get_port()));
 		connected_keys.erase(_pre->get_key());
 	}
+	_pre->shutdown();
 	pre_sessions.erase(_pre);
 }
 
@@ -162,7 +167,10 @@ void server::connect(const asio::ip::tcp::endpoint& remote_endpoint)
 			if (!ec)
 			{
 				std::shared_ptr<pre_session_c> pre_session_c_ptr(std::make_shared<pre_session_c>(local_port, socket, *this, crypto_srv, main_io_service, misc_io_service));
+				std::unique_lock<std::mutex> lock(pre_session_mutex);
 				pre_sessions.emplace(pre_session_c_ptr);
+				lock.unlock();
+				pre_session_c_ptr->start();
 			}
 			else
 			{
@@ -192,7 +200,7 @@ void server::connect(const asio::ip::tcp::resolver::query& query)
 			socket_ptr socket = std::make_shared<asio::ip::tcp::socket>(main_io_service);
 
 			asio::async_connect(*socket, itr, asio::ip::tcp::resolver::iterator(),
-				[this, local_port, socket](const boost::system::error_code& ec, asio::ip::tcp::resolver::iterator next)->asio::ip::tcp::resolver::iterator
+				[this, local_port, socket](const boost::system::error_code&, asio::ip::tcp::resolver::iterator next)->asio::ip::tcp::resolver::iterator
 			{
 				asio::ip::tcp::endpoint::protocol_type ip_protocol = next->endpoint().protocol();
 				socket->close();
@@ -205,7 +213,10 @@ void server::connect(const asio::ip::tcp::resolver::query& query)
 				if (!ec)
 				{
 					std::shared_ptr<pre_session_c> pre_session_c_ptr(std::make_shared<pre_session_c>(local_port, socket, *this, crypto_srv, main_io_service, misc_io_service));
+					std::unique_lock<std::mutex> lock(pre_session_mutex);
 					pre_sessions.emplace(pre_session_c_ptr);
+					lock.unlock();
+					pre_session_c_ptr->start();
 				}
 				else
 				{

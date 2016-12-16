@@ -272,7 +272,7 @@ void wx_srv_interface::on_join(user_id_type id, const std::string& key)
 		return;
 
 	user_ext_type &ext = user_ext.emplace(id, user_ext_type()).first->second;
-	ext.addr = wxConvLocal.cMB2WC(get_session(id)->get_address().c_str());
+	ext.addr = wxConvLocal.cMB2WC(get_session(id).get_address().c_str());
 
 	fs::path tmp_path = IMG_TMP_PATH_NAME;
 	tmp_path /= std::to_string(id);

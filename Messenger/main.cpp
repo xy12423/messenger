@@ -138,7 +138,7 @@ bool plugin_handler_VirtualUserMsg(plugin_id_type plugin_id, uint16_t virtual_us
 		plugin_info_type &info = plugin_info.at(plugin_id);
 		if (info.virtual_user_list.find(virtual_user_id) != info.virtual_user_list.end())
 		{
-			std::dynamic_pointer_cast<msgr_proto::virtual_session>(srv->get_session(virtual_user_id))->push(std::string(message, size));
+			dynamic_cast<msgr_proto::virtual_session&>(srv->get_session(virtual_user_id)).push(std::string(message, size));
 			return true;
 		}
 	}
