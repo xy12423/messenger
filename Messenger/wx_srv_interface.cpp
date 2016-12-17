@@ -113,28 +113,7 @@ void wx_srv_interface::on_data(user_id_type id, const std::string& _data)
 				data.read(msg_utf8, msg_size);
 
 				wxString msg(usr.addr + ':' + wxConvUTF8.cMB2WC(msg_utf8.c_str()) + '\n');
-
-				wxThreadEvent *newEvent = new wxThreadEvent;
-				newEvent->SetPayload<gui_callback>([this, id, msg]() {
-					user_ext_type &usr = user_ext.at(id);
-					usr.log.push_back(msg);
-					if (frm->listUser->GetSelection() != -1)
-					{
-						if (id == frm->userIDs[frm->listUser->GetSelection()])
-						{
-							frm->textMsg->AppendText(msg);
-							frm->textMsg->ShowPosition(frm->textMsg->GetLastPosition());
-						}
-						else
-							frm->textInfo->AppendText("Received message from " + usr.addr + "\n");
-					}
-					else
-						frm->textInfo->AppendText("Received message from " + usr.addr + "\n");
-
-					if (!frm->IsActive())
-						frm->RequestUserAttention();
-				});
-				wxQueueEvent(frm, newEvent);
+				frm->OnMessage(id, msg);
 
 				break;
 			}
@@ -216,34 +195,7 @@ void wx_srv_interface::on_data(user_id_type id, const std::string& _data)
 
 				wxImage image(image_path.native(), wxBITMAP_TYPE_ANY);
 				if (image.IsOk())
-				{
-					wxThreadEvent *newEvent = new wxThreadEvent;
-					newEvent->SetPayload<gui_callback>([this, id, image_path]() {
-						user_ext_type &usr = user_ext.at(id);
-						usr.log.push_back(usr.addr + ":\n");
-						usr.log.push_back(image_path);
-						usr.log.push_back("\n");
-
-						if (frm->listUser->GetSelection() != -1)
-						{
-							if (id == frm->userIDs[frm->listUser->GetSelection()])
-							{
-								frm->textMsg->AppendText(usr.addr + ":\n");
-								frm->textMsg->WriteImage(image_path.native(), wxBITMAP_TYPE_ANY);
-								frm->textMsg->AppendText("\n");
-								frm->textMsg->ShowPosition(frm->textMsg->GetLastPosition());
-							}
-							else
-								frm->textInfo->AppendText("Received message from " + usr.addr + "\n");
-						}
-						else
-							frm->textInfo->AppendText("Received message from " + usr.addr + "\n");
-
-						if (!frm->IsActive())
-							frm->RequestUserAttention();
-					});
-					wxQueueEvent(frm, newEvent);
-				}
+					frm->OnImage(id, image_path);
 
 				break;
 			}
@@ -278,49 +230,7 @@ void wx_srv_interface::on_join(user_id_type id, const std::string& key)
 	tmp_path /= std::to_string(id);
 	fs::create_directories(tmp_path);
 
-	wxThreadEvent *newEvent = new wxThreadEvent;
-	newEvent->SetPayload<gui_callback>([this, id, key]() {
-		user_ext_type &ext = user_ext.at(id);
-		std::wstring &addr = ext.addr;
-
-		frm->listUser->Append(ext.addr);
-		if (frm->listUser->GetSelection() == -1)
-			frm->listUser->SetSelection(frm->listUser->GetCount() - 1);
-		frm->userIDs.push_back(id);
-
-		auto itr = certifiedKeys.end();
-		if (!key.empty())
-		{
-			itr = certifiedKeys.find(key);
-			if (itr == certifiedKeys.end())
-			{
-				int answer = wxMessageBox(wxT("The public key from ") + addr + wxT(" hasn't shown before.Trust it?"), wxT("Confirm"), wxYES_NO | wxCANCEL);
-				if (answer == wxNO)
-					disconnect(id);
-				else
-				{
-					if (answer == wxYES)
-					{
-						wxTextEntryDialog dlg(frm, "Set a comment for this key!", "Set comment");
-						if (dlg.ShowModal() != wxID_OK)
-							dlg.SetValue(wxEmptyString);
-						certify_key(key, std::string(dlg.GetValue().utf8_str()));
-					}
-					itr = certifiedKeys.find(key);
-				}
-			}
-		}
-
-		if (itr != certifiedKeys.end())
-		{
-			wxString new_label = ext.addr;
-			new_label.Append('(');
-			new_label.Append(wxConvUTF8.cMB2WC(itr->second.data()));
-			new_label.Append(')');
-			frm->listUser->SetString(frm->listUser->GetCount() - 1, new_label);
-		}
-	});
-	wxQueueEvent(frm, newEvent);
+	frm->OnJoin(id, key);
 }
 
 void wx_srv_interface::on_leave(user_id_type id)
@@ -329,22 +239,7 @@ void wx_srv_interface::on_leave(user_id_type id)
 		return;
 
 	threadFileSend->stop(id);
-	wxThreadEvent *newEvent = new wxThreadEvent;
-	newEvent->SetPayload<gui_callback>([this, id]() {
-		int i = 0;
-		std::vector<user_id_type>::iterator itr = frm->userIDs.begin(), itrEnd = frm->userIDs.end();
-		for (; itr != itrEnd && *itr != id; itr++)i++;
-		if (frm->listUser->GetSelection() == i)
-			frm->textMsg->SetValue(wxEmptyString);
-		frm->listUser->Delete(i);
-		frm->userIDs.erase(itr);
-		user_ext.erase(id);
-
-		fs::path tmp_path = IMG_TMP_PATH_NAME;
-		tmp_path /= std::to_string(id);
-		fs::remove_all(tmp_path);
-	});
-	wxQueueEvent(frm, newEvent);
+	frm->OnLeave(id);
 }
 
 bool wx_srv_interface::new_rand_port(port_type& ret)

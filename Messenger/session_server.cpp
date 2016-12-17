@@ -69,7 +69,7 @@ void server::join(const session_ptr& _user, user_id_type& uid)
 
 	misc_io_service.post([this, newID, _user]() {
 		try { on_join(newID, _user->get_key()); }
-		catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
+		catch (std::exception &ex) { on_exception(ex); }
 		catch (...) {}
 	});
 }
@@ -86,7 +86,7 @@ void server::leave(user_id_type _user)
 
 	misc_io_service.post([this, _user]() {
 		try { on_leave(_user); }
-		catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
+		catch (std::exception &ex) { on_exception(ex); }
 		catch (...) {}
 	});
 
@@ -108,7 +108,7 @@ void server::on_recv_data(user_id_type id, const std::shared_ptr<std::string>& d
 	session_ptr this_session = itr->second;
 	misc_io_service.post([this, id, data]() {
 		try { on_data(id, *data); }
-		catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
+		catch (std::exception &ex) { on_exception(ex); }
 		catch (...) {}
 	});
 }

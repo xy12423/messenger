@@ -398,12 +398,14 @@ void mainFrame::listUser_SelectedIndexChanged(wxCommandEvent& event)
 {
 	user_id_type uID = userIDs[listUser->GetSelection()];
 	textMsg->Clear();
-	std::for_each(user_ext[uID].log.begin(), user_ext[uID].log.end(), [this](const user_ext_type::log_type &log_item) {
-		if (log_item.is_image)
-			textMsg->WriteImage(log_item.image.native(), wxBITMAP_TYPE_ANY);
+	auto &log = user_ext.at(uID).log;
+	for (auto itr = log.begin(), itr_end = log.end(); itr != itr_end; itr++)
+	{
+		if (itr->is_image)
+			textMsg->WriteImage(itr->image.native(), wxBITMAP_TYPE_ANY);
 		else
-			textMsg->AppendText(log_item.msg);
-	});
+			textMsg->AppendText(itr->msg);
+	}
 	textMsg->ShowPosition(textMsg->GetLastPosition());
 }
 
@@ -449,7 +451,7 @@ void mainFrame::buttonSend_Click(wxCommandEvent& event)
 				srv->send_data(uID, msg_utf8, msgr_proto::session::priority_msg);
 			});
 			textMsg->AppendText("Me:" + msg + '\n');
-			user_ext[uID].log.push_back("Me:" + msg + '\n');
+			user_ext.at(uID).log.push_back("Me:" + msg + '\n');
 			textMsg->ShowPosition(textMsg->GetLastPosition());
 		}
 	}
@@ -485,9 +487,9 @@ void mainFrame::buttonSendImage_Click(wxCommandEvent& event)
 				textMsg->AppendText("\n");
 				textMsg->ShowPosition(textMsg->GetLastPosition());
 
-				user_ext[uID].log.push_back("Me:\n");
-				user_ext[uID].log.push_back(image_path);
-				user_ext[uID].log.push_back("\n");
+				user_ext.at(uID).log.push_back("Me:\n");
+				user_ext.at(uID).log.push_back(image_path);
+				user_ext.at(uID).log.push_back("\n");
 
 				std::shared_ptr<std::string> img_buf = std::make_shared<std::string>();
 
@@ -528,6 +530,123 @@ void mainFrame::buttonCancelSend_Click(wxCommandEvent& event)
 		user_id_type uID = userIDs[listUser->GetSelection()];
 		threadFileSend->stop(uID);
 	}
+}
+
+void mainFrame::OnMessage(user_id_type id, const wxString& msg)
+{
+	wxThreadEvent *newEvent = new wxThreadEvent;
+	newEvent->SetPayload<gui_callback>([this, id, msg]() {
+		user_ext_type &usr = user_ext.at(id);
+		usr.log.push_back(msg);
+		if (listUser->GetSelection() != -1)
+		{
+			if (id == userIDs.at(listUser->GetSelection()))
+			{
+				textMsg->AppendText(msg);
+				textMsg->ShowPosition(textMsg->GetLastPosition());
+			}
+			else
+				textInfo->AppendText("Received message from " + usr.addr + "\n");
+		}
+		else
+			textInfo->AppendText("Received message from " + usr.addr + "\n");
+
+		if (!IsActive())
+			RequestUserAttention();
+	});
+	wxQueueEvent(this, newEvent);
+}
+
+void mainFrame::OnImage(user_id_type id, const fs::path& image_path)
+{
+	wxThreadEvent *newEvent = new wxThreadEvent;
+	newEvent->SetPayload<gui_callback>([this, id, image_path]() {
+		user_ext_type &usr = user_ext.at(id);
+		usr.log.push_back(usr.addr + ":\n");
+		usr.log.push_back(image_path);
+		usr.log.push_back("\n");
+
+		if (listUser->GetSelection() != -1)
+		{
+			if (id == userIDs[listUser->GetSelection()])
+			{
+				textMsg->AppendText(usr.addr + ":\n");
+				textMsg->WriteImage(image_path.native(), wxBITMAP_TYPE_ANY);
+				textMsg->AppendText("\n");
+				textMsg->ShowPosition(textMsg->GetLastPosition());
+			}
+			else
+				textInfo->AppendText("Received message from " + usr.addr + "\n");
+		}
+		else
+			textInfo->AppendText("Received message from " + usr.addr + "\n");
+
+		if (!IsActive())
+			RequestUserAttention();
+	});
+	wxQueueEvent(this, newEvent);
+}
+
+void mainFrame::OnJoin(user_id_type id, const std::string& key)
+{
+	wxThreadEvent *newEvent = new wxThreadEvent;
+	newEvent->SetPayload<gui_callback>([this, id, key]() {
+		user_ext_type &ext = user_ext.at(id);
+		std::wstring &addr = ext.addr;
+
+		listUser->Append(addr);
+		if (listUser->GetSelection() == -1)
+			listUser->SetSelection(listUser->GetCount() - 1);
+		userIDs.push_back(id);
+
+		if (!key.empty() && !srv->is_certified(key))
+		{
+			int answer = wxMessageBox(wxT("The public key from ") + addr + wxT(" hasn't shown before.Trust it?"), wxT("Confirm"), wxYES_NO | wxCANCEL);
+			if (answer == wxNO)
+				srv->disconnect(id);
+			else
+			{
+				if (answer == wxYES)
+				{
+					wxTextEntryDialog dlg(this, "Set a comment for this key!", "Set comment");
+					if (dlg.ShowModal() != wxID_OK)
+						dlg.SetValue(wxEmptyString);
+					srv->certify_key(key, std::string(dlg.GetValue().utf8_str()));
+				}
+			}
+		}
+
+		try
+		{
+			wxString new_label = ext.addr;
+			new_label.Append('(');
+			new_label.Append(wxConvUTF8.cMB2WC(srv->get_key_comment(key).data()));
+			new_label.Append(')');
+			listUser->SetString(listUser->GetCount() - 1, new_label);
+		}
+		catch (std::out_of_range&) {}
+	});
+	wxQueueEvent(this, newEvent);
+}
+
+void mainFrame::OnLeave(user_id_type id)
+{
+	wxThreadEvent *newEvent = new wxThreadEvent;
+	newEvent->SetPayload<gui_callback>([this, id]() {
+		int i = 0;
+		std::vector<user_id_type>::iterator itr = userIDs.begin(), itrEnd = userIDs.end();
+		for (; itr != itrEnd && *itr != id; itr++) i++;
+		if (listUser->GetSelection() == i)
+			textMsg->SetValue(wxEmptyString);
+		listUser->Delete(i);
+		userIDs.erase(itr);
+		user_ext.erase(id);
+
+		fs::path tmp_path = IMG_TMP_PATH_NAME;
+		tmp_path /= std::to_string(id);
+		fs::remove_all(tmp_path);
+	});
+	wxQueueEvent(this, newEvent);
 }
 
 void mainFrame::thread_Message(wxThreadEvent& event)

@@ -192,34 +192,28 @@ void pre_session::read_secret()
 	asio::async_read(*socket,
 		asio::buffer(pubB_buffer.get(), pubB_size),
 		asio::transfer_exactly(pubB_size),
-        [this, watcher_holder](boost::system::error_code ec, std::size_t)
+		[this, watcher_holder](boost::system::error_code ec, std::size_t)
 	{
-		if (!ec)
-		{
-			misc_io_service.post([this, watcher_holder]() {
-				try
-				{
-					decrypt(reinterpret_cast<byte*>(pubB_buffer.get()), pubB_size, pubB, GetPublicKey());
-					if (!dhAgree(key, priv, pubB))
-						throw(std::runtime_error("Failed to reach shared secret"));
-					write_iv();
-				}
-				catch (std::exception &ex)
-				{
-					if (!exiting)
-					{
-						std::cerr << ex.what() << std::endl;
-					}
-				}
-			});
-		}
-		else
+		if (ec)
 		{
 			if (!exiting)
-			{
 				srv.on_exception("Socket Error:" + ec.message());
-			}
+			return;
 		}
+		misc_io_service.post([this, watcher_holder]() {
+			try
+			{
+				decrypt(reinterpret_cast<byte*>(pubB_buffer.get()), pubB_size, pubB, GetPublicKey());
+				if (!dhAgree(key, priv, pubB))
+					throw(std::runtime_error("Failed to reach shared secret"));
+				write_iv();
+			}
+			catch (std::exception &ex)
+			{
+				if (!exiting)
+					srv.on_exception(ex);
+			}
+		});
 	});
 }
 
@@ -331,10 +325,7 @@ void pre_session::read_session_id_body(int check_level)
 				std::string hash_recv(data, data.size() - hash_size), hash_real;
 				hash(data, hash_real, hash_size);
 				if (hash_recv != hash_real)
-				{
-					std::cerr << "Error:Hashing failed" << std::endl;
-					throw(msgr_proto_error());
-				}
+					throw(msgr_proto_error("Error:Hashing failed"));
 
 				switch (check_level)
 				{
@@ -350,10 +341,7 @@ void pre_session::read_session_id_body(int check_level)
 						session_id_type recv_session_id;
 						memcpy(reinterpret_cast<char*>(&recv_session_id), data.data(), sizeof(session_id_type));
 						if (recv_session_id != session_id)
-						{
-							std::cerr << "Error:Checking failed" << std::endl;
-							throw(msgr_proto_error());
-						}
+							throw(msgr_proto_error("Error:Checking failed"));
 						memcpy(reinterpret_cast<char*>(&rand_num), data.data() + sizeof(session_id_type), sizeof(rand_num_type));
 						rand_num = boost::endian::native_to_little(boost::endian::little_to_native(rand_num) + 1);
 						break;
@@ -366,20 +354,20 @@ void pre_session::read_session_id_body(int check_level)
 						memcpy(reinterpret_cast<char*>(&recv_rand_num), data.data() + sizeof(session_id_type), sizeof(rand_num_type));
 
 						if ((recv_session_id != session_id) || boost::endian::little_to_native(recv_rand_num) != rand_num_send)
-						{
-							std::cerr << "Error:Checking failed" << std::endl;
-							throw(msgr_proto_error());
-						}
+							throw(msgr_proto_error("Error:Checking failed"));
 						break;
 					}
 				}
 
 				sid_packet_done();
 			}
-			catch (msgr_proto_error &) {}
+			catch (msgr_proto_error &ex)
+			{
+				srv.on_exception(ex);
+			}
 			catch (std::exception &ex)
 			{
-				std::cerr << ex.what() << std::endl;
+				srv.on_exception(ex);
 			}
 		});
 	});
