@@ -66,7 +66,7 @@ void pre_session::read_key_header()
 	asio::async_read(*socket,
 		asio::buffer(reinterpret_cast<char*>(&(this->key_size)), sizeof(key_size_type)),
 		asio::transfer_exactly(sizeof(key_size_type)),
-        [this, watcher_holder](boost::system::error_code ec, std::size_t)
+        [this, watcher_holder](const error_code_type& ec, std::size_t)
 	{
 		try
 		{
@@ -93,7 +93,7 @@ void pre_session::read_key()
 	asio::async_read(*socket,
 		asio::buffer(key_buffer.get(), key_size),
 		asio::transfer_exactly(key_size),
-        [this, watcher_holder](boost::system::error_code ec, std::size_t)
+        [this, watcher_holder](const error_code_type& ec, std::size_t)
 	{
 		try
 		{
@@ -139,7 +139,7 @@ void pre_session::write_secret()
 
 		asio::async_write(*socket,
 			asio::buffer(buf->data(), buf->size()),
-			[this, buf, watcher_holder](boost::system::error_code ec, std::size_t)
+			[this, buf, watcher_holder](const error_code_type& ec, std::size_t)
 		{
 			try
 			{
@@ -165,7 +165,7 @@ void pre_session::read_secret_header()
 	asio::async_read(*socket,
 		asio::buffer(reinterpret_cast<char*>(&(this->pubB_size)), sizeof(key_size_type)),
 		asio::transfer_exactly(sizeof(key_size_type)),
-        [this, watcher_holder](boost::system::error_code ec, std::size_t)
+        [this, watcher_holder](const error_code_type& ec, std::size_t)
 	{
 		try
 		{
@@ -192,7 +192,7 @@ void pre_session::read_secret()
 	asio::async_read(*socket,
 		asio::buffer(pubB_buffer.get(), pubB_size),
 		asio::transfer_exactly(pubB_size),
-		[this, watcher_holder](boost::system::error_code ec, std::size_t)
+		[this, watcher_holder](const error_code_type& ec, std::size_t)
 	{
 		if (ec)
 		{
@@ -225,7 +225,7 @@ void pre_session::write_iv()
 	init_sym_encryption(e, key, *iv);
 	asio::async_write(*socket,
 		asio::buffer(reinterpret_cast<char*>(iv->data()), iv->SizeInBytes()),
-		[this, watcher_holder, iv](boost::system::error_code ec, std::size_t)
+		[this, watcher_holder, iv](const error_code_type& ec, std::size_t)
 	{
 		try
 		{
@@ -250,7 +250,7 @@ void pre_session::read_iv()
 	asio::async_read(*socket,
 		asio::buffer(reinterpret_cast<char*>(iv_buffer), sym_key_size),
 		asio::transfer_exactly(sym_key_size),
-        [this, watcher_holder](boost::system::error_code ec, std::size_t)
+        [this, watcher_holder](const error_code_type& ec, std::size_t)
 	{
 		try
 		{
@@ -276,7 +276,7 @@ void pre_session::read_session_id(int check_level, bool ignore_error)
 	asio::async_read(*socket,
 		asio::buffer(reinterpret_cast<char*>(&sid_packet_size), sizeof(data_size_type)),
 		asio::transfer_exactly(sizeof(data_size_type)),
-        [this, watcher_holder, check_level, ignore_error](boost::system::error_code ec, std::size_t)
+        [this, watcher_holder, check_level, ignore_error](const error_code_type& ec, std::size_t)
 	{
 		try
 		{
@@ -305,7 +305,7 @@ void pre_session::read_session_id_body(int check_level)
 	asio::async_read(*socket,
 		asio::buffer(sid_packet_buffer.get(), sid_packet_size),
 		asio::transfer_exactly(sid_packet_size),
-		[this, watcher_holder, check_level](boost::system::error_code ec, std::size_t)
+		[this, watcher_holder, check_level](const error_code_type& ec, std::size_t)
 	{
 		if (ec)
 		{
@@ -404,7 +404,7 @@ void pre_session::write_session_id()
 
 		asio::async_write(*socket,
 			asio::buffer(data_buf_1->data(), data_buf_1->size()),
-            [this, watcher_holder, data_buf_1](boost::system::error_code ec, std::size_t)
+            [this, watcher_holder, data_buf_1](const error_code_type& ec, std::size_t)
 		{
 			try
 			{
@@ -451,7 +451,7 @@ void pre_session_s::start()
 
 	asio::async_write(*socket,
 		asio::buffer(*buffer),
-        [this, buffer, watcher_holder](boost::system::error_code ec, std::size_t)
+        [this, buffer, watcher_holder](const error_code_type& ec, std::size_t)
 	{
 		try
 		{
@@ -571,7 +571,7 @@ void pre_session_c::start()
 
 	asio::async_write(*socket,
 		asio::buffer(*buffer),
-        [this, buffer, watcher_holder](boost::system::error_code ec, std::size_t)
+        [this, buffer, watcher_holder](const error_code_type& ec, std::size_t)
 	{
 		try
 		{
@@ -711,7 +711,7 @@ void session::start()
 void session::shutdown()
 {
 	exiting = true;
-	boost::system::error_code ec;
+	error_code_type ec;
 	socket->shutdown(socket->shutdown_both, ec);
 	socket->close(ec);
 
@@ -767,7 +767,7 @@ void session::read_header(const std::shared_ptr<read_end_watcher>& watcher)
 	asio::async_read(*socket,
 		asio::buffer(read_buffer.get(), sizeof(data_size_type)),
 		asio::transfer_exactly(sizeof(data_size_type)),
-		[this, self, watcher](boost::system::error_code ec, std::size_t size)
+		[this, self, watcher](const error_code_type& ec, std::size_t size)
 	{
 		try
 		{
@@ -794,7 +794,7 @@ void session::read_data(size_t size_last, const std::shared_ptr<std::string>& bu
 		asio::async_read(*socket,
 			asio::buffer(read_buffer.get(), read_buffer_size),
 			asio::transfer_exactly(read_buffer_size),
-			[this, self, size_last, buf, watcher](boost::system::error_code ec, std::size_t size)
+			[this, self, size_last, buf, watcher](const error_code_type& ec, std::size_t size)
 		{
 			try
 			{
@@ -815,7 +815,7 @@ void session::read_data(size_t size_last, const std::shared_ptr<std::string>& bu
 		asio::async_read(*socket,
 			asio::buffer(read_buffer.get(), size_last),
 			asio::transfer_exactly(size_last),
-			[this, self, buf, watcher](boost::system::error_code ec, std::size_t size)
+			[this, self, buf, watcher](const error_code_type& ec, std::size_t size)
 		{
 			try
 			{
@@ -897,7 +897,7 @@ void session::write(const std::shared_ptr<write_end_watcher>& watcher)
 
 		asio::async_write(*socket,
 			asio::buffer(write_itr->data),
-			[this, self, watcher, write_itr](boost::system::error_code ec, std::size_t /*length*/)
+			[this, self, watcher, write_itr](const error_code_type& ec, std::size_t /*length*/)
 		{
 			try
 			{

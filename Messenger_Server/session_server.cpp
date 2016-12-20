@@ -16,7 +16,7 @@ void server::do_start()
 		return;
 	socket_ptr socket = std::make_shared<asio::ip::tcp::socket>(main_io_service);
 	acceptor.async_accept(*socket,
-		[this, socket](boost::system::error_code ec) {
+		[this, socket](const error_code_type& ec) {
 		if (closing)
 			return;
 		if (!ec)
@@ -162,7 +162,7 @@ void server::connect(const asio::ip::tcp::endpoint& remote_endpoint)
 		socket->open(ip_protocol);
 		socket->bind(asio::ip::tcp::endpoint(ip_protocol, local_port));
 		socket->async_connect(remote_endpoint,
-			[this, local_port, socket](boost::system::error_code ec)
+			[this, local_port, socket](const error_code_type& ec)
 		{
 			if (!ec)
 			{
@@ -189,7 +189,7 @@ void server::connect(const asio::ip::tcp::resolver::query& query)
 	else
 	{
 		resolver.async_resolve(query,
-			[this, local_port](const boost::system::error_code& ec, asio::ip::tcp::resolver::iterator itr)
+			[this, local_port](const error_code_type& ec, asio::ip::tcp::resolver::iterator itr)
 		{
 			if (ec)
 			{
@@ -200,7 +200,7 @@ void server::connect(const asio::ip::tcp::resolver::query& query)
 			socket_ptr socket = std::make_shared<asio::ip::tcp::socket>(main_io_service);
 
 			asio::async_connect(*socket, itr, asio::ip::tcp::resolver::iterator(),
-				[this, local_port, socket](const boost::system::error_code&, asio::ip::tcp::resolver::iterator next)->asio::ip::tcp::resolver::iterator
+				[this, local_port, socket](const error_code_type&, asio::ip::tcp::resolver::iterator next)->asio::ip::tcp::resolver::iterator
 			{
 				asio::ip::tcp::endpoint::protocol_type ip_protocol = next->endpoint().protocol();
 				socket->close();
@@ -208,7 +208,7 @@ void server::connect(const asio::ip::tcp::resolver::query& query)
 				socket->bind(asio::ip::tcp::endpoint(ip_protocol, local_port));
 				return next;
 			},
-				[this, local_port, socket](boost::system::error_code ec, asio::ip::tcp::resolver::iterator itr)
+				[this, local_port, socket](const error_code_type& ec, asio::ip::tcp::resolver::iterator itr)
 			{
 				if (!ec)
 				{

@@ -6,31 +6,34 @@
 #include "crypto.h"
 #include "crypto_man.h"
 
-typedef uint16_t key_size_type;
 typedef uint32_t data_size_type;
-
 typedef uint16_t port_type;
-typedef int32_t port_type_l;
-const port_type_l port_null = -1;
-
 typedef uint16_t user_id_type;
-typedef uint64_t session_id_type;
-
-typedef std::shared_ptr<asio::ip::tcp::socket> socket_ptr;
 
 void insLen(std::string& data);
 
 namespace msgr_proto
 {
+	typedef uint16_t key_size_type;
+
+	typedef int32_t port_type_l;
+	constexpr port_type_l port_null = -1;
+
+	typedef uint64_t session_id_type;
+
+	typedef boost::system::error_code error_code_type;
+
+	typedef std::shared_ptr<asio::ip::tcp::socket> socket_ptr;
+
 	class server;
 
 	//Exceptions that can be safely ignored
 	class msgr_proto_error :public std::runtime_error
 	{
 	public:
-        msgr_proto_error() :std::runtime_error("Error in msgr_proto") {}
-        msgr_proto_error(const char* err) :std::runtime_error(err) {}
-        msgr_proto_error(const std::string& err) :std::runtime_error(err) {}
+		msgr_proto_error() :std::runtime_error("Error in msgr_proto") {}
+		msgr_proto_error(const char* err) :std::runtime_error(err) {}
+		msgr_proto_error(const std::string& err) :std::runtime_error(err) {}
 	};
 
 	class proto_kit :public crypto::session
@@ -46,8 +49,8 @@ namespace msgr_proto
 
 		friend class pre_session;
 	private:
-        inline rand_num_type get_rand_num_send() { if (rand_num_send == std::numeric_limits<rand_num_type>::max()) rand_num_send = 0; else rand_num_send++; return rand_num_send; }
-        inline rand_num_type get_rand_num_recv() { if (rand_num_recv == std::numeric_limits<rand_num_type>::max()) rand_num_recv = 0; else rand_num_recv++; return rand_num_recv; }
+		inline rand_num_type get_rand_num_send() { if (rand_num_send == std::numeric_limits<rand_num_type>::max()) rand_num_send = 0; else rand_num_send++; return rand_num_send; }
+		inline rand_num_type get_rand_num_recv() { if (rand_num_recv == std::numeric_limits<rand_num_type>::max()) rand_num_recv = 0; else rand_num_recv++; return rand_num_recv; }
 
 		CryptoPP::CBC_Mode<CryptoPP::AES>::Encryption e;
 		CryptoPP::CBC_Mode<CryptoPP::AES>::Decryption d;
@@ -216,8 +219,8 @@ namespace msgr_proto
 			:session_base(_srv, port_null, ""), name(_name)
 		{}
 
-        virtual void start() {}
-        virtual void shutdown() {}
+		virtual void start() {}
+		virtual void shutdown() {}
 
 		virtual void send(const std::string& data, int priority, write_callback&& callback);
 		virtual void send(std::string&& data, int priority, write_callback&& callback);
@@ -239,7 +242,7 @@ namespace msgr_proto
 		static constexpr size_t read_buffer_size = 0x4000;
 
 		struct write_task {
-            write_task() {}
+			write_task() {}
 			write_task(const std::string& _data, int _priority, write_callback&& _callback) :data(_data), callback(std::move(_callback)), priority(_priority) {}
 			write_task(std::string&& _data, int _priority, write_callback&& _callback) :data(std::move(_data)), callback(std::move(_callback)), priority(_priority) {}
 			std::string data;
@@ -251,7 +254,7 @@ namespace msgr_proto
 		class read_end_watcher
 		{
 		public:
-            read_end_watcher(server& _srv, session& _s) :srv(_srv), s(_s) {}
+			read_end_watcher(server& _srv, session& _s) :srv(_srv), s(_s) {}
 			read_end_watcher(const read_end_watcher&) = delete;
 			read_end_watcher(read_end_watcher&&) = delete;
 			~read_end_watcher();
@@ -265,7 +268,7 @@ namespace msgr_proto
 		class write_end_watcher
 		{
 		public:
-            write_end_watcher(server& _srv, session& _s) :srv(_srv), s(_s) {}
+			write_end_watcher(server& _srv, session& _s) :srv(_srv), s(_s) {}
 			write_end_watcher(const write_end_watcher&) = delete;
 			write_end_watcher(write_end_watcher&&) = delete;
 			~write_end_watcher();
@@ -358,17 +361,17 @@ namespace msgr_proto
 				shutdown();
 		}
 
-        void start() { if (!started) { started = true; do_start(); } }
+		void start() { if (!started) { started = true; do_start(); } }
 		void shutdown();
 
 		bool send_data(user_id_type id, const std::string& data, int priority, session::write_callback&& callback);
 		bool send_data(user_id_type id, std::string&& data, int priority, session::write_callback&& callback);
 
-        bool send_data(user_id_type id, const std::string& data, int priority) { return send_data(id, data, priority, []() {}); }
-        bool send_data(user_id_type id, const std::string& data, int priority, const std::string& message) { return send_data(id, data, priority, [message]() {std::cout << message << std::endl; }); }
-        bool send_data(user_id_type id, std::string&& data, int priority) { return send_data(id, std::move(data), priority, []() {}); }
-        bool send_data(user_id_type id, std::string&& data, int priority, const std::string& message) { return send_data(id, std::move(data), priority, [message]() {std::cout << message << std::endl; }); }
-		
+		bool send_data(user_id_type id, const std::string& data, int priority) { return send_data(id, data, priority, []() {}); }
+		bool send_data(user_id_type id, const std::string& data, int priority, const std::string& message) { return send_data(id, data, priority, [message]() {std::cout << message << std::endl; }); }
+		bool send_data(user_id_type id, std::string&& data, int priority) { return send_data(id, std::move(data), priority, []() {}); }
+		bool send_data(user_id_type id, std::string&& data, int priority, const std::string& message) { return send_data(id, std::move(data), priority, [message]() {std::cout << message << std::endl; }); }
+
 		void pre_session_over(const std::shared_ptr<pre_session>& _pre, bool successful = false);
 		void join(const session_ptr& _user, user_id_type& uid);
 		void leave(user_id_type id);
@@ -380,7 +383,7 @@ namespace msgr_proto
 		session_base& get_session(user_id_type id) const { return *sessions.at(id); }
 		const std::string& get_public_key() const { return e0str; }
 
-        bool check_key_connected(const std::string& key) { if (connected_keys.find(key) == connected_keys.end()) { connected_keys.emplace(key); return false; } else return true; }
+		bool check_key_connected(const std::string& key) { if (connected_keys.find(key) == connected_keys.end()) { connected_keys.emplace(key); return false; } else return true; }
 
 		virtual void on_data(user_id_type id, const std::string& data) = 0;
 
@@ -390,7 +393,7 @@ namespace msgr_proto
 		virtual bool new_rand_port(port_type& port) = 0;
 		virtual void free_rand_port(port_type port) = 0;
 
-        virtual void on_error(const char* err) { std::cerr << err << std::endl; }
+		virtual void on_error(const char* err) { std::cerr << err << std::endl; }
 
 		void on_exception(const std::string& ex) noexcept { misc_io_service.post([this, ex]() { on_error(ex.c_str()); }); }
 		void on_exception(std::string&& ex) noexcept { misc_io_service.post([this, ex]() { on_error(ex.c_str()); }); }

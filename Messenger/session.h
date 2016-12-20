@@ -6,22 +6,25 @@
 #include "crypto.h"
 #include "crypto_man.h"
 
-typedef uint16_t key_size_type;
 typedef uint32_t data_size_type;
-
 typedef uint16_t port_type;
-typedef int32_t port_type_l;
-const port_type_l port_null = -1;
-
 typedef uint16_t user_id_type;
-typedef uint64_t session_id_type;
-
-typedef std::shared_ptr<asio::ip::tcp::socket> socket_ptr;
 
 void insLen(std::string& data);
 
 namespace msgr_proto
 {
+	typedef uint16_t key_size_type;
+
+	typedef int32_t port_type_l;
+	constexpr port_type_l port_null = -1;
+
+	typedef uint64_t session_id_type;
+
+	typedef boost::system::error_code error_code_type;
+
+	typedef std::shared_ptr<asio::ip::tcp::socket> socket_ptr;
+
 	class server;
 
 	//Exceptions that can be safely ignored
