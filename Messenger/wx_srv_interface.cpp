@@ -130,6 +130,13 @@ void wx_srv_interface::on_data(user_id_type id, const std::string& _data)
 					wxWCharBuffer wbuf = wxConvUTF8.cMB2WC(data.data, fNameLen, &tmp);
 					data.skip(fNameLen);
 					fName = std::wstring(wbuf, tmp);
+
+					size_t pos = fName.rfind('/');
+					if (pos != std::wstring::npos)
+						fName.erase(0, pos + 1);
+					pos = fName.rfind('\\');
+					if (pos != std::wstring::npos)
+						fName.erase(0, pos + 1);
 				}
 
 				if (fs::exists(fName))
