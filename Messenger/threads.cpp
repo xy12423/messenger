@@ -8,7 +8,7 @@ extern std::unordered_map<user_id_type, user_ext_type> user_ext;
 iosrvThread::ExitCode iosrvThread::Entry()
 {
 	iosrv_work = std::make_shared<asio::io_service::work>(iosrv);
-	while (!TestDestroy())
+	while (iosrv_work)
 	{
 		try
 		{
@@ -17,6 +17,7 @@ iosrvThread::ExitCode iosrvThread::Entry()
 		catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
 		catch (...) {}
 	}
+	while (!TestDestroy());
 	return NULL;
 }
 
@@ -59,7 +60,7 @@ void FileSendThread::start(user_id_type uID, const fs::path& path)
 
 void FileSendThread::send_header(FileSendTask &task)
 {
-	std::wstring fileName = fs::path(task.file_name).leaf().wstring();
+	std::wstring fileName = fs::path(task.file_name).filename().wstring();
 	data_size_type blockCountAll_LE = wxUINT32_SWAP_ON_BE(task.blockCountAll);
 	std::string head(1, PAC_TYPE_FILE_H);
 	head.append(reinterpret_cast<const char*>(&blockCountAll_LE), sizeof(data_size_type));
@@ -129,7 +130,7 @@ void FileSendThread::write(user_id_type uID)
 FileSendThread::ExitCode FileSendThread::Entry()
 {
 	iosrv_work = std::make_shared<asio::io_service::work>(iosrv);
-	while (!TestDestroy())
+	while (iosrv_work)
 	{
 		try
 		{
@@ -138,5 +139,6 @@ FileSendThread::ExitCode FileSendThread::Entry()
 		catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
 		catch (...) {}
 	}
+	while (!TestDestroy());
 	return NULL;
 }

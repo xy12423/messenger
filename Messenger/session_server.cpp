@@ -16,13 +16,16 @@ void server::do_start()
 		return;
 	socket_ptr socket = std::make_shared<asio::ip::tcp::socket>(main_io_service);
 	acceptor.async_accept(*socket,
-		[this, socket](boost::system::error_code ec) {
+		[this, socket](const error_code_type& ec) {
 		if (closing)
 			return;
 		if (!ec)
 		{
 			std::shared_ptr<pre_session_s> pre_session_s_ptr(std::make_shared<pre_session_s>(port_null, socket, *this, crypto_srv, main_io_service, misc_io_service));
+			std::unique_lock<std::mutex> lock(pre_session_mutex);
 			pre_sessions.emplace(pre_session_s_ptr);
+			lock.unlock();
+			pre_session_s_ptr->start();
 		}
 
 		do_start();
@@ -34,26 +37,27 @@ void server::shutdown()
 	closing = true;
 	std::lock_guard<std::mutex> lock(session_mutex);
 	acceptor.close();
-	for (std::unordered_set<std::shared_ptr<pre_session>>::iterator itr = pre_sessions.begin(), itr_end = pre_sessions.end(); itr != itr_end; itr++)
+	for (std::unordered_set<std::shared_ptr<pre_session>>::iterator itr = pre_sessions.begin(), itr_end = pre_sessions.end(); itr != itr_end; itr = pre_sessions.erase(itr))
 		(*itr)->shutdown();
-	pre_sessions.clear();
-	for (session_list_type::iterator itr = sessions.begin(), itr_end = sessions.end(); itr != itr_end; itr++)
+	for (session_list_type::iterator itr = sessions.begin(), itr_end = sessions.end(); itr != itr_end; itr = sessions.erase(itr))
 		itr->second->shutdown();
-	sessions.clear();
+	while (session_active_count != 0);
 }
 
 void server::pre_session_over(const std::shared_ptr<pre_session>& _pre, bool successful)
 {
+	std::lock_guard<std::mutex> lock(pre_session_mutex);
 	if (!successful)
 	{
 		if (_pre->get_port() != port_null)
 			free_rand_port(static_cast<port_type>(_pre->get_port()));
 		connected_keys.erase(_pre->get_key());
 	}
+	_pre->shutdown();
 	pre_sessions.erase(_pre);
 }
 
-void server::join(const session_ptr& _user, user_id_type& uid, on_data_handler& handler)
+void server::join(const session_ptr& _user, user_id_type& uid)
 {
 	if (closing)
 		return;
@@ -62,11 +66,10 @@ void server::join(const session_ptr& _user, user_id_type& uid, on_data_handler& 
 	nextID++;
 	sessions.emplace(newID, _user);
 	uid = newID;
-	handler = on_recv_data;
 
 	misc_io_service.post([this, newID, _user]() {
 		try { on_join(newID, _user->get_key()); }
-		catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
+		catch (std::exception &ex) { on_exception(ex); }
 		catch (...) {}
 	});
 }
@@ -83,7 +86,7 @@ void server::leave(user_id_type _user)
 
 	misc_io_service.post([this, _user]() {
 		try { on_leave(_user); }
-		catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
+		catch (std::exception &ex) { on_exception(ex); }
 		catch (...) {}
 	});
 
@@ -94,18 +97,18 @@ void server::leave(user_id_type _user)
 	sessions.erase(itr);
 }
 
-void server::on_recv_data(server* self, user_id_type id, const std::shared_ptr<std::string>& data)
+void server::on_recv_data(user_id_type id, const std::shared_ptr<std::string>& data)
 {
-	if (self->closing)
+	if (closing)
 		return;
-	std::lock_guard<std::mutex> lock(self->session_mutex);
-	session_list_type::iterator itr(self->sessions.find(id));
-	if (itr == self->sessions.end())
+	std::lock_guard<std::mutex> lock(session_mutex);
+	session_list_type::iterator itr(sessions.find(id));
+	if (itr == sessions.end())
 		return;
 	session_ptr this_session = itr->second;
-	self->misc_io_service.post([self, id, data, this_session]() {
-		try { self->on_data(id, *data); }
-		catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
+	misc_io_service.post([this, id, data]() {
+		try { on_data(id, *data); }
+		catch (std::exception &ex) { on_exception(ex); }
 		catch (...) {}
 	});
 }
@@ -159,12 +162,15 @@ void server::connect(const asio::ip::tcp::endpoint& remote_endpoint)
 		socket->open(ip_protocol);
 		socket->bind(asio::ip::tcp::endpoint(ip_protocol, local_port));
 		socket->async_connect(remote_endpoint,
-			[this, local_port, socket](boost::system::error_code ec)
+			[this, local_port, socket](const error_code_type& ec)
 		{
 			if (!ec)
 			{
 				std::shared_ptr<pre_session_c> pre_session_c_ptr(std::make_shared<pre_session_c>(local_port, socket, *this, crypto_srv, main_io_service, misc_io_service));
+				std::unique_lock<std::mutex> lock(pre_session_mutex);
 				pre_sessions.emplace(pre_session_c_ptr);
+				lock.unlock();
+				pre_session_c_ptr->start();
 			}
 			else
 			{
@@ -183,7 +189,7 @@ void server::connect(const asio::ip::tcp::resolver::query& query)
 	else
 	{
 		resolver.async_resolve(query,
-			[this, local_port](const boost::system::error_code& ec, asio::ip::tcp::resolver::iterator itr)
+			[this, local_port](const error_code_type& ec, asio::ip::tcp::resolver::iterator itr)
 		{
 			if (ec)
 			{
@@ -194,7 +200,7 @@ void server::connect(const asio::ip::tcp::resolver::query& query)
 			socket_ptr socket = std::make_shared<asio::ip::tcp::socket>(main_io_service);
 
 			asio::async_connect(*socket, itr, asio::ip::tcp::resolver::iterator(),
-				[this, local_port, socket](const boost::system::error_code& ec, asio::ip::tcp::resolver::iterator next)->asio::ip::tcp::resolver::iterator
+				[this, local_port, socket](const error_code_type&, asio::ip::tcp::resolver::iterator next)->asio::ip::tcp::resolver::iterator
 			{
 				asio::ip::tcp::endpoint::protocol_type ip_protocol = next->endpoint().protocol();
 				socket->close();
@@ -202,12 +208,15 @@ void server::connect(const asio::ip::tcp::resolver::query& query)
 				socket->bind(asio::ip::tcp::endpoint(ip_protocol, local_port));
 				return next;
 			},
-				[this, local_port, socket](boost::system::error_code ec, asio::ip::tcp::resolver::iterator itr)
+				[this, local_port, socket](const error_code_type& ec, asio::ip::tcp::resolver::iterator itr)
 			{
 				if (!ec)
 				{
 					std::shared_ptr<pre_session_c> pre_session_c_ptr(std::make_shared<pre_session_c>(local_port, socket, *this, crypto_srv, main_io_service, misc_io_service));
+					std::unique_lock<std::mutex> lock(pre_session_mutex);
 					pre_sessions.emplace(pre_session_c_ptr);
+					lock.unlock();
+					pre_session_c_ptr->start();
 				}
 				else
 				{

@@ -62,10 +62,11 @@ void proto_kit::do_dec()
 
 void pre_session::read_key_header()
 {
+	std::shared_ptr<pre_session_watcher> watcher_holder(watcher);
 	asio::async_read(*socket,
 		asio::buffer(reinterpret_cast<char*>(&(this->key_size)), sizeof(key_size_type)),
 		asio::transfer_exactly(sizeof(key_size_type)),
-		[this](boost::system::error_code ec, std::size_t size)
+        [this, watcher_holder](const error_code_type& ec, std::size_t)
 	{
 		try
 		{
@@ -79,7 +80,6 @@ void pre_session::read_key_header()
 			if (!exiting)
 			{
 				srv.on_exception(ex);
-				srv.pre_session_over(shared_from_this());
 			}
 		}
 	});
@@ -87,23 +87,21 @@ void pre_session::read_key_header()
 
 void pre_session::read_key()
 {
+	std::shared_ptr<pre_session_watcher> watcher_holder(watcher);
+
 	key_buffer = std::make_unique<char[]>(key_size);
 	asio::async_read(*socket,
 		asio::buffer(key_buffer.get(), key_size),
 		asio::transfer_exactly(key_size),
-		[this](boost::system::error_code ec, std::size_t size)
+        [this, watcher_holder](const error_code_type& ec, std::size_t)
 	{
 		try
 		{
 			if (ec)
 				throw(std::runtime_error("Socket Error:" + ec.message()));
 			key_string.assign(key_buffer.release(), key_size);
-			if (srv.check_key_connected(key_string))
-			{
+			if (key_string.empty() || srv.check_key_connected(key_string))
 				key_string.clear();
-				if (!exiting)
-					srv.pre_session_over(shared_from_this());
-			}
 			else
 				stage1();
 		}
@@ -112,7 +110,6 @@ void pre_session::read_key()
 			if (!exiting)
 			{
 				srv.on_exception(ex);
-				srv.pre_session_over(shared_from_this());
 			}
 		}
 	});
@@ -120,16 +117,29 @@ void pre_session::read_key()
 
 void pre_session::write_secret()
 {
-	misc_io_service.post([this]() {
-		dhGen(priv, pubA);
+	std::shared_ptr<pre_session_watcher> watcher_holder(watcher);
+
+	misc_io_service.post([this, watcher_holder]() {
 		std::shared_ptr<std::string> buf = std::make_shared<std::string>();
-		encrypt(pubA.BytePtr(), pubA.SizeInBytes(), *buf, e1);
-		key_size_type len = boost::endian::native_to_little(static_cast<key_size_type>(buf->size()));
-		buf->insert(0, reinterpret_cast<const char*>(&len), sizeof(key_size_type));
+		try
+		{
+			dhGen(priv, pubA);
+			encrypt(pubA.BytePtr(), pubA.SizeInBytes(), *buf, e1);
+			key_size_type len = boost::endian::native_to_little(static_cast<key_size_type>(buf->size()));
+			buf->insert(0, reinterpret_cast<const char*>(&len), sizeof(key_size_type));
+		}
+		catch (std::exception &ex)
+		{
+			if (!exiting)
+			{
+				srv.on_exception(ex);
+				return;
+			}
+		}
 
 		asio::async_write(*socket,
 			asio::buffer(buf->data(), buf->size()),
-			[this, buf](boost::system::error_code ec, std::size_t)
+			[this, buf, watcher_holder](const error_code_type& ec, std::size_t)
 		{
 			try
 			{
@@ -142,7 +152,6 @@ void pre_session::write_secret()
 				if (!exiting)
 				{
 					srv.on_exception(ex);
-					srv.pre_session_over(shared_from_this());
 				}
 			}
 		});
@@ -151,10 +160,12 @@ void pre_session::write_secret()
 
 void pre_session::read_secret_header()
 {
+	std::shared_ptr<pre_session_watcher> watcher_holder(watcher);
+
 	asio::async_read(*socket,
 		asio::buffer(reinterpret_cast<char*>(&(this->pubB_size)), sizeof(key_size_type)),
 		asio::transfer_exactly(sizeof(key_size_type)),
-		[this](boost::system::error_code ec, std::size_t size)
+        [this, watcher_holder](const error_code_type& ec, std::size_t)
 	{
 		try
 		{
@@ -168,7 +179,6 @@ void pre_session::read_secret_header()
 			if (!exiting)
 			{
 				srv.on_exception(ex);
-				srv.pre_session_over(shared_from_this());
 			}
 		}
 	});
@@ -176,50 +186,46 @@ void pre_session::read_secret_header()
 
 void pre_session::read_secret()
 {
+	std::shared_ptr<pre_session_watcher> watcher_holder(watcher);
+
 	pubB_buffer = std::make_unique<char[]>(pubB_size);
 	asio::async_read(*socket,
 		asio::buffer(pubB_buffer.get(), pubB_size),
 		asio::transfer_exactly(pubB_size),
-		[this](boost::system::error_code ec, std::size_t size)
+		[this, watcher_holder](const error_code_type& ec, std::size_t)
 	{
-		if (!ec)
-		{
-			misc_io_service.post([this]() {
-				try
-				{
-					decrypt(reinterpret_cast<byte*>(pubB_buffer.get()), pubB_size, pubB, GetPublicKey());
-					if (!dhAgree(key, priv, pubB))
-						throw(std::runtime_error("Failed to reach shared secret"));
-					write_iv();
-				}
-				catch (std::exception &ex)
-				{
-					if (!exiting)
-					{
-						std::cerr << ex.what() << std::endl;
-						srv.pre_session_over(shared_from_this());
-					}
-				}
-			});
-		}
-		else
+		if (ec)
 		{
 			if (!exiting)
-			{
 				srv.on_exception("Socket Error:" + ec.message());
-				srv.pre_session_over(shared_from_this());
-			}
+			return;
 		}
+		misc_io_service.post([this, watcher_holder]() {
+			try
+			{
+				decrypt(reinterpret_cast<byte*>(pubB_buffer.get()), pubB_size, pubB, GetPublicKey());
+				if (!dhAgree(key, priv, pubB))
+					throw(std::runtime_error("Failed to reach shared secret"));
+				write_iv();
+			}
+			catch (std::exception &ex)
+			{
+				if (!exiting)
+					srv.on_exception(ex);
+			}
+		});
 	});
 }
 
 void pre_session::write_iv()
 {
+	std::shared_ptr<pre_session_watcher> watcher_holder(watcher);
+
 	std::shared_ptr<CryptoPP::SecByteBlock> iv = std::make_shared<CryptoPP::SecByteBlock>(sym_key_size);
 	init_sym_encryption(e, key, *iv);
 	asio::async_write(*socket,
 		asio::buffer(reinterpret_cast<char*>(iv->data()), iv->SizeInBytes()),
-		[this, iv](boost::system::error_code ec, std::size_t)
+		[this, watcher_holder, iv](const error_code_type& ec, std::size_t)
 	{
 		try
 		{
@@ -232,7 +238,6 @@ void pre_session::write_iv()
 			if (!exiting)
 			{
 				srv.on_exception(ex);
-				srv.pre_session_over(shared_from_this());
 			}
 		}
 	});
@@ -240,10 +245,12 @@ void pre_session::write_iv()
 
 void pre_session::read_iv()
 {
+	std::shared_ptr<pre_session_watcher> watcher_holder(watcher);
+
 	asio::async_read(*socket,
 		asio::buffer(reinterpret_cast<char*>(iv_buffer), sym_key_size),
 		asio::transfer_exactly(sym_key_size),
-		[this](boost::system::error_code ec, std::size_t size)
+        [this, watcher_holder](const error_code_type& ec, std::size_t)
 	{
 		try
 		{
@@ -257,7 +264,6 @@ void pre_session::read_iv()
 			if (!exiting)
 			{
 				srv.on_exception(ex);
-				srv.pre_session_over(shared_from_this());
 			}
 		}
 	});
@@ -265,10 +271,12 @@ void pre_session::read_iv()
 
 void pre_session::read_session_id(int check_level, bool ignore_error)
 {
+	std::shared_ptr<pre_session_watcher> watcher_holder(watcher);
+
 	asio::async_read(*socket,
 		asio::buffer(reinterpret_cast<char*>(&sid_packet_size), sizeof(data_size_type)),
 		asio::transfer_exactly(sizeof(data_size_type)),
-		[this, check_level, ignore_error](boost::system::error_code ec, std::size_t size)
+        [this, watcher_holder, check_level, ignore_error](const error_code_type& ec, std::size_t)
 	{
 		try
 		{
@@ -284,7 +292,6 @@ void pre_session::read_session_id(int check_level, bool ignore_error)
 			{
 				if (!ignore_error)
 					srv.on_exception(ex);
-				srv.pre_session_over(shared_from_this());
 			}
 		}
 	});
@@ -292,123 +299,112 @@ void pre_session::read_session_id(int check_level, bool ignore_error)
 
 void pre_session::read_session_id_body(int check_level)
 {
+	std::shared_ptr<pre_session_watcher> watcher_holder(watcher);
+
 	sid_packet_buffer = std::make_unique<char[]>(sid_packet_size);
 	asio::async_read(*socket,
 		asio::buffer(sid_packet_buffer.get(), sid_packet_size),
 		asio::transfer_exactly(sid_packet_size),
-		[this, check_level](boost::system::error_code ec, std::size_t size)
+		[this, watcher_holder, check_level](const error_code_type& ec, std::size_t)
 	{
-		if (!ec)
-		{
-			misc_io_service.post([this, check_level]() {
-				try
-				{
-					std::string raw_data, data(sid_packet_buffer.get(), sid_packet_size);
-					decrypt(data, raw_data, GetPublicKey());
-					sym_decrypt(raw_data, data, d);
-					
-					std::string hash_recv(data, data.size() - hash_size), hash_real;
-					hash(data, hash_real, hash_size);
-					if (hash_recv != hash_real)
-					{
-						std::cerr << "Error:Hashing failed" << std::endl;
-						main_io_service.post([this]() {
-							if (!exiting)
-								srv.pre_session_over(shared_from_this());
-						});
-					}
-					else
-					{
-						switch (check_level)
-						{
-							case 0:	//Read only
-							{
-								memcpy(reinterpret_cast<char*>(&session_id), data.data(), sizeof(session_id_type));
-								memcpy(reinterpret_cast<char*>(&rand_num), data.data() + sizeof(session_id_type), sizeof(rand_num_type));
-								rand_num = boost::endian::native_to_little(boost::endian::little_to_native(rand_num) + 1);
-								break;
-							}
-							case 1:	//Check sid
-							{
-								session_id_type recv_session_id;
-								memcpy(reinterpret_cast<char*>(&recv_session_id), data.data(), sizeof(session_id_type));
-								if (recv_session_id != session_id)
-								{
-									std::cerr << "Error:Checking failed" << std::endl;
-									main_io_service.post([this]() {
-										if (!exiting)
-											srv.pre_session_over(shared_from_this());
-									});
-									throw(msgr_proto_error());
-								}
-								memcpy(reinterpret_cast<char*>(&rand_num), data.data() + sizeof(session_id_type), sizeof(rand_num_type));
-								rand_num = boost::endian::native_to_little(boost::endian::little_to_native(rand_num) + 1);
-								break;
-							}
-							case 2:	//Check all
-							{
-								session_id_type recv_session_id;
-								rand_num_type recv_rand_num;
-								memcpy(reinterpret_cast<char*>(&recv_session_id), data.data(), sizeof(session_id_type));
-								memcpy(reinterpret_cast<char*>(&recv_rand_num), data.data() + sizeof(session_id_type), sizeof(rand_num_type));
-
-								if ((recv_session_id != session_id) || boost::endian::little_to_native(recv_rand_num) != rand_num_send)
-								{
-									std::cerr << "Error:Checking failed" << std::endl;
-									main_io_service.post([this]() {
-										if (!exiting)
-											srv.pre_session_over(shared_from_this());
-									});
-									throw(msgr_proto_error());
-								}
-								break;
-							}
-						}
-
-						sid_packet_done();
-					}
-				}
-				catch (msgr_proto_error &) {}
-				catch (std::exception &ex)
-				{
-					std::cerr << ex.what() << std::endl;
-					main_io_service.post([this]() {
-						if (!exiting)
-							srv.pre_session_over(shared_from_this());
-					});
-				}
-			});
-		}
-		else
+		if (ec)
 		{
 			if (!exiting)
 			{
-				srv.on_exception("Error:Checking failed");
-				srv.pre_session_over(shared_from_this());
+				srv.on_exception("Socket Error:" + ec.message());
+				return;
 			}
 		}
+		misc_io_service.post([this, watcher_holder, check_level]() {
+			try
+			{
+				std::string raw_data, data(sid_packet_buffer.get(), sid_packet_size);
+				decrypt(data, raw_data, GetPublicKey());
+				sym_decrypt(raw_data, data, d);
+
+				std::string hash_recv(data, data.size() - hash_size), hash_real;
+				hash(data, hash_real, hash_size);
+				if (hash_recv != hash_real)
+					throw(msgr_proto_error("Error:Hashing failed"));
+
+				switch (check_level)
+				{
+					case 0:	//Read only
+					{
+						memcpy(reinterpret_cast<char*>(&session_id), data.data(), sizeof(session_id_type));
+						memcpy(reinterpret_cast<char*>(&rand_num), data.data() + sizeof(session_id_type), sizeof(rand_num_type));
+						rand_num = boost::endian::native_to_little(boost::endian::little_to_native(rand_num) + 1);
+						break;
+					}
+					case 1:	//Check sid
+					{
+						session_id_type recv_session_id;
+						memcpy(reinterpret_cast<char*>(&recv_session_id), data.data(), sizeof(session_id_type));
+						if (recv_session_id != session_id)
+							throw(msgr_proto_error("Error:Checking failed"));
+						memcpy(reinterpret_cast<char*>(&rand_num), data.data() + sizeof(session_id_type), sizeof(rand_num_type));
+						rand_num = boost::endian::native_to_little(boost::endian::little_to_native(rand_num) + 1);
+						break;
+					}
+					case 2:	//Check all
+					{
+						session_id_type recv_session_id;
+						rand_num_type recv_rand_num;
+						memcpy(reinterpret_cast<char*>(&recv_session_id), data.data(), sizeof(session_id_type));
+						memcpy(reinterpret_cast<char*>(&recv_rand_num), data.data() + sizeof(session_id_type), sizeof(rand_num_type));
+
+						if ((recv_session_id != session_id) || boost::endian::little_to_native(recv_rand_num) != rand_num_send)
+							throw(msgr_proto_error("Error:Checking failed"));
+						break;
+					}
+				}
+
+				sid_packet_done();
+			}
+			catch (msgr_proto_error &ex)
+			{
+				srv.on_exception(ex);
+			}
+			catch (std::exception &ex)
+			{
+				srv.on_exception(ex);
+			}
+		});
 	});
 }
 
 void pre_session::write_session_id()
 {
-	misc_io_service.post([this]() {
+	std::shared_ptr<pre_session_watcher> watcher_holder(watcher);
+
+	misc_io_service.post([this, watcher_holder]() {
 		std::string data_buf_2;
 		std::shared_ptr<std::string> data_buf_1 = std::make_shared<std::string>();
 
-		data_buf_1->append(reinterpret_cast<char*>(&session_id), sizeof(session_id_type));
-		data_buf_1->append(reinterpret_cast<char*>(&rand_num), sizeof(rand_num_type));
+		try
+		{
+			data_buf_1->append(reinterpret_cast<char*>(&session_id), sizeof(session_id_type));
+			data_buf_1->append(reinterpret_cast<char*>(&rand_num), sizeof(rand_num_type));
 
-		hash(*data_buf_1, *data_buf_1);
+			hash(*data_buf_1, *data_buf_1);
 
-		sym_encrypt(*data_buf_1, data_buf_2, e);
-		encrypt(data_buf_2, *data_buf_1, e1);
-		
-		insLen(*data_buf_1);
+			sym_encrypt(*data_buf_1, data_buf_2, e);
+			encrypt(data_buf_2, *data_buf_1, e1);
+
+			insLen(*data_buf_1);
+		}
+		catch (std::exception &ex)
+		{
+			if (!exiting)
+			{
+				srv.on_exception(ex);
+				return;
+			}
+		}
 
 		asio::async_write(*socket,
 			asio::buffer(data_buf_1->data(), data_buf_1->size()),
-			[this, data_buf_1](boost::system::error_code ec, std::size_t size)
+            [this, watcher_holder, data_buf_1](const error_code_type& ec, std::size_t)
 		{
 			try
 			{
@@ -421,22 +417,41 @@ void pre_session::write_session_id()
 				if (!exiting)
 				{
 					srv.on_exception(ex);
-					srv.pre_session_over(shared_from_this());
 				}
 			}
 		});
 	});
 }
 
+pre_session::pre_session_watcher::~pre_session_watcher()
+{
+	if (!ptr->exiting)
+		srv.pre_session_over(ptr);
+}
+
 void pre_session_s::start()
 {
+	std::shared_ptr<pre_session_watcher> watcher_holder = std::make_shared<pre_session_watcher>(srv, shared_from_this());
+	watcher = watcher_holder;
+
 	std::shared_ptr<std::string> buffer = std::make_shared<std::string>(srv.get_public_key());
-	key_size_type e0len = boost::endian::native_to_little(static_cast<key_size_type>(buffer->size()));
-	buffer->insert(0, reinterpret_cast<const char*>(&e0len), sizeof(key_size_type));
+	try
+	{
+		key_size_type e0len = boost::endian::native_to_little(static_cast<key_size_type>(buffer->size()));
+		buffer->insert(0, reinterpret_cast<const char*>(&e0len), sizeof(key_size_type));
+	}
+	catch (std::exception &ex)
+	{
+		if (!exiting)
+		{
+			srv.on_exception(ex);
+			return;
+		}
+	}
 
 	asio::async_write(*socket,
 		asio::buffer(*buffer),
-		[this, buffer](boost::system::error_code ec, std::size_t size)
+        [this, buffer, watcher_holder](const error_code_type& ec, std::size_t)
 	{
 		try
 		{
@@ -449,7 +464,6 @@ void pre_session_s::start()
 			if (!exiting)
 			{
 				srv.on_exception(ex);
-				srv.pre_session_over(shared_from_this());
 			}
 		}
 	});
@@ -457,6 +471,7 @@ void pre_session_s::start()
 
 void pre_session_s::stage1()
 {
+	std::shared_ptr<pre_session_watcher> watcher_holder(watcher);
 	try
 	{
 		CryptoPP::StringSource keySource(key_string, true);
@@ -469,13 +484,13 @@ void pre_session_s::stage1()
 		if (!exiting)
 		{
 			srv.on_exception(ex);
-			srv.pre_session_over(shared_from_this());
 		}
 	}
 }
 
 void pre_session_s::stage2()
 {
+	std::shared_ptr<pre_session_watcher> watcher_holder(watcher);
 	try
 	{
 		session_id = boost::endian::native_to_little(genRandomNumber());
@@ -493,13 +508,13 @@ void pre_session_s::stage2()
 		if (!exiting)
 		{
 			srv.on_exception(ex);
-			srv.pre_session_over(shared_from_this());
 		}
 	}
 }
 
 void pre_session_s::sid_packet_done()
 {
+	std::shared_ptr<pre_session_watcher> watcher_holder(watcher);
 	try
 	{
 		switch (stage)
@@ -516,17 +531,12 @@ void pre_session_s::sid_packet_done()
 				break;
 			case 3:
 			{
-				session_ptr new_user = std::make_shared<session>(srv, local_port, key_string, std::move(proto_data),
+				session_ptr new_user = std::make_shared<session>(srv, local_port, key_string, proto_data,
 					main_io_service, misc_io_service, std::move(socket));
 				new_user->join();
 				new_user->start();
 
-				passed = true;
-
-				main_io_service.post([this]() {
-					if (!exiting)
-						srv.pre_session_over(shared_from_this(), true);
-				});
+				successful = true;
 
 				break;
 			}
@@ -536,22 +546,32 @@ void pre_session_s::sid_packet_done()
 	catch (std::exception &ex)
 	{
 		srv.on_exception(ex);
-		main_io_service.post([this]() {
-			if (!exiting)
-				srv.pre_session_over(shared_from_this());
-		});
 	}
 }
 
 void pre_session_c::start()
 {
+	std::shared_ptr<pre_session_watcher> watcher_holder = std::make_shared<pre_session_watcher>(srv, shared_from_this());
+	watcher = watcher_holder;
+
 	std::shared_ptr<std::string> buffer = std::make_shared<std::string>(srv.get_public_key());
-	key_size_type e0len = boost::endian::native_to_little(static_cast<key_size_type>(buffer->size()));
-	buffer->insert(0, reinterpret_cast<const char*>(&e0len), sizeof(key_size_type));
+	try
+	{
+		key_size_type e0len = boost::endian::native_to_little(static_cast<key_size_type>(buffer->size()));
+		buffer->insert(0, reinterpret_cast<const char*>(&e0len), sizeof(key_size_type));
+	}
+	catch (std::exception &ex)
+	{
+		if (!exiting)
+		{
+			srv.on_exception(ex);
+			return;
+		}
+	}
 
 	asio::async_write(*socket,
 		asio::buffer(*buffer),
-		[this, buffer](boost::system::error_code ec, std::size_t size)
+        [this, buffer, watcher_holder](const error_code_type& ec, std::size_t)
 	{
 		try
 		{
@@ -564,7 +584,6 @@ void pre_session_c::start()
 			if (!exiting)
 			{
 				srv.on_exception(ex);
-				srv.pre_session_over(shared_from_this());
 			}
 		}
 	});
@@ -572,6 +591,7 @@ void pre_session_c::start()
 
 void pre_session_c::stage1()
 {
+	std::shared_ptr<pre_session_watcher> watcher_holder(watcher);
 	try
 	{
 		CryptoPP::StringSource keySource(key_string, true);
@@ -584,13 +604,13 @@ void pre_session_c::stage1()
 		if (!exiting)
 		{
 			srv.on_exception(ex);
-			srv.pre_session_over(shared_from_this());
 		}
 	}
 }
 
 void pre_session_c::stage2()
 {
+	std::shared_ptr<pre_session_watcher> watcher_holder(watcher);
 	try
 	{
 		stage = 0;
@@ -601,13 +621,13 @@ void pre_session_c::stage2()
 		if (!exiting)
 		{
 			srv.on_exception(ex);
-			srv.pre_session_over(shared_from_this());
 		}
 	}
 }
 
 void pre_session_c::sid_packet_done()
 {
+	std::shared_ptr<pre_session_watcher> watcher_holder(watcher);
 	try
 	{
 		switch (stage)
@@ -630,17 +650,12 @@ void pre_session_c::sid_packet_done()
 				break;
 			case 3:
 			{
-				session_ptr new_user = std::make_shared<session>(srv, local_port, key_string, std::move(proto_data),
+				session_ptr new_user = std::make_shared<session>(srv, local_port, key_string, proto_data,
 					main_io_service, misc_io_service, std::move(socket));
 				new_user->join();
 				new_user->start();
 
-				passed = true;
-
-				main_io_service.post([this]() {
-					if (!exiting)
-						srv.pre_session_over(shared_from_this(), true);
-				});
+				successful = true;
 
 				break;
 			}
@@ -650,103 +665,83 @@ void pre_session_c::sid_packet_done()
 	catch (std::exception &ex)
 	{
 		srv.on_exception(ex);
-		main_io_service.post([this]() {
-			if (!exiting)
-				srv.pre_session_over(shared_from_this());
-		});
 	}
 }
 
-void session_base::join()
+session_base::session_base(server& _srv, port_type_l _local_port, const std::string& _key_string)
+	:srv(_srv), local_port(_local_port), key_string(_key_string)
 {
-	srv.join(shared_from_this(), uid);
+	srv.session_active_count++;
 }
 
-void virtual_session::send(const std::string& data, int priority, write_callback&& callback)
+session_base::~session_base()
 {
-	if (on_data)
-		on_data(data);
+	srv.session_active_count--;
+}
+
+void virtual_session::send(const std::string& data, int, write_callback&& callback)
+{
+	if (on_recv_data)
+		on_recv_data(data);
 	callback();
 }
 
-void virtual_session::send(std::string&& data, int priority, write_callback&& callback)
+void virtual_session::send(std::string&& data, int, write_callback&& callback)
 {
-	if (on_data)
-		on_data(data);
+	if (on_recv_data)
+		on_recv_data(data);
 	callback();
 }
 
 void virtual_session::push(const std::string& data)
 {
-	srv.on_recv_data(uid, std::make_shared<std::string>(data));
+	on_data(uid, std::make_shared<std::string>(data));
 }
 
 void virtual_session::push(std::string&& data)
 {
-	srv.on_recv_data(uid, std::make_shared<std::string>(data));
+	on_data(uid, std::make_shared<std::string>(data));
 }
 
 void session::start()
 {
-	read_header();
+	read_header(std::make_shared<read_end_watcher>(srv, *this));
 }
 
 void session::shutdown()
 {
 	exiting = true;
-	boost::system::error_code ec;
+	error_code_type ec;
 	socket->shutdown(socket->shutdown_both, ec);
 	socket->close(ec);
-	for (const write_task &task : write_que)
-	{
-		try
-		{
-			task.callback();
-		}
-		catch (...) {}
-	}
+
 	crypto_kit->stop();
+	crypto_kit = nullptr;
 }
 
 void session::send(const std::string& data, int priority, write_callback&& callback)
 {
-	session_ptr self = shared_from_this();
+	if (exiting)
+		return;
 	if (data.empty())
 		return;
 	
-	std::shared_ptr<write_task> new_task = std::make_shared<write_task>(data, priority, std::move(callback));
-
-	main_iosrv.post([this, self, new_task, priority]() {
-		bool write_not_in_progress = write_que.empty();
-
-		write_que_tp::iterator itr = write_que.begin(), itrEnd = write_que.end();
-		for (; itr != itrEnd; itr++)
-		{
-			if (priority > itr->priority)
-			{
-				write_que.insert(itr, std::move(*new_task));
-				break;
-			}
-		}
-		if (itr == itrEnd)
-			write_que.push_back(std::move(*new_task));
-
-		if (write_not_in_progress)
-		{
-			write();
-		}
-	});
+	send(std::make_shared<write_task>(data, priority, std::move(callback)));
 }
 
 void session::send(std::string&& data, int priority, write_callback&& callback)
 {
-	session_ptr self = shared_from_this();
+	if (exiting)
+		return;
 	if (data.empty())
 		return;
 
-	std::shared_ptr<write_task> new_task = std::make_shared<write_task>(std::move(data), priority, std::move(callback));
+	send(std::make_shared<write_task>(std::move(data), priority, std::move(callback)));
+}
 
-	main_iosrv.post([this, self, new_task, priority]() {
+void session::send(std::shared_ptr<write_task>&& task)
+{
+	main_iosrv.post([this, self = shared_from_this(), task, priority = task->priority]() {
 		bool write_not_in_progress = write_que.empty();
 
 		write_que_tp::iterator itr = write_que.begin(), itrEnd = write_que.end();
@@ -754,146 +749,121 @@ void session::send(std::string&& data, int priority, write_callback&& callback)
 		{
 			if (priority > itr->priority)
 			{
-				write_que.insert(itr, std::move(*new_task));
+				write_que.insert(itr, std::move(*task));
 				break;
 			}
 		}
 		if (itr == itrEnd)
-			write_que.push_back(std::move(*new_task));
+			write_que.push_back(std::move(*task));
 
 		if (write_not_in_progress)
+			write(std::make_shared<write_end_watcher>(srv, *this));
+	});
+}
+
+void session::read_header(const std::shared_ptr<read_end_watcher>& watcher)
+{
+	session_ptr self = shared_from_this();
+	asio::async_read(*socket,
+		asio::buffer(read_buffer.get(), sizeof(data_size_type)),
+		asio::transfer_exactly(sizeof(data_size_type)),
+		[this, self, watcher](const error_code_type& ec, std::size_t size)
+	{
+		try
 		{
-			write();
+			if (ec)
+				throw(std::runtime_error("Socket Error:" + ec.message()));
+			data_size_type size_recv = *(reinterpret_cast<data_size_type*>(read_buffer.get()));
+			size_recv = boost::endian::little_to_native(size_recv);
+			read_data(size_recv, std::make_shared<std::string>(), watcher);
+		}
+		catch (std::exception &ex)
+		{
+			if (!exiting)
+				if (size != 0)
+					srv.on_exception(ex);
 		}
 	});
 }
 
-void session::read_header()
+void session::read_data(size_t size_last, const std::shared_ptr<std::string>& buf, const std::shared_ptr<read_end_watcher>& watcher)
 {
-	try
+	session_ptr self = shared_from_this();
+	if (size_last > read_buffer_size)
 	{
-		session_ptr self = shared_from_this();
 		asio::async_read(*socket,
-			asio::buffer(read_buffer.get(), sizeof(data_size_type)),
-			asio::transfer_exactly(sizeof(data_size_type)),
-			[this, self](boost::system::error_code ec, std::size_t size)
+			asio::buffer(read_buffer.get(), read_buffer_size),
+			asio::transfer_exactly(read_buffer_size),
+			[this, self, size_last, buf, watcher](const error_code_type& ec, std::size_t size)
 		{
 			try
 			{
 				if (ec)
 					throw(std::runtime_error("Socket Error:" + ec.message()));
-				data_size_type size_recv = *(reinterpret_cast<data_size_type*>(read_buffer.get()));
-				size_recv = boost::endian::little_to_native(size_recv);
-				read_data(size_recv, std::make_shared<std::string>());
+				buf->append(read_buffer.get(), size);
+				read_data(size_last - size, buf, watcher);
 			}
 			catch (std::exception &ex)
 			{
 				if (!exiting)
-				{
-					if (size != 0)
-						srv.on_exception(ex);
-					srv.leave(uid);
-				}
+					srv.on_exception(ex);
 			}
 		});
 	}
-	catch (std::exception &ex)
+	else
 	{
-		if (!exiting)
+		asio::async_read(*socket,
+			asio::buffer(read_buffer.get(), size_last),
+			asio::transfer_exactly(size_last),
+			[this, self, buf, watcher](const error_code_type& ec, std::size_t size)
 		{
-			srv.on_exception(ex);
-			srv.leave(uid);
-		}
+			try
+			{
+				if (ec)
+					throw(std::runtime_error("Socket Error:" + ec.message()));
+				buf->append(read_buffer.get(), size);
+				process_data(buf, watcher);
+			}
+			catch (std::exception &ex)
+			{
+				if (!exiting)
+					srv.on_exception(ex);
+			}
+		});
 	}
 }
 
-void session::read_data(size_t size_last, const std::shared_ptr<std::string>& buf)
-{
-	try
-	{
-		session_ptr self = shared_from_this();
-		if (size_last > read_buffer_size)
-		{
-			asio::async_read(*socket,
-				asio::buffer(read_buffer.get(), read_buffer_size),
-				asio::transfer_exactly(read_buffer_size),
-				[this, self, size_last, buf](boost::system::error_code ec, std::size_t size)
-			{
-				try
-				{
-					if (ec)
-						throw(std::runtime_error("Socket Error:" + ec.message()));
-					buf->append(read_buffer.get(), size);
-					read_data(size_last - size, buf);
-				}
-				catch (std::exception &ex)
-				{
-					if (!exiting)
-					{
-						srv.on_exception(ex);
-						srv.leave(uid);
-					}
-				}
-			});
-		}
-		else
-		{
-			asio::async_read(*socket,
-				asio::buffer(read_buffer.get(), size_last),
-				asio::transfer_exactly(size_last),
-				[this, self, buf](boost::system::error_code ec, std::size_t size)
-			{
-				try
-				{
-					if (ec)
-						throw(std::runtime_error("Socket Error:" + ec.message()));
-					buf->append(read_buffer.get(), size);
-					process_data(buf);
-					start();
-				}
-				catch (std::exception &ex)
-				{
-					if (!exiting)
-					{
-						srv.on_exception(ex);
-						srv.leave(uid);
-					}
-				}
-			});
-		}
-	}
-	catch (std::exception &ex)
-	{
-		if (!exiting)
-		{
-			srv.on_exception(ex);
-			srv.leave(uid);
-		}
-	}
-}
-
-void session::process_data(const std::shared_ptr<std::string>& buf)
+void session::process_data(const std::shared_ptr<std::string>& buf, const std::shared_ptr<read_end_watcher>& watcher)
 {
 	session_ptr self = shared_from_this();
 
-	crypto_kit->dec(*buf, [this, self, buf](bool success, const std::string& ex) {
+	crypto_kit->dec(*buf, [this, self, buf, watcher](bool success, const std::string& ex) {
+		if (exiting)
+			return;
 		if (success)
 		{
-			main_iosrv.post([this, self, buf]() {
-				srv.on_recv_data(uid, buf);
-			});
+			on_data(uid, buf);
+			read_header(watcher);
 		}
 		else
 		{
 			srv.on_exception(ex);
-			srv.leave(uid);
 		}
 	});
 }
 
-void session::write()
+session::read_end_watcher::~read_end_watcher()
 {
+	if (!s.exiting)
+		srv.leave(s.uid);
+}
+
+void session::write(const std::shared_ptr<write_end_watcher>& watcher)
+{
+	if (exiting)
+		return;
 	session_ptr self = shared_from_this();
+
 	write_que_tp::iterator write_itr;
 	try
 	{
@@ -904,32 +874,30 @@ void session::write()
 			write_itr->callback();
 			write_itr = write_que.erase(write_itr);
 			if (write_itr == write_que_end)
+			{
+				watcher->set_normal();
 				return;
+			}
 		}
 	}
 	catch (std::exception &ex)
 	{
 		if (!exiting)
-		{
 			srv.on_exception(ex);
-			srv.leave(uid);
-		}
 	}
 
-	crypto_kit->enc(write_itr->data, [this, self, write_itr](bool success, const std::string& ex) {
+	crypto_kit->enc(write_itr->data, [this, self, watcher, write_itr](bool success, const std::string& ex) {
+		if (exiting)
+			return;
 		if (!success)
 		{
-			if (!exiting)
-			{
-				srv.on_exception(ex);
-				srv.leave(uid);
-			}
+			srv.on_exception(ex);
 			return;
 		}
 
 		asio::async_write(*socket,
 			asio::buffer(write_itr->data),
-			[this, self, write_itr](boost::system::error_code ec, std::size_t /*length*/)
+			[this, self, watcher, write_itr](const error_code_type& ec, std::size_t /*length*/)
 		{
 			try
 			{
@@ -938,16 +906,39 @@ void session::write()
 				write_itr->callback();
 				write_que.erase(write_itr);
 				if (!write_que.empty())
-					write();
+					write(watcher);
+				else
+					watcher->set_normal();
 			}
 			catch (std::exception &ex)
 			{
 				if (!exiting)
-				{
 					srv.on_exception(ex);
-					srv.leave(uid);
-				}
 			}
 		});
 	});
+}
+
+void session::write_end()
+{
+	if (!exiting)
+		return;
+	main_iosrv.post([this, self = shared_from_this()]() {
+		for (write_que_tp::iterator itr = write_que.begin(), itr_end = write_que.end(); itr != itr_end; itr = write_que.erase(itr))
+		{
+			try
+			{
+				itr->callback();
+			}
+			catch (...) {}
+		}
+		write_que.clear();
+	});
+}
+
+session::write_end_watcher::~write_end_watcher()
+{
+	s.write_end();
+	if (!s.exiting && !normal_quit)
+		srv.leave(s.uid);
 }
