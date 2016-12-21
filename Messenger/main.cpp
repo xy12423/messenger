@@ -29,11 +29,15 @@ EVT_CLOSE(mainFrame::mainFrame_Close)
 wxEND_EVENT_TABLE()
 
 #ifdef __WXMSW__
-const int _GUI_SIZE_X = 620;
-const int _GUI_SIZE_Y = 560;
+constexpr int _GUI_SIZE_X = 620;
+constexpr int _GUI_SIZE_Y = 560;
+constexpr int _GUI_SIZE_CLIENT_X = 604;
+constexpr int _GUI_SIZE_CLIENT_Y = 521;
 #else
-const int _GUI_SIZE_X = 600;
-const int _GUI_SIZE_Y = 540;
+constexpr int _GUI_SIZE_X = 600;
+constexpr int _GUI_SIZE_Y = 520;
+constexpr int _GUI_SIZE_CLIENT_X = 600;
+constexpr int _GUI_SIZE_CLIENT_Y = 520;
 #endif
 
 FileSendThread *threadFileSend;
@@ -134,7 +138,7 @@ bool plugin_handler_VirtualUserMsg(plugin_id_type plugin_id, uint16_t virtual_us
 		plugin_info_type &info = plugin_info.at(plugin_id);
 		if (info.virtual_user_list.find(virtual_user_id) != info.virtual_user_list.end())
 		{
-			std::dynamic_pointer_cast<msgr_proto::virtual_session>(srv->get_session(virtual_user_id))->push(std::string(message, size));
+			dynamic_cast<msgr_proto::virtual_session&>(srv->get_session(virtual_user_id)).push(std::string(message, size));
 			return true;
 		}
 	}
@@ -262,7 +266,7 @@ mainFrame::mainFrame(const wxString& title)
 	wxAcceleratorTable accel(entry_count, entries);
 	SetAcceleratorTable(accel);
 
-	textStrm.swap(std::make_unique<textStream>(this, textInfo));
+	textStrm = std::make_unique<textStream>(this, textInfo);
 	cout_orig = std::cout.rdbuf();
 	std::cout.rdbuf(textStrm.get());
 	cerr_orig = std::cerr.rdbuf();
@@ -304,54 +308,104 @@ mainFrame::mainFrame(const wxString& title)
 	}
 }
 
-#define REPOSITION(control, id) (control)->SetPosition(wxPoint(static_cast<int>(itemPos[id].x * ratio_x), static_cast<int>(itemPos[id].y * ratio_y)))
-#define RESIZE(control, id) (control)->SetSize(wxSize(static_cast<int>(itemSize[id].x * ratio_x), static_cast<int>(itemSize[id].y * ratio_y)))
-
 void mainFrame::mainFrame_Resize(wxSizeEvent& event)
 {
-	panel->SetSize(wxSize(event.GetSize().GetWidth(), event.GetSize().GetHeight()));
-	double ratio_x = event.GetSize().GetWidth(), ratio_y = event.GetSize().GetHeight();
-	ratio_x /= _GUI_SIZE_X;
-	ratio_y /= _GUI_SIZE_Y;
+	int x_size = GetClientSize().GetWidth(), y_size = GetClientSize().GetHeight();
+	panel->SetSize(wxSize(x_size, y_size));
+	
+	double x_ratio = x_size, y_ratio = y_size;
+	x_ratio /= _GUI_SIZE_CLIENT_X;
+	y_ratio /= _GUI_SIZE_CLIENT_Y;
 
-	REPOSITION(labelListUser, ID_LABELLISTUSER);
-	REPOSITION(listUser, ID_LISTUSER);
-	REPOSITION(buttonAdd, ID_BUTTONADD);
-	REPOSITION(buttonDel, ID_BUTTONDEL);
-	REPOSITION(textMsg, ID_TEXTMSG);
-	REPOSITION(textInput, ID_TEXTINPUT);
-	REPOSITION(buttonSend, ID_BUTTONSEND);
-	REPOSITION(buttonSendImage, ID_BUTTONSENDIMAGE);
-	REPOSITION(buttonSendFile, ID_BUTTONSENDFILE);
-	REPOSITION(buttonCancelSend, ID_BUTTONCANCELSEND);
-	REPOSITION(textInfo, ID_TEXTINFO);
+	constexpr int default_border = 12;
+	constexpr int default_gap = 6;
 
-	RESIZE(labelListUser, ID_LABELLISTUSER);
-	RESIZE(listUser, ID_LISTUSER);
-	RESIZE(buttonAdd, ID_BUTTONADD);
-	RESIZE(buttonDel, ID_BUTTONDEL);
-	RESIZE(textMsg, ID_TEXTMSG);
-	RESIZE(textInput, ID_TEXTINPUT);
-	RESIZE(buttonSend, ID_BUTTONSEND);
-	RESIZE(buttonSendImage, ID_BUTTONSENDIMAGE);
-	RESIZE(buttonSendFile, ID_BUTTONSENDFILE);
-	RESIZE(buttonCancelSend, ID_BUTTONCANCELSEND);
-	RESIZE(textInfo, ID_TEXTINFO);
+	int x_gap, y_gap, x_gap_right_mid;
+	int x_size_left, x_size_right, x_size_info, x_size_button;
+	int y_size_label, y_size_list, y_size_row, y_size_info, y_size_msg;
+
+	x_size_info = x_size - default_border * 2;
+	if (x_ratio >= 1)
+	{
+		x_gap = default_gap;
+		x_size_left = itemSize[ID_LABELLISTUSER].GetWidth();
+	}
+	else
+	{
+		x_gap = default_gap * x_ratio;
+		x_size_left = itemSize[ID_LABELLISTUSER].GetWidth() * x_ratio;
+	}
+	x_size_right = x_size_info - x_size_left - x_gap;
+	x_size_button = (x_size_right - x_gap * 3) / 4;
+	x_gap_right_mid = x_size_right - x_size_button * 4 - x_gap * 2;
+
+	if (y_ratio >= 1)
+	{
+		y_gap = default_gap;
+		y_size_label = itemSize[ID_LABELLISTUSER].GetHeight();
+		y_size_info = itemSize[ID_TEXTINFO].GetHeight() * ((y_ratio - 1) / 2 + 1);
+		y_size_row = itemSize[ID_BUTTONADD].GetHeight();
+	}
+	else
+	{
+		y_gap = default_gap * y_ratio;
+		y_size_label = itemSize[ID_LABELLISTUSER].GetHeight() * y_ratio;
+		y_size_info = itemSize[ID_TEXTINFO].GetHeight() * y_ratio;
+		y_size_row = itemSize[ID_BUTTONADD].GetHeight() * y_ratio;
+	}
+	y_size_msg = y_size - default_border * 2 - y_gap * 3 - y_size_info - y_size_row * 2;
+	y_size_list = y_size_msg - y_size_label - y_gap;
+
+	int x_pos_left = default_border,
+		x_pos_right = x_pos_left + x_size_left + x_gap,
+		x_pos_button_2 = x_pos_right + x_size_button + x_gap,
+		x_pos_button_3 = x_pos_button_2 + x_size_button + x_gap_right_mid,
+		x_pos_button_4 = x_pos_button_3 + x_size_button + x_gap;
+
+	int y_pos_top = default_border,
+		y_pos_list = y_pos_top + y_size_label + y_gap,
+		y_pos_row_1 = y_pos_list + y_size_list + y_gap,
+		y_pos_row_2 = y_pos_row_1 + y_size_row + y_gap,
+		y_pos_info = y_pos_row_2 + y_size_row + y_gap;
+
+	listUser->SetPosition(wxPoint(default_border, y_pos_list));
+	buttonAdd->SetPosition(wxPoint(default_border, y_pos_row_1));
+	buttonDel->SetPosition(wxPoint(default_border, y_pos_row_2));
+	textInfo->SetPosition(wxPoint(default_border, y_pos_info));
+
+	labelListUser->SetSize(wxSize(x_size_left, y_size_label));
+	listUser->SetSize(wxSize(x_size_left, y_size_list));
+	buttonAdd->SetSize(wxSize(x_size_left, y_size_row));
+	buttonDel->SetSize(wxSize(x_size_left, y_size_row));
+	textInfo->SetSize(wxSize(x_size_info, y_size_info));
+
+	textMsg->SetPosition(wxPoint(x_pos_right, y_pos_top));
+	textInput->SetPosition(wxPoint(x_pos_right, y_pos_row_1));
+	buttonSend->SetPosition(wxPoint(x_pos_right, y_pos_row_2));
+	buttonSendImage->SetPosition(wxPoint(x_pos_button_2, y_pos_row_2));
+	buttonSendFile->SetPosition(wxPoint(x_pos_button_3, y_pos_row_2));
+	buttonCancelSend->SetPosition(wxPoint(x_pos_button_4, y_pos_row_2));
+
+	textMsg->SetSize(wxSize(x_size_right, y_size_msg));
+	textInput->SetSize(wxSize(x_size_right, y_size_row));
+	buttonSend->SetSize(wxSize(x_size_button, y_size_row));
+	buttonSendImage->SetSize(wxSize(x_size_button, y_size_row));
+	buttonSendFile->SetSize(wxSize(x_size_button, y_size_row));
+	buttonCancelSend->SetSize(wxSize(x_size_button, y_size_row));
 }
-
-#undef RESIZE
-#undef REPOSITION
 
 void mainFrame::listUser_SelectedIndexChanged(wxCommandEvent& event)
 {
 	user_id_type uID = userIDs[listUser->GetSelection()];
 	textMsg->Clear();
-	std::for_each(user_ext[uID].log.begin(), user_ext[uID].log.end(), [this](const user_ext_type::log_type &log_item) {
-		if (log_item.is_image)
-			textMsg->WriteImage(log_item.image.native(), wxBITMAP_TYPE_ANY);
+	auto &log = user_ext.at(uID).log;
+	for (auto itr = log.begin(), itr_end = log.end(); itr != itr_end; itr++)
+	{
+		if (itr->is_image)
+			textMsg->WriteImage(itr->image.native(), wxBITMAP_TYPE_ANY);
 		else
-			textMsg->AppendText(log_item.msg);
-	});
+			textMsg->AppendText(itr->msg);
+	}
 	textMsg->ShowPosition(textMsg->GetLastPosition());
 }
 
@@ -397,7 +451,7 @@ void mainFrame::buttonSend_Click(wxCommandEvent& event)
 				srv->send_data(uID, msg_utf8, msgr_proto::session::priority_msg);
 			});
 			textMsg->AppendText("Me:" + msg + '\n');
-			user_ext[uID].log.push_back("Me:" + msg + '\n');
+			user_ext.at(uID).log.push_back("Me:" + msg + '\n');
 			textMsg->ShowPosition(textMsg->GetLastPosition());
 		}
 	}
@@ -433,9 +487,9 @@ void mainFrame::buttonSendImage_Click(wxCommandEvent& event)
 				textMsg->AppendText("\n");
 				textMsg->ShowPosition(textMsg->GetLastPosition());
 
-				user_ext[uID].log.push_back("Me:\n");
-				user_ext[uID].log.push_back(image_path);
-				user_ext[uID].log.push_back("\n");
+				user_ext.at(uID).log.push_back("Me:\n");
+				user_ext.at(uID).log.push_back(image_path);
+				user_ext.at(uID).log.push_back("\n");
 
 				std::shared_ptr<std::string> img_buf = std::make_shared<std::string>();
 
@@ -476,6 +530,123 @@ void mainFrame::buttonCancelSend_Click(wxCommandEvent& event)
 		user_id_type uID = userIDs[listUser->GetSelection()];
 		threadFileSend->stop(uID);
 	}
+}
+
+void mainFrame::OnMessage(user_id_type id, const wxString& msg)
+{
+	wxThreadEvent *newEvent = new wxThreadEvent;
+	newEvent->SetPayload<gui_callback>([this, id, msg]() {
+		user_ext_type &usr = user_ext.at(id);
+		usr.log.push_back(msg);
+		if (listUser->GetSelection() != -1)
+		{
+			if (id == userIDs.at(listUser->GetSelection()))
+			{
+				textMsg->AppendText(msg);
+				textMsg->ShowPosition(textMsg->GetLastPosition());
+			}
+			else
+				textInfo->AppendText("Received message from " + usr.addr + "\n");
+		}
+		else
+			textInfo->AppendText("Received message from " + usr.addr + "\n");
+
+		if (!IsActive())
+			RequestUserAttention();
+	});
+	wxQueueEvent(this, newEvent);
+}
+
+void mainFrame::OnImage(user_id_type id, const fs::path& image_path)
+{
+	wxThreadEvent *newEvent = new wxThreadEvent;
+	newEvent->SetPayload<gui_callback>([this, id, image_path]() {
+		user_ext_type &usr = user_ext.at(id);
+		usr.log.push_back(usr.addr + ":\n");
+		usr.log.push_back(image_path);
+		usr.log.push_back("\n");
+
+		if (listUser->GetSelection() != -1)
+		{
+			if (id == userIDs[listUser->GetSelection()])
+			{
+				textMsg->AppendText(usr.addr + ":\n");
+				textMsg->WriteImage(image_path.native(), wxBITMAP_TYPE_ANY);
+				textMsg->AppendText("\n");
+				textMsg->ShowPosition(textMsg->GetLastPosition());
+			}
+			else
+				textInfo->AppendText("Received message from " + usr.addr + "\n");
+		}
+		else
+			textInfo->AppendText("Received message from " + usr.addr + "\n");
+
+		if (!IsActive())
+			RequestUserAttention();
+	});
+	wxQueueEvent(this, newEvent);
+}
+
+void mainFrame::OnJoin(user_id_type id, const std::string& key)
+{
+	wxThreadEvent *newEvent = new wxThreadEvent;
+	newEvent->SetPayload<gui_callback>([this, id, key]() {
+		user_ext_type &ext = user_ext.at(id);
+		std::wstring &addr = ext.addr;
+
+		listUser->Append(addr);
+		if (listUser->GetSelection() == -1)
+			listUser->SetSelection(listUser->GetCount() - 1);
+		userIDs.push_back(id);
+
+		if (!key.empty() && !srv->is_certified(key))
+		{
+			int answer = wxMessageBox(wxT("The public key from ") + addr + wxT(" hasn't shown before.Trust it?"), wxT("Confirm"), wxYES_NO | wxCANCEL);
+			if (answer == wxNO)
+				srv->disconnect(id);
+			else
+			{
+				if (answer == wxYES)
+				{
+					wxTextEntryDialog dlg(this, "Set a comment for this key!", "Set comment");
+					if (dlg.ShowModal() != wxID_OK)
+						dlg.SetValue(wxEmptyString);
+					srv->certify_key(key, std::string(dlg.GetValue().utf8_str()));
+				}
+			}
+		}
+
+		try
+		{
+			wxString new_label = ext.addr;
+			new_label.Append('(');
+			new_label.Append(wxConvUTF8.cMB2WC(srv->get_key_comment(key).data()));
+			new_label.Append(')');
+			listUser->SetString(listUser->GetCount() - 1, new_label);
+		}
+		catch (std::out_of_range&) {}
+	});
+	wxQueueEvent(this, newEvent);
+}
+
+void mainFrame::OnLeave(user_id_type id)
+{
+	wxThreadEvent *newEvent = new wxThreadEvent;
+	newEvent->SetPayload<gui_callback>([this, id]() {
+		int i = 0;
+		std::vector<user_id_type>::iterator itr = userIDs.begin(), itrEnd = userIDs.end();
+		for (; itr != itrEnd && *itr != id; itr++) i++;
+		if (listUser->GetSelection() == i)
+			textMsg->SetValue(wxEmptyString);
+		listUser->Delete(i);
+		userIDs.erase(itr);
+		user_ext.erase(id);
+
+		fs::path tmp_path = IMG_TMP_PATH_NAME;
+		tmp_path /= std::to_string(id);
+		fs::remove_all(tmp_path);
+	});
+	wxQueueEvent(this, newEvent);
 }
 
 void mainFrame::thread_Message(wxThreadEvent& event)
@@ -649,20 +820,21 @@ int MyApp::OnExit()
 {
 	try
 	{
+		srv->shutdown();
 		crypto_srv->stop();
 
-		threadFileSend->stop_thread();
 		threadCrypto->stop();
-		threadMisc->stop();
 		threadNetwork->stop();
+		threadMisc->stop();
+		while (!threadCrypto->stopped() || !threadNetwork->stopped() || !threadMisc->stopped());
+
+		threadMisc->Delete();
+		threadNetwork->Delete();
+		threadFileSend->Delete();
+		threadCrypto->Delete();
 
 		srv.reset();
 		crypto_srv.reset();
-
-		threadFileSend->Delete();
-		threadCrypto->Delete();
-		threadMisc->Delete();
-		threadNetwork->Delete();
 
 		fs::remove_all(IMG_TMP_PATH_NAME);
 	}

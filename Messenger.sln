@@ -7,6 +7,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Messenger", "Messenger\Mess
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Messenger_Server", "Messenger_Server\Messenger_Server.vcxproj", "{78A6DC3C-3AD0-4BEA-98C7-0B72210405C4}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Messenger_Keyman", "Messenger_Keyman\Messenger_Keyman.vcxproj", "{756296B8-D82D-47FB-A51F-88BF08DC778A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Win32 = Debug|Win32
@@ -31,6 +33,14 @@ Global
 		{78A6DC3C-3AD0-4BEA-98C7-0B72210405C4}.Release|Win32.Build.0 = Release|Win32
 		{78A6DC3C-3AD0-4BEA-98C7-0B72210405C4}.Release|x64.ActiveCfg = Release|x64
 		{78A6DC3C-3AD0-4BEA-98C7-0B72210405C4}.Release|x64.Build.0 = Release|x64
+		{756296B8-D82D-47FB-A51F-88BF08DC778A}.Debug|Win32.ActiveCfg = Debug|Win32
+		{756296B8-D82D-47FB-A51F-88BF08DC778A}.Debug|Win32.Build.0 = Debug|Win32
+		{756296B8-D82D-47FB-A51F-88BF08DC778A}.Debug|x64.ActiveCfg = Debug|x64
+		{756296B8-D82D-47FB-A51F-88BF08DC778A}.Debug|x64.Build.0 = Debug|x64
+		{756296B8-D82D-47FB-A51F-88BF08DC778A}.Release|Win32.ActiveCfg = Release|Win32
+		{756296B8-D82D-47FB-A51F-88BF08DC778A}.Release|Win32.Build.0 = Release|Win32
+		{756296B8-D82D-47FB-A51F-88BF08DC778A}.Release|x64.ActiveCfg = Release|x64
+		{756296B8-D82D-47FB-A51F-88BF08DC778A}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

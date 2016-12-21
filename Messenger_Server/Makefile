@@ -1,4 +1,4 @@
-CXX = g++-5
+CXX = g++
 ifdef CLANG
   CXX = clang++
 endif

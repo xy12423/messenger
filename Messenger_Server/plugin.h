@@ -217,7 +217,16 @@ private:
 	};
 	typedef std::unordered_map<std::string, recv_task> recv_tasks_tp;
 
-	typedef std::unordered_multimap<std::string, std::string> key_list_tp;
+	struct key_item
+	{
+		key_item() {};
+		template <typename _Ty1, typename _Ty2>
+		key_item(_Ty1&& _key, _Ty2&& _ex) :key(std::forward<_Ty1>(_key)), ex(std::forward<_Ty2>(_ex)) {};
+
+		std::string key, ex;
+	};
+
+	typedef std::unordered_multimap<std::string, key_item> key_list_tp;
 public:
 	void init(const config_table_tp& config_items);
 
@@ -234,6 +243,6 @@ private:
 	bool auth_enabled = false, storage_enabled = false;
 
 	fs::path keys_path;
-	std::unordered_multimap<std::string, std::string> keys;
+	key_list_tp keys;
 	std::unordered_map<std::string, recv_task> recv_tasks;
 };

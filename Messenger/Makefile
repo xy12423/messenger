@@ -8,7 +8,7 @@ ifeq ($(shell sh -c 'uname -s'), Darwin)
     CXX = clang++
 else
     cppflag = -c $(wx_cppflag) -pthread -I ~/boost -Wno-deprecated-declarations -std=c++14
-    lflag = -pthread -L ~/boost/stage/lib $(wx_lflag) -lboost_filesystem -lboost_system -lcryptopp
+    lflag = -pthread -L ~/boost/stage/lib $(wx_lflag) -lboost_filesystem -lboost_system -lcryptopp -static-libstdc++
     CXX = g++
 endif
 

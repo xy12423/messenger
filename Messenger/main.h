@@ -14,7 +14,10 @@ class mainFrame : public wxFrame
 public:
 	mainFrame(const wxString& title);
 
-	friend class wx_srv_interface;
+	void OnMessage(user_id_type id, const wxString& msg);
+	void OnImage(user_id_type id, const fs::path& path);
+	void OnJoin(user_id_type id, const std::string& key);
+	void OnLeave(user_id_type id);
 private:
 	enum itemID{
 		ID_FRAME,
@@ -57,7 +60,7 @@ private:
 class textStream : public std::streambuf
 {
 public:
-	textStream(mainFrame *_frm, wxTextCtrl *_text) { frm = _frm; text = _text; }
+	textStream(mainFrame *_frm, wxTextCtrl *_text) :frm(_frm), text(_text) {};
 
 protected:
 	int_type overflow(int_type c)
@@ -82,7 +85,7 @@ private:
 
 extern const char* IMG_TMP_PATH_NAME;
 extern const char* IMG_TMP_FILE_NAME;
-const size_t IMAGE_SIZE_LIMIT = 0x400000;
+constexpr size_t IMAGE_SIZE_LIMIT = 0x400000;
 
 //Exceptions that can be safely ignored
 class wx_srv_interface_error :public std::runtime_error
@@ -106,16 +109,18 @@ public:
 	virtual void on_leave(user_id_type id);
 
 	virtual bool new_rand_port(port_type& port);
-	virtual void free_rand_port(port_type port) { ports.push_back(port); };
+	virtual void free_rand_port(port_type port) { ports.push_back(port); }
 
-	void certify_key(const std::string& key) { certifiedKeys.emplace(key); }
-	void certify_key(std::string&& key) { certifiedKeys.emplace(key); }
+	template <typename... _Ty>
+	void certify_key(_Ty&&... key) { certifiedKeys.emplace(std::forward<_Ty>(key)...); }
+	bool is_certified(const std::string& key) { return certifiedKeys.count(key) > 0; }
+	const std::string& get_key_comment(const std::string& key) { return certifiedKeys.at(key); }
 
 	void set_frame(mainFrame *_frm) { frm = _frm; }
 	void set_static_port(port_type port) { static_port = port; };
 	void new_image_id(int& id) { id = image_id; image_id++; }
 private:
-	std::unordered_set<std::string> certifiedKeys;
+	std::unordered_map<std::string, std::string> certifiedKeys;
 	std::list<port_type> ports;
 	int static_port = -1;
 
