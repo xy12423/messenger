@@ -51,7 +51,32 @@ std::unordered_map<user_id_type, user_ext_type> user_ext;
 std::unordered_map<plugin_id_type, plugin_info_type> plugin_info;
 std::unordered_set<user_id_type> virtual_users;
 
+fs::path TEMP_PATH, DATA_PATH, DOWNLOAD_PATH;
+
 std::string empty_string;
+
+void insHeader(std::string& data, char pac_type)
+{
+	data_size_type size = data.size();
+	char header[5];
+	header[0] = pac_type;
+	header[1] = static_cast<uint8_t>(size & 0xFF);
+	header[2] = static_cast<uint8_t>(size >> 8);
+	header[3] = static_cast<uint8_t>(size >> 16);
+	header[4] = static_cast<uint8_t>(size >> 24);
+	data.insert(0, header, sizeof(header));
+}
+
+void insHeader(std::string& data, char pac_type, data_size_type size)
+{
+	char header[5];
+	header[0] = pac_type;
+	header[1] = static_cast<uint8_t>(size & 0xFF);
+	header[2] = static_cast<uint8_t>(size >> 8);
+	header[3] = static_cast<uint8_t>(size >> 16);
+	header[4] = static_cast<uint8_t>(size >> 24);
+	data.insert(0, header, sizeof(header));
+}
 
 void plugin_handler_SendData(plugin_id_type plugin_id, int to, const char* data, size_t size)
 {
@@ -272,7 +297,9 @@ mainFrame::mainFrame(const wxString& title)
 	cerr_orig = std::cerr.rdbuf();
 	std::cerr.rdbuf(textStrm.get());
 
-	if (fs::exists(plugin_file_name))
+	fs::path plugin_file_path = DATA_PATH;
+	plugin_file_path /= plugin_file_name;
+	if (fs::exists(plugin_file_path))
 	{
 		plugin_init();
 		uid_global.assign(GetUserIDGlobal());
@@ -286,7 +313,7 @@ mainFrame::mainFrame(const wxString& title)
 		set_method("DelUser", reinterpret_cast<void*>(plugin_handler_DelVirtualUser));
 		set_method("UserMsg", reinterpret_cast<void*>(plugin_handler_VirtualUserMsg));
 
-		std::ifstream fin(plugin_file_name);
+		std::ifstream fin(plugin_file_path.string());
 		std::string plugin_path_utf8;
 		while (!fin.eof())
 		{
@@ -443,13 +470,13 @@ void mainFrame::buttonSend_Click(wxCommandEvent& event)
 		if (listUser->GetSelection() != -1)
 		{
 			wxCharBuffer buf = wxConvUTF8.cWC2MB(msg.c_str());
-			std::string msg_utf8(buf, buf.length());
 			user_id_type uID = userIDs[listUser->GetSelection()];
-			insLen(msg_utf8);
-			msg_utf8.insert(0, 1, PAC_TYPE_MSG);
-			misc_io_service.post([uID, msg_utf8]() {
-				srv->send_data(uID, msg_utf8, msgr_proto::session::priority_msg);
-			});
+
+			std::string msg_utf8;
+			insHeader(msg_utf8, PAC_TYPE_MSG, buf.length());
+			msg_utf8.append(buf, buf.length());
+			
+			srv->send_data(uID, msg_utf8, msgr_proto::session::priority_msg);
 			textMsg->AppendText("Me:" + msg + '\n');
 			user_ext.at(uID).log.push_back("Me:" + msg + '\n');
 			textMsg->ShowPosition(textMsg->GetLastPosition());
@@ -462,10 +489,11 @@ void mainFrame::buttonSendImage_Click(wxCommandEvent& event)
 	if (listUser->GetSelection() != -1)
 	{
 		user_id_type uID = userIDs[listUser->GetSelection()];
-		wxFileDialog fileDlg(this, wxT("Image"), wxEmptyString, wxEmptyString, "Image files (*.bmp;*.jpg;*.jpeg;*.gif;*.png)|*.bmp;*.jpg;*.jpeg;*.gif;*.png");
-		fileDlg.ShowModal();
+		wxFileDialog fileDlg(this, wxT("Image"), wxEmptyString, wxEmptyString, "Image files (*.bmp;*.jpg;*.jpeg;*.gif;*.png)|*.bmp;*.jpg;*.jpeg;*.gif;*.png", wxFD_OPEN | wxFD_FILE_MUST_EXIST);
+		if (fileDlg.ShowModal() == wxID_CANCEL)
+			return;
 		wxString path = fileDlg.GetPath();
-		if ((!path.empty()) && fs::is_regular_file(path.ToStdWstring()))
+		if (!path.empty() && fs::is_regular_file(path.ToStdWstring()))
 		{
 			if (fs::file_size(path.ToStdWstring()) > IMAGE_SIZE_LIMIT)
 			{
@@ -474,7 +502,8 @@ void mainFrame::buttonSendImage_Click(wxCommandEvent& event)
 			}
 			int next_image_id;
 			srv->new_image_id(next_image_id);
-			fs::path image_path = IMG_TMP_PATH_NAME;
+			fs::path image_path = TEMP_PATH;
+			image_path /= IMG_TMP_PATH_NAME;
 			image_path /= std::to_string(uID);
 			image_path /= ".messenger_tmp_" + std::to_string(next_image_id);
 			fs::copy_file(path.ToStdWstring(), image_path);
@@ -501,8 +530,7 @@ void mainFrame::buttonSendImage_Click(wxCommandEvent& event)
 					img_buf->append(read_buf.get(), fin.gcount());
 				}
 				fin.close();
-				insLen(*img_buf);
-				img_buf->insert(0, 1, PAC_TYPE_IMAGE);
+				insHeader(*img_buf, PAC_TYPE_IMAGE);
 
 				srv->send_data(uID, std::move(*img_buf), msgr_proto::session::priority_msg);
 			}
@@ -515,10 +543,11 @@ void mainFrame::buttonSendFile_Click(wxCommandEvent& event)
 	if (listUser->GetSelection() != -1)
 	{
 		user_id_type uID = userIDs[listUser->GetSelection()];
-		wxFileDialog fileDlg(this);
-		fileDlg.ShowModal();
+		wxFileDialog fileDlg(this, wxT("Open file"), wxEmptyString, wxEmptyString, "All files (*.*)|*.*", wxFD_OPEN | wxFD_FILE_MUST_EXIST);
+		if (fileDlg.ShowModal() == wxID_CANCEL)
+			return;
 		std::wstring path = fileDlg.GetPath().ToStdWstring();
-		if ((!path.empty()) && fs::exists(path))
+		if (!path.empty() && fs::is_regular_file(path))
 			threadFileSend->start(uID, fs::path(path));
 	}
 }
@@ -642,7 +671,8 @@ void mainFrame::OnLeave(user_id_type id)
 		userIDs.erase(itr);
 		user_ext.erase(id);
 
-		fs::path tmp_path = IMG_TMP_PATH_NAME;
+		fs::path tmp_path = TEMP_PATH;
+		tmp_path /= IMG_TMP_PATH_NAME;
 		tmp_path /= std::to_string(id);
 		fs::remove_all(tmp_path);
 	});
@@ -681,6 +711,10 @@ bool MyApp::OnInit()
 	int stage = 0;
 	try
 	{
+		TEMP_PATH = fs::current_path();
+		DATA_PATH = fs::current_path();
+		DOWNLOAD_PATH = fs::current_path();
+
 		std::unordered_map<std::string, std::string> config_items;
 		
 		for (int i = 1; i < argc; i++)
@@ -696,9 +730,12 @@ bool MyApp::OnInit()
 		wxImage::AddHandler(new wxPNGHandler);
 		wxImage::AddHandler(new wxJPEGHandler);
 		wxImage::AddHandler(new wxGIFHandler);
-		if (fs::exists(IMG_TMP_PATH_NAME))
-			fs::remove_all(IMG_TMP_PATH_NAME);
-		fs::create_directories(IMG_TMP_PATH_NAME);
+
+		fs::path IMG_TMP_PATH = TEMP_PATH;
+		IMG_TMP_PATH /= IMG_TMP_PATH_NAME;
+		if (fs::exists(IMG_TMP_PATH))
+			fs::remove_all(IMG_TMP_PATH);
+		fs::create_directories(IMG_TMP_PATH);
 
 		port_type portsBegin = 5000, portsEnd = 9999;
 		bool use_v6 = false;
@@ -836,7 +873,9 @@ int MyApp::OnExit()
 		srv.reset();
 		crypto_srv.reset();
 
-		fs::remove_all(IMG_TMP_PATH_NAME);
+		fs::path IMG_TMP_PATH = TEMP_PATH;
+		IMG_TMP_PATH /= IMG_TMP_PATH_NAME;
+		fs::remove_all(IMG_TMP_PATH);
 	}
 	catch (...)
 	{

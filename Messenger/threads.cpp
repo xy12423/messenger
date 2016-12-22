@@ -32,17 +32,17 @@ void FileSendThread::start(user_id_type uID, const fs::path& path)
 		if (newTask.fin.is_open())
 		{
 			data_size_type blockCountAll = static_cast<data_size_type>(fs::file_size(path));
-			if (blockCountAll == 0)
+			if (blockCountAll % FileBlockLen == 0)
+				blockCountAll /= FileBlockLen;
+			else
+				blockCountAll = blockCountAll / FileBlockLen + 1;
+			if (blockCountAll < 1)
 			{
 				tasks.pop_back();
 				if (tasks.empty())
 					task_list.erase(uID);
 				return;
 			}
-			if (blockCountAll % FileBlockLen == 0)
-				blockCountAll /= FileBlockLen;
-			else
-				blockCountAll = blockCountAll / FileBlockLen + 1;
 			newTask.blockCountAll = blockCountAll;
 			
 			if (write_not_in_progress)
@@ -91,13 +91,6 @@ void FileSendThread::write(user_id_type uID)
 	FileSendTask &task = tasks.front();
 	if (task.blockCount == 1)
 		send_header(task);
-	if (task.blockCount > task.blockCountAll)
-	{
-		tasks.pop_front();
-		if (tasks.empty())
-			task_list.erase(uID);
-		return;
-	}
 
 	task.fin.read(block.get(), FileBlockLen);
 	std::streamsize sizeRead = task.fin.gcount();
@@ -121,10 +114,12 @@ void FileSendThread::write(user_id_type uID)
 	});
 	task.blockCount++;
 
-	if (task.fin.eof())
+	if (task.blockCount > task.blockCountAll || task.fin.eof())
+	{
 		tasks.pop_front();
-	if (tasks.empty())
-		task_list.erase(uID);
+		if (tasks.empty())
+			task_list.erase(uID);
+	}
 }
 
 FileSendThread::ExitCode FileSendThread::Entry()
