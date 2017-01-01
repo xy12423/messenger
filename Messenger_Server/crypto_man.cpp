@@ -109,7 +109,7 @@ void server::work(id_type worker_id)
 	if (stopping)
 		return;
 	worker &w = *workers.at(worker_id);
-	
+
 	task_list_tp::iterator task_itr = tasks.begin(), task_itr_end = tasks.end();
 	for (; task_itr != task_itr_end; task_itr++)
 		if (sessions.at(task_itr->first)->available(task_itr->second))

@@ -287,22 +287,25 @@ void cli_server::on_msg(user_id_type id, std::string& msg)
 				if (itr != user_records.end())
 				{
 					user_record &record = itr->second;
-					std::string hashed_pass;
-					hash(msg, hashed_pass);
-					if (record.passwd == hashed_pass)
+					if (!record.logged_in)
 					{
-						//Get user's record linked to id
-						record.logged_in = true;
-						record.id = id;
+						std::string hashed_pass;
+						hash(msg, hashed_pass);
+						if (record.passwd == hashed_pass)
+						{
+							//Get user's record linked to id
+							record.logged_in = true;
+							record.id = id;
 
-						//Send welcome messages
-						send_msg(id, msg_welcome);
-						m_plugin.on_new_user(user.name);
-						//Broadcast user join
-						broadcast_msg(server_uid, msg_new_user + user.name + '(' + user.addr + ')');
+							//Send welcome messages
+							send_msg(id, msg_welcome);
+							m_plugin.on_new_user(user.name);
+							//Broadcast user join
+							broadcast_msg(server_uid, msg_new_user + user.name + '(' + user.addr + ')');
 
-						//All prepared, mark as LOGGED_IN
-						user.current_stage = user_ext::LOGGED_IN;
+							//All prepared, mark as LOGGED_IN
+							user.current_stage = user_ext::LOGGED_IN;
+						}
 					}
 				}
 

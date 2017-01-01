@@ -82,7 +82,7 @@ void pre_session::read_key_header()
 	asio::async_read(*socket,
 		asio::buffer(reinterpret_cast<char*>(&(this->key_size)), sizeof(key_size_type)),
 		asio::transfer_exactly(sizeof(key_size_type)),
-        [this, watcher_holder](const error_code_type& ec, std::size_t)
+		[this, watcher_holder](const error_code_type& ec, std::size_t)
 	{
 		try
 		{
@@ -109,7 +109,7 @@ void pre_session::read_key()
 	asio::async_read(*socket,
 		asio::buffer(key_buffer.get(), key_size),
 		asio::transfer_exactly(key_size),
-        [this, watcher_holder](const error_code_type& ec, std::size_t)
+		[this, watcher_holder](const error_code_type& ec, std::size_t)
 	{
 		try
 		{
@@ -181,7 +181,7 @@ void pre_session::read_secret_header()
 	asio::async_read(*socket,
 		asio::buffer(reinterpret_cast<char*>(&(this->pubB_size)), sizeof(key_size_type)),
 		asio::transfer_exactly(sizeof(key_size_type)),
-        [this, watcher_holder](const error_code_type& ec, std::size_t)
+		[this, watcher_holder](const error_code_type& ec, std::size_t)
 	{
 		try
 		{
@@ -266,7 +266,7 @@ void pre_session::read_iv()
 	asio::async_read(*socket,
 		asio::buffer(reinterpret_cast<char*>(iv_buffer), sym_key_size),
 		asio::transfer_exactly(sym_key_size),
-        [this, watcher_holder](const error_code_type& ec, std::size_t)
+		[this, watcher_holder](const error_code_type& ec, std::size_t)
 	{
 		try
 		{
@@ -292,7 +292,7 @@ void pre_session::read_session_id(int check_level, bool ignore_error)
 	asio::async_read(*socket,
 		asio::buffer(reinterpret_cast<char*>(&sid_packet_size), sizeof(data_size_type)),
 		asio::transfer_exactly(sizeof(data_size_type)),
-        [this, watcher_holder, check_level, ignore_error](const error_code_type& ec, std::size_t)
+		[this, watcher_holder, check_level, ignore_error](const error_code_type& ec, std::size_t)
 	{
 		try
 		{
@@ -420,7 +420,7 @@ void pre_session::write_session_id()
 
 		asio::async_write(*socket,
 			asio::buffer(data_buf_1->data(), data_buf_1->size()),
-            [this, watcher_holder, data_buf_1](const error_code_type& ec, std::size_t)
+			[this, watcher_holder, data_buf_1](const error_code_type& ec, std::size_t)
 		{
 			try
 			{
@@ -467,7 +467,7 @@ void pre_session_s::start()
 
 	asio::async_write(*socket,
 		asio::buffer(*buffer),
-        [this, buffer, watcher_holder](const error_code_type& ec, std::size_t)
+		[this, buffer, watcher_holder](const error_code_type& ec, std::size_t)
 	{
 		try
 		{
@@ -587,7 +587,7 @@ void pre_session_c::start()
 
 	asio::async_write(*socket,
 		asio::buffer(*buffer),
-        [this, buffer, watcher_holder](const error_code_type& ec, std::size_t)
+		[this, buffer, watcher_holder](const error_code_type& ec, std::size_t)
 	{
 		try
 		{
@@ -741,7 +741,7 @@ void session::send(const std::string& data, int priority, write_callback&& callb
 		return;
 	if (data.empty())
 		return;
-	
+
 	send(std::make_shared<write_task>(data, priority, std::move(callback)));
 }
 
@@ -789,8 +789,10 @@ void session::read_header(const std::shared_ptr<read_end_watcher>& watcher)
 		{
 			if (ec)
 				throw(std::runtime_error("Socket Error:" + ec.message()));
-			data_size_type size_recv = *(reinterpret_cast<data_size_type*>(read_buffer.get()));
-			size_recv = boost::endian::little_to_native(size_recv);
+			data_size_type size_recv = 0;
+			const char *data = read_buffer.get(), *data_end = read_buffer.get() + sizeof(data_size_type);
+			for (int i = 0; data < data_end; data++, i += 8)
+				size_recv |= static_cast<data_size_type>(static_cast<uint8_t>(*data)) << i;
 			read_data(size_recv, std::make_shared<std::string>(), watcher);
 		}
 		catch (std::exception &ex)

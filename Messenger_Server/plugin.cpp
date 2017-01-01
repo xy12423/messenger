@@ -39,13 +39,7 @@ struct data_view
 	{}
 
 	template <typename _Ty>
-	inline void read(_Ty &ret) {
-		if (size < sizeof(_Ty))
-			throw(plugin_error());
-		size -= sizeof(_Ty);
-		ret = boost::endian::little_to_native(*reinterpret_cast<const _Ty*>(data));
-		data += sizeof(_Ty);
-	}
+	void read(_Ty &ret);
 	inline void read(char* dst, size_t _size) { if (size < _size) throw(plugin_error()); memcpy(dst, data, _size); data += _size; size -= _size; }
 	inline void read(std::string& dst, size_t _size) { if (size < _size) throw(plugin_error()); dst.append(data, _size); data += _size; size -= _size; }
 	inline void check(size_t count) { if (size < count) throw(plugin_error()); }
@@ -54,6 +48,18 @@ struct data_view
 	const char* data;
 	size_t size;
 };
+
+template <typename _Ty>
+void data_view::read(_Ty &ret) {
+	if (size < sizeof(_Ty))
+		throw(plugin_error());
+	size -= sizeof(_Ty);
+
+	const char *data_end = data + sizeof(_Ty);
+	ret = 0;
+	for (int i = 0; data < data_end; data++, i += 8)
+		ret |= static_cast<uint64_t>(static_cast<uint8_t>(*data)) << i;
+}
 
 msg_logger::msg_logger(plugin_interface& _inter)
 	:msg_server_plugin(_inter),
