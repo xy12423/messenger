@@ -44,7 +44,7 @@ void FileSendThread::start(user_id_type uID, const fs::path& path)
 				return;
 			}
 			newTask.blockCountAll = blockCountAll;
-			
+
 			if (write_not_in_progress)
 				write(uID);
 		}
@@ -98,7 +98,7 @@ void FileSendThread::write(user_id_type uID)
 	data_size_type len = boost::endian::native_to_little(static_cast<data_size_type>(sizeRead));
 	sendBuf.append(reinterpret_cast<const char*>(&len), sizeof(data_size_type));
 	sendBuf.append(block.get(), sizeRead);
-	
+
 	wxCharBuffer msgBuf = wxConvLocal.cWC2MB(
 		(task.file_name + wxT(":Sended block ") + std::to_wstring(task.blockCount) + wxT("/") + std::to_wstring(task.blockCountAll) + wxT(" To ") + user_ext[task.uID].addr).c_str()
 		);

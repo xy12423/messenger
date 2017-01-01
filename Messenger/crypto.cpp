@@ -145,7 +145,7 @@ bool dhAgree(SecByteBlock& agree, const SecByteBlock& priv, const SecByteBlock& 
 
 rand_num_type genRandomNumber()
 {
-	byte t[sizeof(rand_num_type)];
-	prng.GenerateBlock(t, sizeof(rand_num_type));
-	return *reinterpret_cast<rand_num_type*>(t);
+	rand_num_type t;
+	prng.GenerateBlock(reinterpret_cast<byte*>(&t), sizeof(rand_num_type));
+	return t;
 }

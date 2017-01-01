@@ -339,7 +339,7 @@ void mainFrame::mainFrame_Resize(wxSizeEvent& event)
 {
 	int x_size = GetClientSize().GetWidth(), y_size = GetClientSize().GetHeight();
 	panel->SetSize(wxSize(x_size, y_size));
-	
+
 	double x_ratio = x_size, y_ratio = y_size;
 	x_ratio /= _GUI_SIZE_CLIENT_X;
 	y_ratio /= _GUI_SIZE_CLIENT_Y;
@@ -475,7 +475,7 @@ void mainFrame::buttonSend_Click(wxCommandEvent& event)
 			std::string msg_utf8;
 			insHeader(msg_utf8, PAC_TYPE_MSG, buf.length());
 			msg_utf8.append(buf, buf.length());
-			
+
 			srv->send_data(uID, msg_utf8, msgr_proto::session::priority_msg);
 			textMsg->AppendText("Me:" + msg + '\n');
 			user_ext.at(uID).log.push_back("Me:" + msg + '\n');
@@ -716,7 +716,7 @@ bool MyApp::OnInit()
 		DOWNLOAD_PATH = fs::current_path();
 
 		std::unordered_map<std::string, std::string> config_items;
-		
+
 		for (int i = 1; i < argc; i++)
 		{
 			std::string arg(argv[i]);
@@ -774,7 +774,7 @@ bool MyApp::OnInit()
 		srv = std::make_unique<wx_srv_interface>(main_io_service, misc_io_service,
 			asio::ip::tcp::endpoint((use_v6 ? asio::ip::tcp::v6() : asio::ip::tcp::v4()), portListen),
 			*crypto_srv.get());
-		
+
 		try
 		{
 			std::string &arg = config_items.at("ports");
