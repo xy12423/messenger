@@ -407,6 +407,22 @@ void file_storage::save_data()
 	}
 }
 
+void file_storage::on_del_user(const std::string& name)
+{
+	try
+	{
+		recv_tasks.erase(name);
+	}
+	catch (...) {}
+	try
+	{
+		user_id_type id;
+		inter.get_id_by_name(name, id);
+		send_tasks.erase(id);
+	}
+	catch (...) {}
+}
+
 void file_storage::on_cmd(const std::string& name, user_type type, const std::string& cmd, const std::string& arg)
 {
 	if (!enabled)
@@ -414,13 +430,14 @@ void file_storage::on_cmd(const std::string& name, user_type type, const std::st
 	if (cmd == "file_get")
 	{
 		user_id_type id;
-		inter.get_id_by_name(name, id);
-		start(id, arg);
+		if (inter.get_id_by_name(name, id))
+			start(id, arg);
 	}
 	else if (cmd == "file_list")
 	{
 		user_id_type id;
-		inter.get_id_by_name(name, id);
+		if (!inter.get_id_by_name(name, id))
+			return;
 		std::string msg;
 
 		for (const hashmap_tp::value_type &pair : hash_map)
@@ -437,7 +454,8 @@ void file_storage::on_cmd(const std::string& name, user_type type, const std::st
 	else if (cmd == "file_del")
 	{
 		user_id_type id;
-		inter.get_id_by_name(name, id);
+		if (!inter.get_id_by_name(name, id))
+			return;
 		hashmap_tp::iterator selected = hash_map.find(arg);
 		if (selected == hash_map.end())
 		{
@@ -454,6 +472,7 @@ void file_storage::on_cmd(const std::string& name, user_type type, const std::st
 			else
 			{
 				hash_map.erase(selected);
+				save_data();
 				inter.send_msg(id, "File deleted");
 			}
 		}
@@ -480,6 +499,14 @@ void file_storage::on_file_h(const std::string& name, const char *_data, size_t 
 
 		data.read(task.info.file_name, file_name_len);
 		task.info.upload_user = name;
+		
+		std::string &file_name = task.info.file_name;
+		size_t pos = file_name.rfind('/');
+		if (pos != std::string::npos)
+			file_name.erase(0, pos + 1);
+		pos = file_name.rfind('\\');
+		if (pos != std::string::npos)
+			file_name.erase(0, pos + 1);
 
 		task.block_count_all = block_count_all;
 	}
@@ -644,7 +671,7 @@ void key_storage::init(const config_table_tp& config_items)
 		else if (!fs::is_directory(keys_path))
 			throw(plugin_error());
 		load_data();
-		std::cout << "Key storage enabled" << std::endl;
+		std::cout << "Key storage enabled, path:" << keys_path << std::endl;
 		storage_enabled = true;
 	}
 	catch (plugin_error &) { storage_enabled = false; }
@@ -683,13 +710,33 @@ void key_storage::load_data()
 			fin.read(size_buf, sizeof(uint16_t));
 			ex_buf.resize(static_cast<uint16_t>(size_buf[0]) | (size_buf[1] << 8));
 			fin.read(ex_buf.data(), ex_buf.size());
-			if (fin.eof())
+			if (fin.gcount() != ex_buf.size())
 				throw(plugin_error());
 			//emplace
 			keys.emplace(user, key_item(std::string(key_buf.data(), key_buf.size()), std::string(ex_buf.data(), ex_buf.size())));
 			//read next size
 			fin.read(size_buf, sizeof(uint16_t));
 		}
+	}
+}
+
+void key_storage::load_data(const std::string& user, data_view& data)
+{
+	std::vector<char> key_buf, ex_buf;
+	char size_buf[sizeof(uint16_t)];
+
+	while (data.size != 0)
+	{
+		data.read(size_buf, sizeof(uint16_t));
+		//read key
+		key_buf.resize(static_cast<uint16_t>(size_buf[0]) | (size_buf[1] << 8));
+		data.read(key_buf.data(), key_buf.size());
+		//read ex
+		data.read(size_buf, sizeof(uint16_t));
+		ex_buf.resize(static_cast<uint16_t>(size_buf[0]) | (size_buf[1] << 8));
+		data.read(ex_buf.data(), ex_buf.size());
+		//emplace
+		keys.emplace(user, key_item(std::string(key_buf.data(), key_buf.size()), std::string(ex_buf.data(), ex_buf.size())));
 	}
 }
 
@@ -767,7 +814,8 @@ int key_storage::on_file_b(const std::string& user, const char *_data, size_t da
 		{
 			if (storage_enabled)
 			{
-				keys.emplace(user, key_item(task.buf, std::string()));
+				data_view data(task.buf);
+				load_data(user, data);
 				recv_tasks.erase(selected);
 				save_data(user);
 			}

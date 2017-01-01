@@ -2,6 +2,7 @@
 
 typedef std::unordered_map<std::string, std::string> config_table_tp;
 const std::string server_uname = "Server";
+struct data_view;
 
 class plugin_error :public std::runtime_error
 {
@@ -155,7 +156,7 @@ public:
 
 	virtual void init(const config_table_tp& config_items);
 	virtual void on_new_user(const std::string& name) {};
-	virtual void on_del_user(const std::string& name) {};
+	virtual void on_del_user(const std::string& name);
 	virtual void on_msg(const std::string& name, const std::string& msg) {};
 	virtual void on_cmd(const std::string& name, user_type type, const std::string& cmd, const std::string& arg);
 	virtual void on_img(const std::string& name, const char *data, size_t data_size) {};
@@ -238,6 +239,7 @@ public:
 	bool storage_available() { return storage_enabled; }
 private:
 	void load_data();
+	void load_data(const std::string& user, data_view& data);
 	void save_data(const std::string& user);
 
 	bool auth_enabled = false, storage_enabled = false;

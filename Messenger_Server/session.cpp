@@ -5,6 +5,24 @@
 
 using namespace msgr_proto;
 
+bool compare_data(const char* data1, const char* data2, size_t size)
+{
+	for (const char *data1_end = data1 + size; data1 < data1_end; data1++, data2++)
+		if (*data1 != *data2)
+			return false;
+	return true;
+}
+
+template <typename _Ty>
+bool compare_little_endian(const char* data, _Ty num)
+{
+	const char *data_end = data + sizeof(_Ty);
+	for (int i = 0; data < data_end; data++, i += 8)
+		if (static_cast<uint8_t>(*data) != static_cast<uint8_t>(num >> i))
+			return false;
+	return true;
+}
+
 void proto_kit::do_enc()
 {
 	std::string &data = enc_task_que.front().data;
@@ -34,20 +52,18 @@ void proto_kit::do_dec()
 
 	std::string hash_real;
 	hash(data, hash_real, hash_size);
-	
+
 	try
 	{
-		std::string hash_recv(itr, hash_size);
-		if (hash_real != hash_recv)
+		if (!compare_data(hash_real.data(), itr, hash_size))
 			throw(msgr_proto_error("Error:Hashing failed"));
 
 		itr -= sizeof(rand_num_type);
-		rand_num_type rand_num = boost::endian::native_to_little(get_rand_num_recv());
-		if (*reinterpret_cast<const rand_num_type*>(itr) != rand_num)
+		if (!compare_little_endian(itr, get_rand_num_recv()))
 			throw(msgr_proto_error("Error:Checking failed"));
 
 		itr -= sizeof(session_id_type);
-		if (*reinterpret_cast<const session_id_type*>(itr) != session_id)
+		if (!compare_little_endian(itr, session_id))
 			throw(msgr_proto_error("Error:Checking failed"));
 	}
 	catch (msgr_proto_error& ex)
@@ -426,7 +442,7 @@ void pre_session::write_session_id()
 pre_session::pre_session_watcher::~pre_session_watcher()
 {
 	if (!ptr->exiting)
-		srv.pre_session_over(ptr);
+		srv.pre_session_over(ptr, ptr->successful);
 }
 
 void pre_session_s::start()

@@ -385,8 +385,10 @@ void cli_server::on_file_b(user_id_type id, const std::string& data)
 			case 1:
 				if (mode > HARD)
 					throw(cli_server_error());
+				send_msg(id, "Upload failed");
 			case -1:
 				user.uploading_key.clear();
+				send_msg(id, "Upload successful");
 				break;
 		}
 	}
@@ -550,7 +552,10 @@ std::string cli_server::process_command(std::string& cmd, user_record& user)
 				{
 					user_record &up_user = itr->second;
 					if (up_user.logged_in)
+					{
 						user_exts.at(up_user.id).uploading_key = args;
+						ret = "Uploading key for " + args;
+					}
 				}
 			}
 		}
