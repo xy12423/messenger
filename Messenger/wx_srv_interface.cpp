@@ -10,7 +10,6 @@ const char* IMG_TMP_FILE_NAME = ".messenger_tmp_";
 
 extern fs::path TEMP_PATH, DATA_PATH, DOWNLOAD_PATH;
 
-const char* privatekeyFile = ".privatekey";
 const char* publickeysFile = ".publickey";
 
 struct data_view
@@ -49,8 +48,9 @@ void data_view::read(_Ty &ret)
 wx_srv_interface::wx_srv_interface(asio::io_service& _main_io_service,
 	asio::io_service& _misc_io_service,
 	asio::ip::tcp::endpoint _local_endpoint,
+	crypto::provider& _crypto_prov,
 	crypto::server& _crypto_srv)
-	:msgr_proto::server(_main_io_service, _misc_io_service, _local_endpoint, _crypto_srv)
+	:msgr_proto::server(_main_io_service, _misc_io_service, _local_endpoint, _crypto_prov, _crypto_srv)
 {
 	fs::path publickeysFilePath = DATA_PATH;
 	publickeysFilePath /= publickeysFile;

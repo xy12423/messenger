@@ -100,6 +100,7 @@ public:
 	wx_srv_interface(asio::io_service& _main_io_service,
 		asio::io_service& _misc_io_service,
 		asio::ip::tcp::endpoint _local_endpoint,
+		crypto::provider& _crypto_prov,
 		crypto::server& _crypto_srv);
 	~wx_srv_interface();
 

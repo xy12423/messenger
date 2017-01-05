@@ -44,6 +44,7 @@ FileSendThread *threadFileSend;
 iosrvThread *threadNetwork, *threadMisc, *threadCrypto;
 
 asio::io_service main_io_service, misc_io_service, cryp_io_service;
+std::unique_ptr<crypto::provider> crypto_prov;
 std::unique_ptr<crypto::server> crypto_srv;
 std::unique_ptr<wx_srv_interface> srv;
 
@@ -52,6 +53,7 @@ std::unordered_map<plugin_id_type, plugin_info_type> plugin_info;
 std::unordered_set<user_id_type> virtual_users;
 
 fs::path TEMP_PATH, DATA_PATH, DOWNLOAD_PATH;
+const char* privatekeyFile = ".privatekey";
 
 std::string empty_string;
 
@@ -302,7 +304,7 @@ mainFrame::mainFrame(const wxString& title)
 	if (fs::exists(plugin_file_path))
 	{
 		plugin_init();
-		uid_global.assign(GetUserIDGlobal());
+		uid_global.assign(crypto_prov->GetUserIDGlobal());
 		set_method("GetUserID", reinterpret_cast<void*>(plugin_method_GetUserID));
 		set_method("Print", reinterpret_cast<void*>(plugin_method_Print));
 
@@ -748,7 +750,7 @@ bool MyApp::OnInit()
 		threadCrypto = new iosrvThread(cryp_io_service);
 		stage = 3;
 
-		initKey();
+		crypto_prov = std::make_unique<crypto::provider>((DATA_PATH / privatekeyFile).string().c_str());
 
 		try
 		{
@@ -773,7 +775,7 @@ bool MyApp::OnInit()
 		crypto_srv = std::make_unique<crypto::server>(cryp_io_service, crypto_worker);
 		srv = std::make_unique<wx_srv_interface>(main_io_service, misc_io_service,
 			asio::ip::tcp::endpoint((use_v6 ? asio::ip::tcp::v6() : asio::ip::tcp::v4()), portListen),
-			*crypto_srv.get());
+			*crypto_prov.get(), *crypto_srv.get());
 
 		try
 		{
