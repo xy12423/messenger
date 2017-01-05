@@ -4,6 +4,18 @@
 #include "session.h"
 #include "plugin.h"
 
+template <typename... _Ty>
+inline void hash_short(_Ty... arg)
+{
+	crypto::provider::hash_short(std::forward<_Ty>(arg)...);
+}
+
+template <typename... _Ty>
+inline void base32(_Ty... arg)
+{
+	crypto::provider::base32(std::forward<_Ty>(arg)...);
+}
+
 class counting_streambuf :public std::streambuf
 {
 public:

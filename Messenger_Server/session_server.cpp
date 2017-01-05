@@ -21,7 +21,7 @@ void server::do_start()
 			return;
 		if (!ec)
 		{
-			std::shared_ptr<pre_session_s> pre_session_s_ptr(std::make_shared<pre_session_s>(port_null, socket, *this, crypto_srv, main_io_service, misc_io_service));
+			std::shared_ptr<pre_session_s> pre_session_s_ptr(std::make_shared<pre_session_s>(port_null, socket, *this, crypto_prov, crypto_srv, main_io_service, misc_io_service));
 			std::unique_lock<std::mutex> lock(pre_session_mutex);
 			pre_sessions.emplace(pre_session_s_ptr);
 			lock.unlock();
@@ -166,7 +166,7 @@ void server::connect(const asio::ip::tcp::endpoint& remote_endpoint)
 		{
 			if (!ec)
 			{
-				std::shared_ptr<pre_session_c> pre_session_c_ptr(std::make_shared<pre_session_c>(local_port, socket, *this, crypto_srv, main_io_service, misc_io_service));
+				std::shared_ptr<pre_session_c> pre_session_c_ptr(std::make_shared<pre_session_c>(local_port, socket, *this, crypto_prov, crypto_srv, main_io_service, misc_io_service));
 				std::unique_lock<std::mutex> lock(pre_session_mutex);
 				pre_sessions.emplace(pre_session_c_ptr);
 				lock.unlock();
@@ -208,11 +208,11 @@ void server::connect(const asio::ip::tcp::resolver::query& query)
 				socket->bind(asio::ip::tcp::endpoint(ip_protocol, local_port));
 				return next;
 			},
-				[this, local_port, socket](const error_code_type& ec, asio::ip::tcp::resolver::iterator itr)
+				[this, local_port, socket](const error_code_type& ec, asio::ip::tcp::resolver::iterator)
 			{
 				if (!ec)
 				{
-					std::shared_ptr<pre_session_c> pre_session_c_ptr(std::make_shared<pre_session_c>(local_port, socket, *this, crypto_srv, main_io_service, misc_io_service));
+					std::shared_ptr<pre_session_c> pre_session_c_ptr(std::make_shared<pre_session_c>(local_port, socket, *this, crypto_prov, crypto_srv, main_io_service, misc_io_service));
 					std::unique_lock<std::mutex> lock(pre_session_mutex);
 					pre_sessions.emplace(pre_session_c_ptr);
 					lock.unlock();

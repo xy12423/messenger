@@ -52,8 +52,9 @@ public:
 	cli_server(asio::io_service& _main_io_service,
 		asio::io_service& _misc_io_service,
 		asio::ip::tcp::endpoint _local_endpoint,
+		crypto::provider& _crypto_prov,
 		crypto::server& _crypto_srv)
-		:msgr_proto::server(_main_io_service, _misc_io_service, _local_endpoint, _crypto_srv)
+		:msgr_proto::server(_main_io_service, _misc_io_service, _local_endpoint, _crypto_prov, _crypto_srv)
 	{
 		read_data();
 		user_exts[server_uid].name = user_exts[server_uid].addr = server_uname;

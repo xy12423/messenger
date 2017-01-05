@@ -12,6 +12,7 @@ std::promise<void> exit_promise;
 config_table_tp config_items;
 
 asio::io_service main_iosrv, misc_iosrv, cryp_iosrv;
+std::unique_ptr<crypto::provider> crypto_prov;
 std::unique_ptr<crypto::server> crypto_srv;
 std::unique_ptr<cli_server> srv;
 cli_plugin_interface i_plugin;
@@ -23,6 +24,12 @@ const char *msg_new_user = "New user:", *msg_del_user = "Leaving user:";
 const char *msg_input_name = "Username:", *msg_input_pass = "Password:", *msg_welcome = "Welcome", *msg_unauthed_key = "Key unauthorized";
 
 const char* privatekeyFile = ".privatekey";
+
+template <typename... _Ty>
+inline void hash(_Ty... arg)
+{
+	crypto::provider::hash(std::forward<_Ty>(arg)...);
+}
 
 bool cli_plugin_interface::get_id_by_name(const std::string& name, user_id_type& id)
 {
@@ -671,7 +678,7 @@ int main(int argc, char *argv[])
 	try
 	{
 #endif
-		initKey();
+		crypto_prov = std::make_unique<crypto::provider>(privatekeyFile);
 
 		cli_server::read_config();
 		for (int i = 1; i < argc; i++)
@@ -715,7 +722,7 @@ int main(int argc, char *argv[])
 
 		crypto_srv = std::make_unique<crypto::server>(cryp_iosrv, crypto_worker);
 		srv = std::make_unique<cli_server>
-			(main_iosrv, misc_iosrv, asio::ip::tcp::endpoint((use_v6 ? asio::ip::tcp::v6() : asio::ip::tcp::v4()), portListener), *crypto_srv.get());
+			(main_iosrv, misc_iosrv, asio::ip::tcp::endpoint((use_v6 ? asio::ip::tcp::v6() : asio::ip::tcp::v4()), portListener), *crypto_prov.get(), *crypto_srv.get());
 
 		try
 		{
