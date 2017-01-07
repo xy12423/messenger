@@ -26,7 +26,7 @@ const char *msg_input_name = "Username:", *msg_input_pass = "Password:", *msg_we
 const char* privatekeyFile = ".privatekey";
 
 template <typename... _Ty>
-inline void hash(_Ty... arg)
+inline void hash(_Ty&&... arg)
 {
 	crypto::provider::hash(std::forward<_Ty>(arg)...);
 }
@@ -136,6 +136,7 @@ void cli_server::read_data()
 		std::cout << "Incompatible data file.Will not read." << std::endl;
 		return;
 	}
+
 	uint32_t userCount, size;
 	fin.read(reinterpret_cast<char*>(&userCount), sizeof(uint32_t));
 	char passwd_buf[hash_size];
@@ -146,12 +147,12 @@ void cli_server::read_data()
 		fin.read(reinterpret_cast<char*>(&size), sizeof(uint32_t));
 		buf.resize(size);
 		fin.read(buf.data(), size);
-		user.name = std::string(buf.data(), size);
+		user.name.assign(buf.data(), size);
 		fin.read(passwd_buf, hash_size);
-		user.passwd = std::string(passwd_buf, hash_size);
+		user.passwd.assign(passwd_buf, hash_size);
 		fin.read(reinterpret_cast<char*>(&size), sizeof(uint32_t));
 		user.group = static_cast<user_record::group_type>(size);
-		user_records.emplace(user.name, user);
+		user_records.emplace(user.name, std::move(user));
 	}
 }
 
@@ -537,14 +538,17 @@ std::string cli_server::process_command(std::string& cmd, user_record& user)
 				std::string hashed_passwd;
 				hash(args, hashed_passwd);
 
-				user_record_list::iterator itr = user_records.find(cmd);
-				if (itr == user_records.end())
+				if (cmd != server_uname)
 				{
-					user_records.emplace(cmd, user_record(cmd, hashed_passwd, user_record::USER));
-					main_iosrv.post([this]() {
-						write_data();
-					});
-					ret = "Registered " + cmd;
+					user_record_list::iterator itr = user_records.find(cmd);
+					if (itr == user_records.end())
+					{
+						user_records.emplace(cmd, user_record(cmd, std::move(hashed_passwd), user_record::USER));
+						main_iosrv.post([this]() {
+							write_data();
+						});
+						ret = "Registered " + cmd;
+					}
 				}
 			}
 		}
@@ -609,6 +613,8 @@ std::string cli_server::process_command(std::string& cmd, user_record& user)
 			for (const std::pair<int, user_ext> &p : user_exts)
 			{
 				if (p.first == server_uid)
+					continue;
+				if (mode >= NORMAL && p.second.current_stage != user_ext::LOGGED_IN)
 					continue;
 				ret.append(p.second.name);
 				ret.push_back(';');

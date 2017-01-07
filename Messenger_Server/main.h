@@ -5,18 +5,17 @@
 
 enum modes{ EASY, NORMAL, HARD };
 
-const port_type portConnect = 4826;
+constexpr port_type portConnect = 4826;
 
 struct user_record
 {
 	enum group_type { GUEST, USER, ADMIN, CONSOLE };
 
 	user_record() { group = GUEST; }
-	user_record(const std::string& _name, const std::string& _passwd, group_type _group) :
-		name(_name), passwd(_passwd)
-	{
-		group = _group;
-	}
+	template <typename _Ty1, typename _Ty2>
+	user_record(_Ty1&& _name, _Ty2&& _passwd, group_type _group) :
+		name(std::forward<_Ty1>(_name)), passwd(std::forward<_Ty1>(_passwd)), group(_group)
+	{}
 
 	std::string name, passwd;
 	group_type group;

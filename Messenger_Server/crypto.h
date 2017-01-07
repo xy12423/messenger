@@ -19,7 +19,7 @@ namespace crypto
 		typedef CryptoPP::CBC_Mode<CryptoPP::AES>::Decryption sym_decryptor;
 		typedef CryptoPP::SecByteBlock byte_block;
 
-		provider(const char* privatekeyFile) : CURVE(CryptoPP::ASN1::secp521r1()), dh(CURVE) { initKey(privatekeyFile); }
+		provider(const char* privatekeyFile) : CURVE(CryptoPP::ASN1::secp521r1()), prng(true), dh(CURVE) { initKey(privatekeyFile); }
 
 		const asym_decryptor& GetPublicKey();
 		std::string GetPublicKeyString();
@@ -28,7 +28,7 @@ namespace crypto
 		void encrypt(const std::string& src, std::string& dst, const asym_encryptor& e1);
 		void encrypt(const byte* src, size_t src_size, std::string& dst, const asym_encryptor& e1);
 		void decrypt(const std::string& src, std::string& dst, const asym_decryptor& d0);
-		void decrypt(const byte* src, size_t src_size, byte* dst, const asym_decryptor& d0);
+		void decrypt(const byte* src, size_t src_size, std::string& dst, const asym_decryptor& d0);
 
 		void init_sym_encryption(sym_encryptor& e, const byte_block& key, byte_block& iv);
 		void init_sym_decryption(sym_decryptor& d, const byte_block& key, const byte_block& iv);
@@ -46,9 +46,6 @@ namespace crypto
 
 		size_t dh_priv_block_size, dh_pub_block_size, dh_agree_block_size;
 	private:
-		static constexpr char* const encode32 = "ABCDEFGHIJKLMNPQRSTUVWXYZ1234567";
-		static constexpr char space32 = '0';
-
 		void genKey(const char* privatekeyFile);
 		void initKey(const char* privatekeyFile);
 

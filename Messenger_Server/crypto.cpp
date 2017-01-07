@@ -80,9 +80,10 @@ void provider::decrypt(const std::string& src, std::string& dst, const asym_decr
 	StringSource ss1(src, true, new PK_DecryptorFilter(prng, _d0, new StringSink(dst)));
 }
 
-void provider::decrypt(const byte* src, size_t src_size, byte* dst, const asym_decryptor& _d0)
+void provider::decrypt(const byte* src, size_t src_size, std::string& dst, const asym_decryptor& _d0)
 {
-	_d0.Decrypt(prng, src, src_size, dst);
+	dst.clear();
+	StringSource ss1(src, src_size, true, new PK_DecryptorFilter(prng, _d0, new StringSink(dst)));
 }
 
 void provider::init_sym_encryption(sym_encryptor& e, const byte_block& key, byte_block& iv)
@@ -145,6 +146,9 @@ rand_num_type provider::genRandomNumber()
 
 void provider::base32(std::string& ret, byte* buf, size_t size)
 {
+	static const char encode32[] = "ABCDEFGHIJKLMNPQRSTUVWXYZ1234567";
+	constexpr char space32 = '0';
+
 	byte *ptr_end = buf + size - 5;
 	byte *ptr = buf;
 	for (; ptr < ptr_end; ptr += 5)
