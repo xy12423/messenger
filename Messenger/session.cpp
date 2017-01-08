@@ -219,7 +219,11 @@ void pre_session::read_secret()
 		misc_io_service.post([this, watcher_holder]() {
 			try
 			{
-				crypto_prov.decrypt(reinterpret_cast<byte*>(pubB_buffer.get()), pubB_size, pubB, crypto_prov.GetPublicKey());
+				std::string pubB_str;
+				crypto_prov.decrypt(reinterpret_cast<byte*>(pubB_buffer.get()), pubB_size, pubB_str, crypto_prov.GetPublicKey());
+				if (pubB_str.size() != crypto_prov.dh_pub_block_size)
+					throw(std::runtime_error("Failed to reach shared secret"));
+				memcpy(pubB, pubB_str.data(), crypto_prov.dh_pub_block_size);
 				if (!crypto_prov.dhAgree(key, priv, pubB))
 					throw(std::runtime_error("Failed to reach shared secret"));
 				write_iv();

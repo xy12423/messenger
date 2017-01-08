@@ -19,13 +19,22 @@ void server::do_start()
 		[this, socket](const error_code_type& ec) {
 		if (closing)
 			return;
-		if (!ec)
+		try
 		{
+			if (ec)
+				throw(std::runtime_error("Socket Error:" + ec.message()));
+			asio::ip::tcp::socket::keep_alive option(true);
+			socket->set_option(option);
+
 			std::shared_ptr<pre_session_s> pre_session_s_ptr(std::make_shared<pre_session_s>(port_null, socket, *this, crypto_prov, crypto_srv, main_io_service, misc_io_service));
 			std::unique_lock<std::mutex> lock(pre_session_mutex);
 			pre_sessions.emplace(pre_session_s_ptr);
 			lock.unlock();
 			pre_session_s_ptr->start();
+		}
+		catch (std::exception &ex)
+		{
+			on_exception(ex.what());
 		}
 
 		do_start();
@@ -164,17 +173,22 @@ void server::connect(const asio::ip::tcp::endpoint& remote_endpoint)
 		socket->async_connect(remote_endpoint,
 			[this, local_port, socket](const error_code_type& ec)
 		{
-			if (!ec)
+			try
 			{
+				if (ec)
+					throw(std::runtime_error("Socket Error:" + ec.message()));
+				asio::ip::tcp::socket::keep_alive option(true);
+				socket->set_option(option);
+
 				std::shared_ptr<pre_session_c> pre_session_c_ptr(std::make_shared<pre_session_c>(local_port, socket, *this, crypto_prov, crypto_srv, main_io_service, misc_io_service));
 				std::unique_lock<std::mutex> lock(pre_session_mutex);
 				pre_sessions.emplace(pre_session_c_ptr);
 				lock.unlock();
 				pre_session_c_ptr->start();
 			}
-			else
+			catch (std::exception &ex)
 			{
-				on_exception("Socket Error:" + ec.message());
+				on_exception(ex.what());
 				free_rand_port(local_port);
 			}
 		});
@@ -210,17 +224,22 @@ void server::connect(const asio::ip::tcp::resolver::query& query)
 			},
 				[this, local_port, socket](const error_code_type& ec, asio::ip::tcp::resolver::iterator)
 			{
-				if (!ec)
+				try
 				{
+					if (ec)
+						throw(std::runtime_error("Socket Error:" + ec.message()));
+					asio::ip::tcp::socket::keep_alive option(true);
+					socket->set_option(option);
+
 					std::shared_ptr<pre_session_c> pre_session_c_ptr(std::make_shared<pre_session_c>(local_port, socket, *this, crypto_prov, crypto_srv, main_io_service, misc_io_service));
 					std::unique_lock<std::mutex> lock(pre_session_mutex);
 					pre_sessions.emplace(pre_session_c_ptr);
 					lock.unlock();
 					pre_session_c_ptr->start();
 				}
-				else
+				catch (std::exception &ex)
 				{
-					on_exception("Socket Error:" + ec.message());
+					on_exception(ex.what());
 					free_rand_port(local_port);
 				}
 			});
