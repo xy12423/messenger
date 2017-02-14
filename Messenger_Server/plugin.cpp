@@ -505,6 +505,11 @@ void file_storage::on_file_h(const std::string& name, const char *_data, size_t 
 {
 	if (!enabled)
 		return;
+
+	recv_tasks_tp::iterator itr = recv_tasks.find(name);
+	if (itr != recv_tasks.end())
+		recv_tasks.erase(itr);
+
 	data_view data(_data, data_size);
 	data_size_type block_count_all, file_name_len;
 
@@ -791,6 +796,10 @@ void key_storage::on_file_h(const std::string& user, const char *_data, size_t d
 {
 	data_view data(_data, data_size);
 	data_size_type block_count_all, file_name_len;
+
+	recv_tasks_tp::iterator itr = recv_tasks.find(user);
+	if (itr != recv_tasks.end())
+		recv_tasks.erase(itr);
 
 	try
 	{

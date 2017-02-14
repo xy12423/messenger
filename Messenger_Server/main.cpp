@@ -11,7 +11,7 @@ const std::string empty_string;
 std::promise<void> exit_promise;
 config_table_tp config_items;
 
-asio::io_service main_iosrv, misc_iosrv, cryp_iosrv;
+asio::io_service main_iosrv, misc_iosrv;
 std::unique_ptr<crypto::provider> crypto_prov;
 std::unique_ptr<crypto::server> crypto_srv;
 std::unique_ptr<cli_server> srv;
@@ -19,6 +19,8 @@ cli_plugin_interface i_plugin;
 plugin_manager m_plugin(i_plugin);
 key_storage user_key_storage;
 volatile bool server_on = true;
+
+bool display_ip = true;
 
 const char *msg_new_user = "New user:", *msg_del_user = "Leaving user:";
 const char *msg_input_name = "Username:", *msg_input_pass = "Password:", *msg_welcome = "Welcome", *msg_unauthed_key = "Key unauthorized";
@@ -309,7 +311,10 @@ void cli_server::on_msg(user_id_type id, std::string& msg)
 							send_msg(id, msg_welcome);
 							m_plugin.on_new_user(user.name);
 							//Broadcast user join
-							broadcast_msg(server_uid, msg_new_user + user.name + '(' + user.addr + ')');
+							if (display_ip)
+								broadcast_msg(server_uid, msg_new_user + user.name + '(' + user.addr + ')');
+							else
+								broadcast_msg(server_uid, msg_new_user + user.name);
 
 							//All prepared, mark as LOGGED_IN
 							user.current_stage = user_ext::LOGGED_IN;
@@ -430,7 +435,10 @@ void cli_server::on_leave(user_id_type id)
 	{
 		if (user.current_stage == user_ext::LOGGED_IN)
 		{
-			msg_send.append(user.name + '(' + user.addr + ')');
+			if (display_ip)
+				msg_send.append(user.name + '(' + user.addr + ')');
+			else
+				msg_send.append(user.name);
 			broadcast_msg(server_uid, msg_send);
 			user_record_list::iterator itr = user_records.find(user.name);
 			if (itr != user_records.end())
@@ -463,9 +471,19 @@ void cli_server::broadcast_msg(int src, const std::string& msg)
 	std::string msg_send;
 	user_ext &user = user_exts[src];
 	if (mode > EASY)
-		msg_send = user.name + '(' + user.addr + ')';
+	{
+		msg_send = user.name;
+		if (display_ip)
+		{
+			msg_send.push_back('(');
+			msg_send.append(user.addr);
+			msg_send.push_back(')');
+		}
+	}
 	else
+	{
 		msg_send = user.addr;
+	}
 	msg_send.push_back(':');
 	msg_send.append(msg);
 	//Let plugins log server messages as it won't go through on_msg
@@ -726,7 +744,7 @@ int main(int argc, char *argv[])
 		}
 		catch (std::out_of_range &) {}
 
-		crypto_srv = std::make_unique<crypto::server>(cryp_iosrv, crypto_worker);
+		crypto_srv = std::make_unique<crypto::server>(main_iosrv, crypto_worker);
 		srv = std::make_unique<cli_server>
 			(main_iosrv, misc_iosrv, asio::ip::tcp::endpoint((use_v6 ? asio::ip::tcp::v6() : asio::ip::tcp::v4()), portListener), *crypto_prov.get(), *crypto_srv.get());
 
@@ -742,6 +760,13 @@ int main(int argc, char *argv[])
 			else
 				throw(std::out_of_range(""));
 			std::cout << "Mode set to " << arg << std::endl;
+		}
+		catch (std::out_of_range &) {}
+		try
+		{
+			config_items.at("disable_display_ip");
+			display_ip = false;
+			std::cout << "IP display disabled" << std::endl;
 		}
 		catch (std::out_of_range &) {}
 		try
@@ -791,13 +816,10 @@ int main(int argc, char *argv[])
 		};
 		std::shared_ptr<asio::io_service::work> main_iosrv_work = std::make_shared<asio::io_service::work>(main_iosrv);
 		std::shared_ptr<asio::io_service::work> misc_iosrv_work = std::make_shared<asio::io_service::work>(misc_iosrv);
-		std::shared_ptr<asio::io_service::work> cryp_iosrv_work = std::make_shared<asio::io_service::work>(cryp_iosrv);
 		std::thread main_iosrv_thread(iosrv_thread, &main_iosrv);
 		main_iosrv_thread.detach();
 		std::thread misc_iosrv_thread(iosrv_thread, &misc_iosrv);
 		misc_iosrv_thread.detach();
-		std::thread cryp_iosrv_thread(iosrv_thread, &cryp_iosrv);
-		cryp_iosrv_thread.detach();
 
 		srv->start();
 
@@ -824,10 +846,9 @@ int main(int argc, char *argv[])
 		srv->shutdown();
 		crypto_srv->stop();
 
-		cryp_iosrv_work.reset();
 		main_iosrv_work.reset();
 		misc_iosrv_work.reset();
-		while (!cryp_iosrv.stopped() || !main_iosrv.stopped() || !misc_iosrv.stopped());
+		while (!main_iosrv.stopped() || !misc_iosrv.stopped());
 
 #ifdef NDEBUG
 	}
