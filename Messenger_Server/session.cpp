@@ -116,9 +116,7 @@ void pre_session::read_key()
 			if (ec)
 				throw(std::runtime_error("Socket Error:" + ec.message()));
 			key_string.assign(key_buffer.release(), key_size);
-			if (key_string.empty() || srv.check_key_connected(key_string))
-				key_string.clear();
-			else
+			if (!key_string.empty())
 				stage1();
 		}
 		catch (std::exception &ex)

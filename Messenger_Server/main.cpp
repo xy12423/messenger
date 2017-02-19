@@ -297,28 +297,32 @@ void cli_server::on_msg(user_id_type id, std::string& msg)
 				if (itr != user_records.end())
 				{
 					user_record &record = itr->second;
-					if (!record.logged_in)
+					std::string hashed_pass;
+					hash(msg, hashed_pass);
+					if (record.passwd == hashed_pass)
 					{
-						std::string hashed_pass;
-						hash(msg, hashed_pass);
-						if (record.passwd == hashed_pass)
+						if (record.logged_in)
 						{
-							//Get user's record linked to id
-							record.logged_in = true;
-							record.id = id;
-
-							//Send welcome messages
-							send_msg(id, msg_welcome);
-							m_plugin.on_new_user(user.name);
-							//Broadcast user join
-							if (display_ip)
-								broadcast_msg(server_uid, msg_new_user + user.name + '(' + user.addr + ')');
-							else
-								broadcast_msg(server_uid, msg_new_user + user.name);
-
-							//All prepared, mark as LOGGED_IN
-							user.current_stage = user_ext::LOGGED_IN;
+							//Kick
+							//Call on_leave directly is a workaround
+							on_leave(record.id);
+							disconnect(record.id);
 						}
+						//Get user's record linked to id
+						record.logged_in = true;
+						record.id = id;
+
+						//Send welcome messages
+						send_msg(id, msg_welcome);
+						m_plugin.on_new_user(user.name);
+						//Broadcast user join
+						if (display_ip)
+							broadcast_msg(server_uid, msg_new_user + user.name + '(' + user.addr + ')');
+						else
+							broadcast_msg(server_uid, msg_new_user + user.name);
+
+						//All prepared, mark as LOGGED_IN
+						user.current_stage = user_ext::LOGGED_IN;
 					}
 				}
 
@@ -428,6 +432,8 @@ void cli_server::on_join(user_id_type id, const std::string& )
 void cli_server::on_leave(user_id_type id)
 {
 	user_ext_list::iterator itr = user_exts.find(id);
+	if (itr == user_exts.end())
+		return;
 	user_ext &user = itr->second;
 
 	std::string msg_send(msg_del_user);

@@ -381,8 +381,6 @@ namespace msgr_proto
 		session_base& get_session(user_id_type id) const { return *sessions.at(id); }
 		const std::string& get_public_key() const { return e0str; }
 
-        bool check_key_connected(const std::string& key) { if (connected_keys.find(key) == connected_keys.end()) { connected_keys.emplace(key); return false; } else return true; }
-
 		virtual void on_data(user_id_type id, const std::string& data) = 0;
 
 		virtual void on_join(user_id_type id, const std::string& key) = 0;
@@ -414,7 +412,6 @@ namespace msgr_proto
 		crypto::provider& crypto_prov;
 		crypto::server& crypto_srv;
 		std::string e0str;
-		std::unordered_set<std::string> connected_keys;
 
 		std::unordered_set<std::shared_ptr<pre_session>> pre_sessions;
 		session_list_type sessions;

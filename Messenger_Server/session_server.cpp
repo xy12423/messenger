@@ -60,7 +60,6 @@ void server::pre_session_over(const std::shared_ptr<pre_session>& _pre, bool suc
 	{
 		if (_pre->get_port() != port_null)
 			free_rand_port(static_cast<port_type>(_pre->get_port()));
-		connected_keys.erase(_pre->get_key());
 	}
 	_pre->shutdown();
 	pre_sessions.erase(_pre);
@@ -102,7 +101,6 @@ void server::leave(user_id_type _user)
 	this_session->shutdown();
 	if (this_session->get_port() != port_null)
 		free_rand_port(static_cast<port_type>(this_session->get_port()));
-	connected_keys.erase(this_session->get_key());
 	sessions.erase(itr);
 }
 
