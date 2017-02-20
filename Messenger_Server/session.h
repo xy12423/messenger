@@ -339,19 +339,23 @@ namespace msgr_proto
 			asio::ip::tcp::endpoint _local_endpoint,
 			crypto::provider& _crypto_prov,
 			crypto::server& _crypto_srv)
-			:main_io_service(_main_io_service), misc_io_service(_misc_io_service),
-			acceptor(main_io_service, _local_endpoint), resolver(main_io_service),
+			:main_iosrv(_main_io_service), misc_iosrv(_misc_io_service),
+			acceptor(main_iosrv, _local_endpoint), resolver(main_iosrv),
 			crypto_prov(_crypto_prov), crypto_srv(_crypto_srv), e0str(_crypto_prov.GetPublicKeyString())
-		{}
+		{
+			detect_thread_id();
+		}
 
 		server(asio::io_service& _main_io_service,
 			asio::io_service& _misc_io_service,
 			crypto::provider& _crypto_prov,
 			crypto::server& _crypto_srv)
-			:main_io_service(_main_io_service), misc_io_service(_misc_io_service),
-			acceptor(main_io_service), resolver(main_io_service),
+			:main_iosrv(_main_io_service), misc_iosrv(_misc_io_service),
+			acceptor(main_iosrv), resolver(main_iosrv),
 			crypto_prov(_crypto_prov), crypto_srv(_crypto_srv), e0str(_crypto_prov.GetPublicKeyString())
-		{}
+		{
+			detect_thread_id();
+		}
 
 		~server()
 		{
@@ -391,13 +395,15 @@ namespace msgr_proto
 
         virtual void on_error(const char* err) { std::cerr << err << std::endl; }
 
-		void on_exception(const std::string& ex) noexcept { misc_io_service.post([this, ex]() { on_error(ex.c_str()); }); }
-		void on_exception(std::string&& ex) noexcept { misc_io_service.post([this, ex]() { on_error(ex.c_str()); }); }
-		void on_exception(std::exception& ex) noexcept { misc_io_service.post([this, ex]() { on_error(ex.what()); }); }
-		void on_exception(const char* ex) noexcept { misc_io_service.post([this, ex]() { on_error(ex); }); }
+		void on_exception(const std::string& ex) noexcept { misc_iosrv.post([this, ex]() { on_error(ex.c_str()); }); }
+		void on_exception(std::string&& ex) noexcept { misc_iosrv.post([this, ex]() { on_error(ex.c_str()); }); }
+		void on_exception(std::exception& ex) noexcept { misc_iosrv.post([this, ex]() { on_error(ex.what()); }); }
+		void on_exception(const char* ex) noexcept { misc_iosrv.post([this, ex]() { on_error(ex); }); }
 
 		friend class session_base;
 	private:
+		void detect_thread_id();
+
 		void do_start();
 
 		void connect(const asio::ip::tcp::endpoint& remote_endpoint);
@@ -405,9 +411,10 @@ namespace msgr_proto
 
 		void on_recv_data(user_id_type id, const std::shared_ptr<std::string>& data);
 
-		asio::io_service &main_io_service, &misc_io_service;
+		asio::io_service &main_iosrv, &misc_iosrv;
 		asio::ip::tcp::acceptor acceptor;
 		asio::ip::tcp::resolver resolver;
+		std::thread::id main_iosrv_id, misc_iosrv_id;
 
 		crypto::provider& crypto_prov;
 		crypto::server& crypto_srv;

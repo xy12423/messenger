@@ -8,10 +8,9 @@
 
 const std::string empty_string;
 
-std::promise<void> exit_promise;
 config_table_tp config_items;
 
-asio::io_service main_iosrv, misc_iosrv;
+asio::io_service main_iosrv_, misc_iosrv_;
 std::unique_ptr<crypto::provider> crypto_prov;
 std::unique_ptr<crypto::server> crypto_srv;
 std::unique_ptr<cli_server> srv;
@@ -304,8 +303,6 @@ void cli_server::on_msg(user_id_type id, std::string& msg)
 						if (record.logged_in)
 						{
 							//Kick
-							//Call on_leave directly is a workaround
-							on_leave(record.id);
 							disconnect(record.id);
 						}
 						//Get user's record linked to id
@@ -541,7 +538,7 @@ std::string cli_server::process_command(std::string& cmd, user_record& user)
 			if (itr != user_records.end())
 			{
 				itr->second.group = user_record::ADMIN;
-				main_iosrv.post([this]() {
+				main_iosrv_.post([this]() {
 					write_data();
 				});
 				ret = "Opped " + itr->second.name;
@@ -568,7 +565,7 @@ std::string cli_server::process_command(std::string& cmd, user_record& user)
 					if (itr == user_records.end())
 					{
 						user_records.emplace(cmd, user_record(cmd, std::move(hashed_passwd), user_record::USER));
-						main_iosrv.post([this]() {
+						main_iosrv_.post([this]() {
 							write_data();
 						});
 						ret = "Registered " + cmd;
@@ -606,7 +603,7 @@ std::string cli_server::process_command(std::string& cmd, user_record& user)
 			if (itr != user_records.end())
 			{
 				user_records.erase(itr);
-				main_iosrv.post([this]() {
+				main_iosrv_.post([this]() {
 					write_data();
 				});
 				ret = "Unregistered " + args;
@@ -617,7 +614,7 @@ std::string cli_server::process_command(std::string& cmd, user_record& user)
 	{
 		user.passwd.clear();
 		hash(args, user.passwd);
-		main_iosrv.post([this]() {
+		main_iosrv_.post([this]() {
 			write_data();
 		});
 		ret = "Password changed";
@@ -651,7 +648,6 @@ std::string cli_server::process_command(std::string& cmd, user_record& user)
 		if (group >= user_record::CONSOLE)
 		{
 			server_on = false;
-			exit_promise.set_value();
 			ret = "Stopping server";
 		}
 	}
@@ -750,9 +746,9 @@ int main(int argc, char *argv[])
 		}
 		catch (std::out_of_range &) {}
 
-		crypto_srv = std::make_unique<crypto::server>(main_iosrv, crypto_worker);
+		crypto_srv = std::make_unique<crypto::server>(main_iosrv_, crypto_worker);
 		srv = std::make_unique<cli_server>
-			(main_iosrv, misc_iosrv, asio::ip::tcp::endpoint((use_v6 ? asio::ip::tcp::v6() : asio::ip::tcp::v4()), portListener), *crypto_prov.get(), *crypto_srv.get());
+			(main_iosrv_, misc_iosrv_, asio::ip::tcp::endpoint((use_v6 ? asio::ip::tcp::v6() : asio::ip::tcp::v4()), portListener), *crypto_prov.get(), *crypto_srv.get());
 
 		try
 		{
@@ -820,33 +816,27 @@ int main(int argc, char *argv[])
 				catch (...) { abnormally_exit = true; }
 			} while (abnormally_exit);
 		};
-		std::shared_ptr<asio::io_service::work> main_iosrv_work = std::make_shared<asio::io_service::work>(main_iosrv);
-		std::shared_ptr<asio::io_service::work> misc_iosrv_work = std::make_shared<asio::io_service::work>(misc_iosrv);
-		std::thread main_iosrv_thread(iosrv_thread, &main_iosrv);
+		std::shared_ptr<asio::io_service::work> main_iosrv_work = std::make_shared<asio::io_service::work>(main_iosrv_);
+		std::shared_ptr<asio::io_service::work> misc_iosrv_work = std::make_shared<asio::io_service::work>(misc_iosrv_);
+		std::thread main_iosrv_thread(iosrv_thread, &main_iosrv_);
 		main_iosrv_thread.detach();
-		std::thread misc_iosrv_thread(iosrv_thread, &misc_iosrv);
+		std::thread misc_iosrv_thread(iosrv_thread, &misc_iosrv_);
 		misc_iosrv_thread.detach();
 
 		srv->start();
 
-		std::thread input_thread([]() {
-			user_record user_root;
-			user_root.name = "Server";
-			user_root.group = user_record::CONSOLE;
-			std::string command;
-			while (server_on)
-			{
-				std::getline(std::cin, command);
-				std::string ret = srv->process_command(command, user_root);
-				if (!ret.empty())
-					std::cout << ret << std::endl;
-			}
-		});
-		input_thread.detach();
+		user_record user_root;
+		user_root.name = "Server";
+		user_root.group = user_record::CONSOLE;
+		std::string command;
+		while (server_on)
+		{
+			std::getline(std::cin, command);
+			std::string ret = srv->process_command(command, user_root);
+			if (!ret.empty())
+				std::cout << ret << std::endl;
+		}
 
-		std::future<void> future = exit_promise.get_future();
-		future.wait();
-		
 		srv->on_exit();
 		m_plugin.on_exit();
 		srv->shutdown();
@@ -854,7 +844,7 @@ int main(int argc, char *argv[])
 
 		main_iosrv_work.reset();
 		misc_iosrv_work.reset();
-		while (!main_iosrv.stopped() || !misc_iosrv.stopped());
+		while (!main_iosrv_.stopped() || !misc_iosrv_.stopped());
 
 #ifdef NDEBUG
 	}
