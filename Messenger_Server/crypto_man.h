@@ -29,7 +29,7 @@ namespace crypto
 	struct task
 	{
 		task(std::string& _data, crypto_callback&& _callback) :data(_data), callback(std::move(_callback)) {}
-		
+
 		id_type id;
 		std::string &data;
 		crypto_callback callback;
@@ -46,41 +46,45 @@ namespace crypto
 
 		void enc(std::string& data, crypto_callback&& _callback);
 		void dec(std::string& data, crypto_callback&& _callback);
-		void enc_finished() { busy_flag &= (~ENC); if (exiting) enc_task_que.clear(); else enc_task_que.pop_front(); }
-		void dec_finished() { busy_flag &= (~DEC); if (exiting) dec_task_que.clear(); else dec_task_que.pop_front(); }
-		bool available(task_type type) { return (busy_flag & type) == 0 && !exiting; }
-		void set_busy(task_type type) { busy_flag |= type; }
-		void do_one(task_type type) { if (type == ENC) do_enc(); else do_dec(); }
 
 		void stop();
 
-		virtual void do_enc() = 0;
-		virtual void do_dec() = 0;
-	protected:
-		std::list<task> enc_task_que, dec_task_que;
+		virtual void do_enc(task&) = 0;
+		virtual void do_dec(task&) = 0;
 	private:
 		server &srv;
 		asio::io_service& iosrv;
 		id_type id;
-
-		uint16_t busy_flag = 0;
-		bool exiting = false;
 	};
 	typedef std::shared_ptr<session> session_ptr;
 
 	class server
 	{
+	private:
+		struct session_data
+		{
+			void enc_finished() { busy_flag &= (~ENC); if (exiting) enc_task_que.clear(); else enc_task_que.pop_front(); }
+			void dec_finished() { busy_flag &= (~DEC); if (exiting) dec_task_que.clear(); else dec_task_que.pop_front(); }
+			bool available(task_type type) { return (busy_flag & type) == 0 && !exiting; }
+			void set_busy(task_type type) { busy_flag |= type; }
+
+			std::list<task> enc_task_que, dec_task_que;
+			uint16_t busy_flag = 0;
+			bool exiting = false;
+		};
+		typedef std::shared_ptr<session_data> session_data_ptr;
 	public:
 		server(asio::io_service& _iosrv, int worker_count);
 
 		template <typename _Ty1, typename... _Ty2>
-		_Ty1* new_session(_Ty2&&... val) {
+		std::shared_ptr<_Ty1> new_session(_Ty2&&... val) {
 			id_type id = next_id;
 			next_id++;
-            return dynamic_cast<_Ty1*>(sessions.emplace(id, std::make_shared<_Ty1>(*this, iosrv, id, std::forward<_Ty2>(val)...)).first->second.get());
+			sessions_data.emplace(id, std::make_shared<session_data>());
+			return std::static_pointer_cast<_Ty1>(sessions.emplace(id, std::make_shared<_Ty1>(*this, iosrv, id, std::forward<_Ty2>(val)...)).first->second);
 		};
 		void del_session(id_type id);
-		void new_task(id_type id, task_type type);
+		void new_task(id_type id, task_type type, task&& task);
 
 		void stop();
 	private:
@@ -92,7 +96,8 @@ namespace crypto
 		asio::io_service& iosrv;
 		std::unordered_map<id_type, std::unique_ptr<worker>> workers;
 		std::unordered_map<id_type, session_ptr> sessions;
-		std::list<std::pair<id_type, task_type>> tasks;
+		std::unordered_map<id_type, session_data_ptr> sessions_data;
+		task_list_tp tasks;
 
 		bool stopping = false;
 	};

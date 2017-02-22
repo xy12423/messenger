@@ -23,9 +23,9 @@ bool compare_little_endian(const char* data, _Ty num)
 	return true;
 }
 
-void proto_kit::do_enc()
+void proto_kit::do_enc(crypto::task& task)
 {
-	std::string &data = enc_task_que.front().data;
+	std::string &data = task.data;
 	std::string &write_raw = data, write_data;
 	rand_num_type rand_num = get_rand_num_send();
 	write_raw.reserve(sizeof(session_id_type) + sizeof(rand_num_type) + write_raw.size() + hash_size);
@@ -37,12 +37,12 @@ void proto_kit::do_enc()
 	provider.encrypt(write_data, write_raw, e1);
 	insLen(write_raw);
 
-	enc_task_que.front().callback(true, empty_string);
+	task.callback(true, empty_string);
 }
 
-void proto_kit::do_dec()
+void proto_kit::do_dec(crypto::task& task)
 {
-	std::string &data = dec_task_que.front().data;
+	std::string &data = task.data;
 	std::string decrypted_data;
 
 	provider.decrypt(data, decrypted_data, d0);
@@ -68,12 +68,12 @@ void proto_kit::do_dec()
 	}
 	catch (msgr_proto_error& ex)
 	{
-		dec_task_que.front().callback(false, std::string(ex.what()));
+		task.callback(false, std::string(ex.what()));
 		return;
 	}
 
 	data.erase(data.size() - (sizeof(session_id_type) + sizeof(rand_num_type) + hash_size));
-	dec_task_que.front().callback(true, empty_string);
+	task.callback(true, empty_string);
 }
 
 void pre_session::read_key_header()
@@ -734,7 +734,6 @@ void session::shutdown()
 	socket->close(ec);
 
 	crypto_kit->stop();
-	crypto_kit = nullptr;
 }
 
 void session::send(const std::string& data, int priority, write_callback&& callback)

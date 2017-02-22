@@ -42,7 +42,8 @@ namespace crypto
 
 		static void hash(const std::string& src, std::string& dst, size_t input_shift = 0);
 		static void hash_short(const std::string& src, std::string& dst);
-		static void base32(std::string& ret, byte* buf, size_t size);
+		static void base32(std::string& ret, const byte* buf, size_t size);
+		static void base32_rev(std::string& ret, const char* buf, size_t size);
 
 		size_t dh_priv_block_size, dh_pub_block_size, dh_agree_block_size;
 	private:

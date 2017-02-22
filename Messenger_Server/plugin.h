@@ -4,11 +4,21 @@ typedef std::unordered_map<std::string, std::string> config_table_tp;
 const std::string server_uname = "Server";
 struct data_view;
 
+enum plugin_flags {
+	flag_msg_logger = 0x0,
+	flag_server_mail = 0x0,
+	flag_file_storage = 0x1,
+};
+
+enum plugin_data_type {
+	pak_file_storage = 0x1,
+};
+
 class plugin_error :public std::runtime_error
 {
 public:
-	plugin_error() :std::runtime_error("Internal plugin error") {};
-	plugin_error(const char* err) :std::runtime_error(err) {};
+	plugin_error() :std::runtime_error("Internal plugin error") {}
+	plugin_error(const char* err) :std::runtime_error(err) {}
 };
 
 class plugin_interface
@@ -20,28 +30,32 @@ public:
 	virtual void send_image(user_id_type id, const std::string& path) = 0;
 	virtual void send_data(user_id_type id, const std::string& data) = 0;
 	virtual void send_data(user_id_type id, const std::string& data, std::function<void()>&& callback) = 0;
-	virtual void send_data(user_id_type id, std::string&& data) { send_data(id, data); };
-	virtual void send_data(user_id_type id, std::string&& data, std::function<void()>&& callback) { send_data(id, data, std::move(callback)); };
+	virtual void send_data(user_id_type id, std::string&& data) { send_data(id, data); }
+	virtual void send_data(user_id_type id, std::string&& data, std::function<void()>&& callback) { send_data(id, data, std::move(callback)); }
 };
 
 class msg_server_plugin
 {
 public:
 	enum user_type { GUEST, USER, ADMIN, CONSOLE };
+	typedef uint32_t flag_type;
 
 	msg_server_plugin(plugin_interface& _inter)
 		:inter(_inter)
 	{}
 
-	virtual void init(const config_table_tp& config_items) = 0;
-	virtual void on_new_user(const std::string& name) = 0;
-	virtual void on_del_user(const std::string& name) = 0;
-	virtual void on_msg(const std::string& name, const std::string& msg) = 0;
-	virtual void on_cmd(const std::string& name, user_type type, const std::string& cmd, const std::string& arg) = 0;
-	virtual void on_img(const std::string& name, const char *data, size_t data_size) = 0;
-	virtual void on_file_h(const std::string& name, const char *data, size_t data_size) = 0;
-	virtual void on_file_b(const std::string& name, const char *data, size_t data_size) = 0;
-	virtual void on_exit() = 0;
+	virtual void init(const config_table_tp& config_items) {}
+	virtual void on_new_user(const std::string& name) {}
+	virtual void on_del_user(const std::string& name) {}
+	virtual void on_msg(const std::string& name, const std::string& msg) {}
+	virtual void on_cmd(const std::string& name, user_type type, const std::string& cmd, const std::string& arg) {}
+	virtual void on_img(const std::string& name, const char *data, size_t data_size) {}
+	virtual void on_file_h(const std::string& name, const char *data, size_t data_size) {}
+	virtual void on_file_b(const std::string& name, const char *data, size_t data_size) {}
+	virtual void on_plugin_data(const std::string& name, const char *data, size_t data_size) {}
+	virtual void on_exit() {}
+
+	virtual flag_type get_flag() { return 0; }
 protected:
 	plugin_interface &inter;
 };
@@ -55,11 +69,9 @@ public:
 	virtual void on_new_user(const std::string& name);
 	virtual void on_del_user(const std::string& name);
 	virtual void on_msg(const std::string& name, const std::string& msg);
-	virtual void on_cmd(const std::string& name, user_type type, const std::string& cmd, const std::string& arg) {};
 	virtual void on_img(const std::string& name, const char *data, size_t data_size);
-	virtual void on_file_h(const std::string& name, const char *data, size_t data_size) {};
-	virtual void on_file_b(const std::string& name, const char *data, size_t data_size) {};
-	virtual void on_exit() {};
+
+	virtual flag_type get_flag() { return flag_msg_logger; }
 private:
 	enum offline_msg_lvls {
 		OFF, NOIMG, ON
@@ -93,13 +105,9 @@ public:
 
 	virtual void init(const config_table_tp& config_items);
 	virtual void on_new_user(const std::string& name);
-	virtual void on_del_user(const std::string& name) {};
-	virtual void on_msg(const std::string& name, const std::string& msg) {};
 	virtual void on_cmd(const std::string& name, user_type type, const std::string& cmd, const std::string& arg);
-	virtual void on_img(const std::string& name, const char *data, size_t data_size) {};
-	virtual void on_file_h(const std::string& name, const char *data, size_t data_size) {};
-	virtual void on_file_b(const std::string& name, const char *data, size_t data_size) {};
-	virtual void on_exit() {};
+
+	virtual flag_type get_flag() { return flag_server_mail; }
 private:
 	bool load_config(const config_table_tp& config_items);
 
@@ -155,14 +163,14 @@ public:
 	{}
 
 	virtual void init(const config_table_tp& config_items);
-	virtual void on_new_user(const std::string& name) {};
 	virtual void on_del_user(const std::string& name);
-	virtual void on_msg(const std::string& name, const std::string& msg) {};
 	virtual void on_cmd(const std::string& name, user_type type, const std::string& cmd, const std::string& arg);
-	virtual void on_img(const std::string& name, const char *data, size_t data_size) {};
 	virtual void on_file_h(const std::string& name, const char *data, size_t data_size);
 	virtual void on_file_b(const std::string& name, const char *data, size_t data_size);
-	virtual void on_exit() { if (!enabled) return; save_data(); iosrv_work.reset(); iosrv.stop(); while (!stopped); };
+	virtual void on_plugin_data(const std::string& name, const char *data, size_t data_size);
+	virtual void on_exit() { if (!enabled) return; save_data(); iosrv_work.reset(); iosrv.stop(); while (!stopped); }
+
+	virtual flag_type get_flag() { return flag_file_storage; }
 private:
 	bool load_config(const config_table_tp& config_items);
 	void load_data();
@@ -188,24 +196,28 @@ class plugin_manager :public msg_server_plugin
 {
 public:
 	plugin_manager(plugin_interface& _inter)
-		:msg_server_plugin(_inter)
+		:msg_server_plugin(_inter), flags(0)
 	{}
 
 	typedef std::unique_ptr<msg_server_plugin> plugin_ptr;
 
-	virtual void init(const config_table_tp& config_items) { for (const plugin_ptr& ptr : plugins) ptr->init(config_items); };
-	virtual void on_new_user(const std::string& name) { for (const plugin_ptr& ptr : plugins) ptr->on_new_user(name); };
-	virtual void on_del_user(const std::string& name) { for (const plugin_ptr& ptr : plugins) ptr->on_del_user(name); };
-	virtual void on_msg(const std::string& name, const std::string& msg) { for (const plugin_ptr &ptr : plugins) ptr->on_msg(name, msg); };
+	virtual void init(const config_table_tp& config_items) { for (const plugin_ptr& ptr : plugins) ptr->init(config_items); }
+	virtual void on_new_user(const std::string& name) { for (const plugin_ptr& ptr : plugins) ptr->on_new_user(name); }
+	virtual void on_del_user(const std::string& name) { for (const plugin_ptr& ptr : plugins) ptr->on_del_user(name); }
+	virtual void on_msg(const std::string& name, const std::string& msg) { for (const plugin_ptr &ptr : plugins) ptr->on_msg(name, msg); }
 	virtual void on_cmd(const std::string& name, user_type type, const std::string& cmd, const std::string& arg) { for (const plugin_ptr &ptr : plugins) ptr->on_cmd(name, type, cmd, arg); }
-	virtual void on_img(const std::string& name, const char *data, size_t data_size) { for (const plugin_ptr &ptr : plugins) ptr->on_img(name, data, data_size); };
-	virtual void on_file_h(const std::string& name, const char *data, size_t data_size) { for (const plugin_ptr &ptr : plugins) ptr->on_file_h(name, data, data_size); };
-	virtual void on_file_b(const std::string& name, const char *data, size_t data_size) { for (const plugin_ptr &ptr : plugins) ptr->on_file_b(name, data, data_size); };
-	virtual void on_exit() { for (const plugin_ptr &ptr : plugins) ptr->on_exit(); };
+	virtual void on_img(const std::string& name, const char *data, size_t data_size) { for (const plugin_ptr &ptr : plugins) ptr->on_img(name, data, data_size); }
+	virtual void on_file_h(const std::string& name, const char *data, size_t data_size) { for (const plugin_ptr &ptr : plugins) ptr->on_file_h(name, data, data_size); }
+	virtual void on_file_b(const std::string& name, const char *data, size_t data_size) { for (const plugin_ptr &ptr : plugins) ptr->on_file_b(name, data, data_size); }
+	virtual void on_plugin_data(const std::string& name, const char *data, size_t data_size) { for (const plugin_ptr &ptr : plugins) ptr->on_file_b(name, data, data_size); }
+	virtual void on_exit() { for (const plugin_ptr &ptr : plugins) ptr->on_exit(); }
 
-	template <typename _Ty> void new_plugin() { plugins.emplace(std::make_unique<_Ty>(inter)); };
+	virtual flag_type get_flag() { return flags; }
+
+	template <typename _Ty> void new_plugin() { flags |= (*plugins.emplace(std::make_unique<_Ty>(inter)).first)->get_flag(); }
 private:
 	std::unordered_set<plugin_ptr> plugins;
+	flag_type flags;
 };
 
 class key_storage
@@ -220,9 +232,9 @@ private:
 
 	struct key_item
 	{
-		key_item() {};
+		key_item() {}
 		template <typename _Ty1, typename _Ty2>
-		key_item(_Ty1&& _key, _Ty2&& _ex) :key(std::forward<_Ty1>(_key)), ex(std::forward<_Ty2>(_ex)) {};
+		key_item(_Ty1&& _key, _Ty2&& _ex) :key(std::forward<_Ty1>(_key)), ex(std::forward<_Ty2>(_ex)) {}
 
 		std::string key, ex;
 	};

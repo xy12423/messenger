@@ -144,13 +144,13 @@ rand_num_type provider::genRandomNumber()
 	return t;
 }
 
-void provider::base32(std::string& ret, byte* buf, size_t size)
+void provider::base32(std::string& ret, const byte* buf, size_t size)
 {
 	static const char encode32[] = "ABCDEFGHIJKLMNPQRSTUVWXYZ1234567";
 	constexpr char space32 = '0';
 
-	byte *ptr_end = buf + size - 5;
-	byte *ptr = buf;
+	const byte *ptr_end = buf + size - 5;
+	const byte *ptr = buf;
 	for (; ptr < ptr_end; ptr += 5)
 	{
 		ret.push_back(encode32[ptr[0] >> 3]);
@@ -210,6 +210,68 @@ void provider::base32(std::string& ret, byte* buf, size_t size)
 			ret.push_back(space32);
 			ret.push_back(space32);
 			break;
+	}
+}
+
+void provider::base32_rev(std::string& ret, const char* buf, size_t size)
+{
+	static const byte decode32[] = {
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+		0, 25,26,27,28,29,30,31,0, 0, 0, 0, 0, 0, 0, 0,
+		0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,11,12,13,0,
+		14,15,16,17,18,19,20,21,22,23,24,0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	};
+	constexpr char space32 = '0';
+
+	const char *ptr_end = buf + size - 8;
+	for (; buf < ptr_end; buf += 8)
+	{
+		ret.push_back((decode32[buf[0]] << 3) | (decode32[buf[1]] >> 2));
+		ret.push_back((decode32[buf[1]] << 6) | (decode32[buf[2]] << 1) | (decode32[buf[3]] >> 4));
+		ret.push_back((decode32[buf[3]] << 4) | (decode32[buf[4]] >> 1));
+		ret.push_back((decode32[buf[4]] << 7) | (decode32[buf[5]] << 2) | (decode32[buf[6]] >> 3));
+		ret.push_back((decode32[buf[6]] << 5) | decode32[buf[7]]);
+	}
+
+	if (buf - ptr_end == 0)
+	{
+		if (buf[7] == space32)
+		{
+			ret.push_back((decode32[buf[0]] << 3) | (decode32[buf[1]] >> 2));
+			ret.push_back((decode32[buf[1]] << 6) | (decode32[buf[2]] << 1) | (decode32[buf[3]] >> 4));
+			ret.push_back((decode32[buf[3]] << 4) | (decode32[buf[4]] >> 1));
+			ret.push_back((decode32[buf[4]] << 7) | (decode32[buf[5]] << 2) | (decode32[buf[6]] >> 3));
+		}
+		else
+		{
+			ret.push_back((decode32[buf[0]] << 3) | (decode32[buf[1]] >> 2));
+			ret.push_back((decode32[buf[1]] << 6) | (decode32[buf[2]] << 1) | (decode32[buf[3]] >> 4));
+			ret.push_back((decode32[buf[3]] << 4) | (decode32[buf[4]] >> 1));
+			ret.push_back((decode32[buf[4]] << 7) | (decode32[buf[5]] << 2) | (decode32[buf[6]] >> 3));
+			ret.push_back((decode32[buf[6]] << 5) | decode32[buf[7]]);
+		}
+	}
+	else if (buf - ptr_end == 1)
+	{
+		if (buf[4] == space32)
+		{
+			ret.push_back((decode32[buf[0]] << 3) | (decode32[buf[1]] >> 2));
+			ret.push_back((decode32[buf[1]] << 6) | (decode32[buf[2]] << 1) | (decode32[buf[3]] >> 4));
+		}
+		else
+		{
+			ret.push_back((decode32[buf[0]] << 3) | (decode32[buf[1]] >> 2));
+			ret.push_back((decode32[buf[1]] << 6) | (decode32[buf[2]] << 1) | (decode32[buf[3]] >> 4));
+			ret.push_back((decode32[buf[3]] << 4) | (decode32[buf[4]] >> 1));
+		}
+	}
+	else
+	{
+		ret.push_back((decode32[buf[0]] << 3) | (decode32[buf[1]] >> 2));
 	}
 }
 

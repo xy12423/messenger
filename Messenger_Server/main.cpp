@@ -232,6 +232,19 @@ void cli_server::on_data(user_id_type id, const std::string& data)
 				on_file_b(id, data);
 				break;
 			}
+			case PAC_TYPE_PLUGIN_FLAG:
+			{
+				break;
+			}
+			case PAC_TYPE_PLUGIN_DATA:
+			{
+				user_ext &user = user_exts.at(id);
+
+				if (mode > EASY && user.current_stage == user_ext::LOGGED_IN)
+					m_plugin.on_plugin_data(user.name, data.data() + 1, data.size() - 1);
+
+				break;
+			}
 			default:
 			{
 				user_ext &user = user_exts.at(id);
@@ -309,8 +322,15 @@ void cli_server::on_msg(user_id_type id, std::string& msg)
 						record.logged_in = true;
 						record.id = id;
 
-						//Send welcome messages
+						//Send welcome messages and plugin flag
 						send_msg(id, msg_welcome);
+
+						std::string supported_plugin;
+						supported_plugin.push_back(PAC_TYPE_PLUGIN_FLAG);
+						msg_server_plugin::flag_type flags = boost::endian::native_to_little(m_plugin.get_flag());
+						supported_plugin.append(reinterpret_cast<char*>(&flags), sizeof(msg_server_plugin::flag_type));
+						send_data(id, std::move(supported_plugin), msgr_proto::session::priority_msg);
+
 						m_plugin.on_new_user(user.name);
 						//Broadcast user join
 						if (display_ip)
@@ -415,7 +435,7 @@ void cli_server::on_file_b(user_id_type id, const std::string& data)
 	}
 }
 
-void cli_server::on_join(user_id_type id, const std::string& )
+void cli_server::on_join(user_id_type id, const std::string&)
 {
 	user_ext &ext = user_exts.emplace(id, user_ext()).first->second;
 	ext.addr = get_session(id).get_address();
@@ -529,7 +549,7 @@ std::string cli_server::process_command(std::string& cmd, user_record& user)
 		cmd.erase(pos);
 		trim(args);
 	}
-	
+
 	if (cmd == "op")
 	{
 		if (group >= user_record::ADMIN)

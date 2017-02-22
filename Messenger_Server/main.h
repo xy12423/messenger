@@ -3,7 +3,7 @@
 #ifndef _H_MAIN
 #define _H_MAIN
 
-enum modes{ EASY, NORMAL, HARD };
+enum modes { EASY, NORMAL, HARD };
 
 constexpr port_type portConnect = 4826;
 
@@ -111,8 +111,8 @@ public:
 	virtual void send_image(user_id_type id, const std::string& path);
 	virtual void send_data(user_id_type id, const std::string& data);
 	virtual void send_data(user_id_type id, const std::string& data, std::function<void()>&& callback);
-	virtual void send_data(user_id_type id, std::string&& data);
-	virtual void send_data(user_id_type id, std::string&& data, std::function<void()>&& callback);
+	virtual void send_data(user_id_type id, std::string&& data) override;
+	virtual void send_data(user_id_type id, std::string&& data, std::function<void()>&& callback) override;
 };
 
 #endif
