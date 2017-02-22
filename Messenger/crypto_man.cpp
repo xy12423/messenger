@@ -24,10 +24,7 @@ void session::enc(std::string& data, crypto_callback&& _callback)
 {
 	std::shared_ptr<task> new_task = std::make_shared<task>(data, std::move(_callback));
 	iosrv.post([this, self = shared_from_this(), new_task]() {
-		if (exiting)
-			return;
-		enc_task_que.push_back(std::move(*new_task));
-		srv.new_task(id, ENC);
+		srv.new_task(id, ENC, std::move(*new_task));
 	});
 }
 
@@ -35,17 +32,13 @@ void session::dec(std::string& data, crypto_callback&& _callback)
 {
 	std::shared_ptr<task> new_task = std::make_shared<task>(data, std::move(_callback));
 	iosrv.post([this, self = shared_from_this(), new_task]() {
-		if (exiting)
-			return;
-		dec_task_que.push_back(std::move(*new_task));
-		srv.new_task(id, DEC);
+		srv.new_task(id, DEC, std::move(*new_task));
 	});
 }
 
 void session::stop()
 {
 	iosrv.post([this]() {
-		exiting = true;
 		srv.del_session(id);
 	});
 }
@@ -66,10 +59,11 @@ void server::stop()
 
 void server::del_session(id_type id)
 {
-	std::unordered_map<id_type, session_ptr>::iterator itr = sessions.find(id);
-	if (itr == sessions.end())
+	std::unordered_map<id_type, session_data_ptr>::iterator itr = sessions_data.find(id);
+	if (itr == sessions_data.end())
 		return;
 
+	itr->second->exiting = true;
 	task_list_tp::iterator task_itr = tasks.begin(), task_itr_end = tasks.end();
 	while (task_itr != task_itr_end)
 	{
@@ -84,12 +78,21 @@ void server::del_session(id_type id)
 	if (itr->second->available(DEC))
 		itr->second->dec_finished();
 
-	sessions.erase(itr);
+	sessions_data.erase(itr);
+	sessions.erase(id);
 }
 
-void server::new_task(id_type id, task_type type)
+void server::new_task(id_type id, task_type type, task&& task)
 {
-	session_ptr &self = sessions.at(id);
+	session_data_ptr &self = sessions_data.at(id);
+
+	if (self->exiting)
+		return;
+	if (type == ENC)
+		self->enc_task_que.push_back(std::move(task));
+	else
+		self->dec_task_que.push_back(std::move(task));
+
 	tasks.emplace_back(id, type);
 	if (!self->available(type))
 		return;
@@ -112,22 +115,26 @@ void server::work(id_type worker_id)
 
 	task_list_tp::iterator task_itr = tasks.begin(), task_itr_end = tasks.end();
 	for (; task_itr != task_itr_end; task_itr++)
-		if (sessions.at(task_itr->first)->available(task_itr->second))
+		if (sessions_data.at(task_itr->first)->available(task_itr->second))
 			break;
 	if (task_itr == task_itr_end)
 		return;
-	session_ptr self = sessions.at(task_itr->first);
+	session_ptr &ses_self = sessions.at(task_itr->first);
+	session_data_ptr &self = sessions_data.at(task_itr->first);
 	task_type type = task_itr->second;
 	tasks.erase(task_itr);
 	self->set_busy(type);
 	w.working = true;
 
-	w.iosrv.post([this, self, worker_id, type]() {
+	w.iosrv.post([this, ses_self, self, worker_id, type]() {
 		try
 		{
-			self->do_one(type);
+			if (type == ENC)
+				ses_self->do_enc(self->enc_task_que.front());
+			else
+				ses_self->do_dec(self->dec_task_que.front());
 		}
-		catch (...) {};
+		catch (...) {}
 
 		iosrv.post([this, self, worker_id, type]() {
 			try

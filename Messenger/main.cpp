@@ -41,9 +41,9 @@ constexpr int _GUI_SIZE_CLIENT_Y = 520;
 #endif
 
 FileSendThread *threadFileSend;
-iosrvThread *threadNetwork, *threadMisc, *threadCrypto;
+iosrvThread *threadNetwork, *threadMisc;
 
-asio::io_service main_io_service, misc_io_service, cryp_io_service;
+asio::io_service main_io_service, misc_io_service;
 std::unique_ptr<crypto::provider> crypto_prov;
 std::unique_ptr<crypto::server> crypto_srv;
 std::unique_ptr<wx_srv_interface> srv;
@@ -747,8 +747,6 @@ bool MyApp::OnInit()
 		stage = 1;
 		threadMisc = new iosrvThread(misc_io_service);
 		stage = 2;
-		threadCrypto = new iosrvThread(cryp_io_service);
-		stage = 3;
 
 		crypto_prov = std::make_unique<crypto::provider>((DATA_PATH / privatekeyFile).string().c_str());
 
@@ -772,7 +770,7 @@ bool MyApp::OnInit()
 		}
 		catch (std::out_of_range &) { crypto_worker = 1; }
 
-		crypto_srv = std::make_unique<crypto::server>(cryp_io_service, crypto_worker);
+		crypto_srv = std::make_unique<crypto::server>(main_io_service, crypto_worker);
 		srv = std::make_unique<wx_srv_interface>(main_io_service, misc_io_service,
 			asio::ip::tcp::endpoint((use_v6 ? asio::ip::tcp::v6() : asio::ip::tcp::v4()), portListen),
 			*crypto_prov.get(), *crypto_srv.get());
@@ -805,7 +803,7 @@ bool MyApp::OnInit()
 		srv->start();
 
 		threadFileSend = new FileSendThread(*srv);
-		stage = 4;
+		stage = 3;
 
 		form = new mainFrame(wxT("Messenger"));
 		form->Show();
@@ -821,11 +819,6 @@ bool MyApp::OnInit()
 			delete threadMisc;
 			throw(std::runtime_error("Can't run iosrvThread"));
 		}
-		if (threadCrypto->Run() != wxTHREAD_NO_ERROR)
-		{
-			delete threadNetwork;
-			throw(std::runtime_error("Can't run iosrvThread"));
-		}
 		if (threadFileSend->Run() != wxTHREAD_NO_ERROR)
 		{
 			delete threadFileSend;
@@ -836,10 +829,8 @@ bool MyApp::OnInit()
 	{
 		switch (stage)
 		{
-			case 4:
-				threadFileSend->Delete();
 			case 3:
-				threadCrypto->Delete();
+				threadFileSend->Delete();
 			case 2:
 				threadMisc->Delete();
 			case 1:
@@ -862,15 +853,13 @@ int MyApp::OnExit()
 		srv->shutdown();
 		crypto_srv->stop();
 
-		threadCrypto->stop();
 		threadNetwork->stop();
 		threadMisc->stop();
-		while (!threadCrypto->stopped() || !threadNetwork->stopped() || !threadMisc->stopped());
+		while (!threadNetwork->stopped() || !threadMisc->stopped());
 
 		threadMisc->Delete();
 		threadNetwork->Delete();
 		threadFileSend->Delete();
-		threadCrypto->Delete();
 
 		srv.reset();
 		crypto_srv.reset();

@@ -19,7 +19,7 @@ public:
 	void OnJoin(user_id_type id, const std::string& key);
 	void OnLeave(user_id_type id);
 private:
-	enum itemID{
+	enum itemID {
 		ID_FRAME,
 		ID_LABELLISTUSER, ID_LISTUSER, ID_BUTTONADD, ID_BUTTONDEL,
 		ID_TEXTMSG, ID_TEXTINPUT, ID_BUTTONSEND, ID_BUTTONSENDIMAGE, ID_BUTTONSENDFILE, ID_BUTTONCANCELSEND,
