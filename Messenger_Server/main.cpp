@@ -8,10 +8,10 @@
 
 const std::string empty_string;
 
-std::promise<void> exit_promise;
 config_table_tp config_items;
 
-asio::io_service main_iosrv, misc_iosrv, cryp_iosrv;
+asio::io_service main_iosrv_, misc_iosrv_;
+std::unique_ptr<crypto::provider> crypto_prov;
 std::unique_ptr<crypto::server> crypto_srv;
 std::unique_ptr<cli_server> srv;
 cli_plugin_interface i_plugin;
@@ -19,10 +19,18 @@ plugin_manager m_plugin(i_plugin);
 key_storage user_key_storage;
 volatile bool server_on = true;
 
+bool display_ip = true;
+
 const char *msg_new_user = "New user:", *msg_del_user = "Leaving user:";
-const char *msg_input_name = "Username:", *msg_input_pass = "Password:", *msg_welcome = "Welcome", *msg_unauthed_key = "Key unauthorized";
+const char *msg_input_name = "Username:", *msg_input_pass = "Password:", *msg_welcome = "Welcome", *msg_unauthed_key = "Key unauthorized", *msg_kick = "You're kicked!";
 
 const char* privatekeyFile = ".privatekey";
+
+template <typename... _Ty>
+inline void hash(_Ty&&... arg)
+{
+	crypto::provider::hash(std::forward<_Ty>(arg)...);
+}
 
 bool cli_plugin_interface::get_id_by_name(const std::string& name, user_id_type& id)
 {
@@ -42,7 +50,8 @@ void cli_plugin_interface::send_msg(user_id_type id, const std::string& msg)
 void cli_plugin_interface::send_image(user_id_type id, const std::string& path)
 {
 	const size_t read_buf_size = 0x10000;
-	std::string img_buf;
+	std::string img_buf(1, PAC_TYPE_IMAGE);
+	img_buf.append(sizeof(data_size_type), 0);
 	std::ifstream fin(path, std::ios_base::in | std::ios_base::binary);
 	if (!fin || !fin.is_open())
 		return;
@@ -53,8 +62,14 @@ void cli_plugin_interface::send_image(user_id_type id, const std::string& path)
 		img_buf.append(read_buf.get(), static_cast<size_t>(fin.gcount()));
 	}
 	fin.close();
-	insLen(img_buf);
-	img_buf.insert(0, 1, PAC_TYPE_IMAGE);
+
+	size_t size = img_buf.size() - 1 - sizeof(data_size_type);
+	for (int i = 1; i <= sizeof(data_size_type); i++)
+	{
+		img_buf[i] = static_cast<char>(size);
+		size >>= 8;
+	}
+
 	srv->send_data(id, img_buf, msgr_proto::session::priority_msg);
 }
 
@@ -129,6 +144,7 @@ void cli_server::read_data()
 		std::cout << "Incompatible data file.Will not read." << std::endl;
 		return;
 	}
+
 	uint32_t userCount, size;
 	fin.read(reinterpret_cast<char*>(&userCount), sizeof(uint32_t));
 	char passwd_buf[hash_size];
@@ -139,12 +155,12 @@ void cli_server::read_data()
 		fin.read(reinterpret_cast<char*>(&size), sizeof(uint32_t));
 		buf.resize(size);
 		fin.read(buf.data(), size);
-		user.name = std::string(buf.data(), size);
+		user.name.assign(buf.data(), size);
 		fin.read(passwd_buf, hash_size);
-		user.passwd = std::string(passwd_buf, hash_size);
+		user.passwd.assign(passwd_buf, hash_size);
 		fin.read(reinterpret_cast<char*>(&size), sizeof(uint32_t));
 		user.group = static_cast<user_record::group_type>(size);
-		user_records.emplace(user.name, user);
+		user_records.emplace(user.name, std::move(user));
 	}
 }
 
@@ -223,6 +239,19 @@ void cli_server::on_data(user_id_type id, const std::string& data)
 				on_file_b(id, data);
 				break;
 			}
+			case PAC_TYPE_PLUGIN_FLAG:
+			{
+				break;
+			}
+			case PAC_TYPE_PLUGIN_DATA:
+			{
+				user_ext &user = user_exts.at(id);
+
+				if (mode > EASY && user.current_stage == user_ext::LOGGED_IN)
+					m_plugin.on_plugin_data(user.name, data.data() + 1, data.size() - 1);
+
+				break;
+			}
 			default:
 			{
 				user_ext &user = user_exts.at(id);
@@ -291,15 +320,30 @@ void cli_server::on_msg(user_id_type id, std::string& msg)
 					hash(msg, hashed_pass);
 					if (record.passwd == hashed_pass)
 					{
+						if (record.logged_in)
+						{
+							//Kick
+							kick(record);
+						}
 						//Get user's record linked to id
 						record.logged_in = true;
 						record.id = id;
 
-						//Send welcome messages
+						//Send welcome messages and plugin flag
 						send_msg(id, msg_welcome);
+
+						std::string supported_plugin;
+						supported_plugin.push_back(PAC_TYPE_PLUGIN_FLAG);
+						msg_server_plugin::flag_type flags = boost::endian::native_to_little(m_plugin.get_flag());
+						supported_plugin.append(reinterpret_cast<char*>(&flags), sizeof(msg_server_plugin::flag_type));
+						send_data(id, std::move(supported_plugin), msgr_proto::session::priority_msg);
+
 						m_plugin.on_new_user(user.name);
 						//Broadcast user join
-						broadcast_msg(server_uid, msg_new_user + user.name + '(' + user.addr + ')');
+						if (display_ip)
+							broadcast_msg(server_uid, msg_new_user + user.name + '(' + user.addr + ')');
+						else
+							broadcast_msg(server_uid, msg_new_user + user.name);
 
 						//All prepared, mark as LOGGED_IN
 						user.current_stage = user_ext::LOGGED_IN;
@@ -385,8 +429,10 @@ void cli_server::on_file_b(user_id_type id, const std::string& data)
 			case 1:
 				if (mode > HARD)
 					throw(cli_server_error());
+				send_msg(id, "Upload failed");
 			case -1:
 				user.uploading_key.clear();
+				send_msg(id, "Upload successful");
 				break;
 		}
 	}
@@ -396,7 +442,7 @@ void cli_server::on_file_b(user_id_type id, const std::string& data)
 	}
 }
 
-void cli_server::on_join(user_id_type id, const std::string& )
+void cli_server::on_join(user_id_type id, const std::string&)
 {
 	user_ext &ext = user_exts.emplace(id, user_ext()).first->second;
 	ext.addr = get_session(id).get_address();
@@ -410,6 +456,8 @@ void cli_server::on_join(user_id_type id, const std::string& )
 void cli_server::on_leave(user_id_type id)
 {
 	user_ext_list::iterator itr = user_exts.find(id);
+	if (itr == user_exts.end())
+		return;
 	user_ext &user = itr->second;
 
 	std::string msg_send(msg_del_user);
@@ -417,7 +465,10 @@ void cli_server::on_leave(user_id_type id)
 	{
 		if (user.current_stage == user_ext::LOGGED_IN)
 		{
-			msg_send.append(user.name + '(' + user.addr + ')');
+			if (display_ip)
+				msg_send.append(user.name + '(' + user.addr + ')');
+			else
+				msg_send.append(user.name);
 			broadcast_msg(server_uid, msg_send);
 			user_record_list::iterator itr = user_records.find(user.name);
 			if (itr != user_records.end())
@@ -439,9 +490,17 @@ void cli_server::on_leave(user_id_type id)
 
 void cli_server::send_msg(user_id_type id, const std::string& msg)
 {
-	std::string msg_send(msg);
-	insLen(msg_send);
-	msg_send.insert(0, 1, PAC_TYPE_MSG);
+	std::string msg_send(1, PAC_TYPE_MSG);
+	msg_send.reserve(1 + sizeof(data_size_type) + msg.size());
+
+	size_t size = msg.size();
+	for (int i = 0; i < sizeof(data_size_type); i++)
+	{
+		msg_send.push_back(static_cast<char>(size));
+		size >>= 8;
+	}
+	msg_send.append(msg);
+
 	send_data(id, msg_send, msgr_proto::session::priority_msg);
 }
 
@@ -450,9 +509,19 @@ void cli_server::broadcast_msg(int src, const std::string& msg)
 	std::string msg_send;
 	user_ext &user = user_exts[src];
 	if (mode > EASY)
-		msg_send = user.name + '(' + user.addr + ')';
+	{
+		msg_send = user.name;
+		if (display_ip)
+		{
+			msg_send.push_back('(');
+			msg_send.append(user.addr);
+			msg_send.push_back(')');
+		}
+	}
 	else
+	{
 		msg_send = user.addr;
+	}
 	msg_send.push_back(':');
 	msg_send.append(msg);
 	//Let plugins log server messages as it won't go through on_msg
@@ -495,7 +564,7 @@ std::string cli_server::process_command(std::string& cmd, user_record& user)
 		cmd.erase(pos);
 		trim(args);
 	}
-	
+
 	if (cmd == "op")
 	{
 		if (group >= user_record::ADMIN)
@@ -504,7 +573,7 @@ std::string cli_server::process_command(std::string& cmd, user_record& user)
 			if (itr != user_records.end())
 			{
 				itr->second.group = user_record::ADMIN;
-				main_iosrv.post([this]() {
+				main_iosrv_.post([this]() {
 					write_data();
 				});
 				ret = "Opped " + itr->second.name;
@@ -525,14 +594,17 @@ std::string cli_server::process_command(std::string& cmd, user_record& user)
 				std::string hashed_passwd;
 				hash(args, hashed_passwd);
 
-				user_record_list::iterator itr = user_records.find(cmd);
-				if (itr == user_records.end())
+				if (cmd != server_uname)
 				{
-					user_records.emplace(cmd, user_record(cmd, hashed_passwd, user_record::USER));
-					main_iosrv.post([this]() {
-						write_data();
-					});
-					ret = "Registered " + cmd;
+					user_record_list::iterator itr = user_records.find(cmd);
+					if (itr == user_records.end())
+					{
+						user_records.emplace(cmd, user_record(cmd, std::move(hashed_passwd), user_record::USER));
+						main_iosrv_.post([this]() {
+							write_data();
+						});
+						ret = "Registered " + cmd;
+					}
 				}
 			}
 		}
@@ -550,7 +622,10 @@ std::string cli_server::process_command(std::string& cmd, user_record& user)
 				{
 					user_record &up_user = itr->second;
 					if (up_user.logged_in)
+					{
 						user_exts.at(up_user.id).uploading_key = args;
+						ret = "Uploading key for " + args;
+					}
 				}
 			}
 		}
@@ -563,7 +638,7 @@ std::string cli_server::process_command(std::string& cmd, user_record& user)
 			if (itr != user_records.end())
 			{
 				user_records.erase(itr);
-				main_iosrv.post([this]() {
+				main_iosrv_.post([this]() {
 					write_data();
 				});
 				ret = "Unregistered " + args;
@@ -574,7 +649,7 @@ std::string cli_server::process_command(std::string& cmd, user_record& user)
 	{
 		user.passwd.clear();
 		hash(args, user.passwd);
-		main_iosrv.post([this]() {
+		main_iosrv_.post([this]() {
 			write_data();
 		});
 		ret = "Password changed";
@@ -595,10 +670,24 @@ std::string cli_server::process_command(std::string& cmd, user_record& user)
 			{
 				if (p.first == server_uid)
 					continue;
+				if (mode >= NORMAL && p.second.current_stage != user_ext::LOGGED_IN)
+					continue;
 				ret.append(p.second.name);
 				ret.push_back(';');
 			}
 			ret.pop_back();
+		}
+	}
+	else if (cmd == "kick")
+	{
+		if (group >= user_record::ADMIN)
+		{
+			user_record_list::iterator itr = user_records.find(args);
+			if (itr != user_records.end())
+			{
+				kick(itr->second);
+				ret = "Kicked " + args;
+			}
 		}
 	}
 	else if (cmd == "stop")
@@ -606,7 +695,6 @@ std::string cli_server::process_command(std::string& cmd, user_record& user)
 		if (group >= user_record::CONSOLE)
 		{
 			server_on = false;
-			exit_promise.set_value();
 			ret = "Stopping server";
 		}
 	}
@@ -615,6 +703,31 @@ std::string cli_server::process_command(std::string& cmd, user_record& user)
 		m_plugin.on_cmd(user.name, user_type_table[group], cmd, args);
 	}
 	return ret;
+}
+
+void cli_server::kick(user_record& record)
+{
+	user_id_type id = record.id;
+	user_ext_list::iterator itr = user_exts.find(id);
+	if (itr == user_exts.end())
+		return;
+	user_ext &user = itr->second;
+
+	std::string msg_send(msg_del_user);
+
+	if (display_ip)
+		msg_send.append(user.name + '(' + user.addr + ')');
+	else
+		msg_send.append(user.name);
+	broadcast_msg(server_uid, msg_send);
+
+	record.logged_in = false;
+	m_plugin.on_del_user(user.name);
+
+	user.current_stage = user_ext::LOGIN_NAME;
+
+	if (mode >= HARD)
+		disconnect(id);
 }
 
 bool cli_server::new_rand_port(port_type& ret)
@@ -663,7 +776,7 @@ int main(int argc, char *argv[])
 	try
 	{
 #endif
-		initKey();
+		crypto_prov = std::make_unique<crypto::provider>(privatekeyFile);
 
 		cli_server::read_config();
 		for (int i = 1; i < argc; i++)
@@ -705,9 +818,9 @@ int main(int argc, char *argv[])
 		}
 		catch (std::out_of_range &) {}
 
-		crypto_srv = std::make_unique<crypto::server>(cryp_iosrv, crypto_worker);
+		crypto_srv = std::make_unique<crypto::server>(main_iosrv_, crypto_worker);
 		srv = std::make_unique<cli_server>
-			(main_iosrv, misc_iosrv, asio::ip::tcp::endpoint((use_v6 ? asio::ip::tcp::v6() : asio::ip::tcp::v4()), portListener), *crypto_srv.get());
+			(main_iosrv_, misc_iosrv_, asio::ip::tcp::endpoint((use_v6 ? asio::ip::tcp::v6() : asio::ip::tcp::v4()), portListener), *crypto_prov.get(), *crypto_srv.get());
 
 		try
 		{
@@ -721,6 +834,13 @@ int main(int argc, char *argv[])
 			else
 				throw(std::out_of_range(""));
 			std::cout << "Mode set to " << arg << std::endl;
+		}
+		catch (std::out_of_range &) {}
+		try
+		{
+			config_items.at("disable_display_ip");
+			display_ip = false;
+			std::cout << "IP display disabled" << std::endl;
 		}
 		catch (std::out_of_range &) {}
 		try
@@ -768,45 +888,35 @@ int main(int argc, char *argv[])
 				catch (...) { abnormally_exit = true; }
 			} while (abnormally_exit);
 		};
-		std::shared_ptr<asio::io_service::work> main_iosrv_work = std::make_shared<asio::io_service::work>(main_iosrv);
-		std::shared_ptr<asio::io_service::work> misc_iosrv_work = std::make_shared<asio::io_service::work>(misc_iosrv);
-		std::shared_ptr<asio::io_service::work> cryp_iosrv_work = std::make_shared<asio::io_service::work>(cryp_iosrv);
-		std::thread main_iosrv_thread(iosrv_thread, &main_iosrv);
+		std::shared_ptr<asio::io_service::work> main_iosrv_work = std::make_shared<asio::io_service::work>(main_iosrv_);
+		std::shared_ptr<asio::io_service::work> misc_iosrv_work = std::make_shared<asio::io_service::work>(misc_iosrv_);
+		std::thread main_iosrv_thread(iosrv_thread, &main_iosrv_);
 		main_iosrv_thread.detach();
-		std::thread misc_iosrv_thread(iosrv_thread, &misc_iosrv);
+		std::thread misc_iosrv_thread(iosrv_thread, &misc_iosrv_);
 		misc_iosrv_thread.detach();
-		std::thread cryp_iosrv_thread(iosrv_thread, &cryp_iosrv);
-		cryp_iosrv_thread.detach();
 
 		srv->start();
 
-		std::thread input_thread([]() {
-			user_record user_root;
-			user_root.name = "Server";
-			user_root.group = user_record::CONSOLE;
-			std::string command;
-			while (server_on)
-			{
-				std::getline(std::cin, command);
-				std::string ret = srv->process_command(command, user_root);
-				if (!ret.empty())
-					std::cout << ret << std::endl;
-			}
-		});
-		input_thread.detach();
+		user_record user_root;
+		user_root.name = "Server";
+		user_root.group = user_record::CONSOLE;
+		std::string command;
+		while (server_on)
+		{
+			std::getline(std::cin, command);
+			std::string ret = srv->process_command(command, user_root);
+			if (!ret.empty())
+				std::cout << ret << std::endl;
+		}
 
-		std::future<void> future = exit_promise.get_future();
-		future.wait();
-		
 		srv->on_exit();
 		m_plugin.on_exit();
 		srv->shutdown();
 		crypto_srv->stop();
 
-		cryp_iosrv_work.reset();
 		main_iosrv_work.reset();
 		misc_iosrv_work.reset();
-		while (!cryp_iosrv.stopped() || !main_iosrv.stopped() || !misc_iosrv.stopped());
+		while (!main_iosrv_.stopped() || !misc_iosrv_.stopped());
 
 #ifdef NDEBUG
 	}

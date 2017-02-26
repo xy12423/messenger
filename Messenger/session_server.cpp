@@ -14,18 +14,27 @@ void server::do_start()
 {
 	if (closing)
 		return;
-	socket_ptr socket = std::make_shared<asio::ip::tcp::socket>(main_io_service);
+	socket_ptr socket = std::make_shared<asio::ip::tcp::socket>(main_iosrv);
 	acceptor.async_accept(*socket,
 		[this, socket](const error_code_type& ec) {
 		if (closing)
 			return;
-		if (!ec)
+		try
 		{
-			std::shared_ptr<pre_session_s> pre_session_s_ptr(std::make_shared<pre_session_s>(port_null, socket, *this, crypto_srv, main_io_service, misc_io_service));
+			if (ec)
+				throw(std::runtime_error("Socket Error:" + ec.message()));
+			asio::ip::tcp::socket::keep_alive option(true);
+			socket->set_option(option);
+
+			std::shared_ptr<pre_session_s> pre_session_s_ptr(std::make_shared<pre_session_s>(port_null, socket, *this, crypto_prov, crypto_srv, main_iosrv, misc_iosrv));
 			std::unique_lock<std::mutex> lock(pre_session_mutex);
 			pre_sessions.emplace(pre_session_s_ptr);
 			lock.unlock();
 			pre_session_s_ptr->start();
+		}
+		catch (std::exception &ex)
+		{
+			on_exception(ex.what());
 		}
 
 		do_start();
@@ -51,7 +60,9 @@ void server::pre_session_over(const std::shared_ptr<pre_session>& _pre, bool suc
 	{
 		if (_pre->get_port() != port_null)
 			free_rand_port(static_cast<port_type>(_pre->get_port()));
-		connected_keys.erase(_pre->get_key());
+		const std::string &key = _pre->get_key();
+		if (!key.empty())
+			delete_key(_pre->get_key());
 	}
 	_pre->shutdown();
 	pre_sessions.erase(_pre);
@@ -67,7 +78,7 @@ void server::join(const session_ptr& _user, user_id_type& uid)
 	sessions.emplace(newID, _user);
 	uid = newID;
 
-	misc_io_service.post([this, newID, _user]() {
+	misc_iosrv.post([this, newID, _user]() {
 		try { on_join(newID, _user->get_key()); }
 		catch (std::exception &ex) { on_exception(ex); }
 		catch (...) {}
@@ -84,7 +95,7 @@ void server::leave(user_id_type _user)
 		return;
 	session_ptr this_session = itr->second;
 
-	misc_io_service.post([this, _user]() {
+	misc_iosrv.post([this, _user]() {
 		try { on_leave(_user); }
 		catch (std::exception &ex) { on_exception(ex); }
 		catch (...) {}
@@ -93,7 +104,9 @@ void server::leave(user_id_type _user)
 	this_session->shutdown();
 	if (this_session->get_port() != port_null)
 		free_rand_port(static_cast<port_type>(this_session->get_port()));
-	connected_keys.erase(this_session->get_key());
+	const std::string &key = this_session->get_key();
+	if (!key.empty())
+		delete_key(key);
 	sessions.erase(itr);
 }
 
@@ -106,7 +119,7 @@ void server::on_recv_data(user_id_type id, const std::shared_ptr<std::string>& d
 	if (itr == sessions.end())
 		return;
 	session_ptr this_session = itr->second;
-	misc_io_service.post([this, id, data]() {
+	misc_iosrv.post([this, id, data]() {
 		try { on_data(id, *data); }
 		catch (std::exception &ex) { on_exception(ex); }
 		catch (...) {}
@@ -156,7 +169,7 @@ void server::connect(const asio::ip::tcp::endpoint& remote_endpoint)
 		on_exception("Socket:No port available");
 	else
 	{
-		socket_ptr socket = std::make_shared<asio::ip::tcp::socket>(main_io_service);
+		socket_ptr socket = std::make_shared<asio::ip::tcp::socket>(main_iosrv);
 
 		asio::ip::tcp::endpoint::protocol_type ip_protocol = remote_endpoint.protocol();
 		socket->open(ip_protocol);
@@ -164,17 +177,22 @@ void server::connect(const asio::ip::tcp::endpoint& remote_endpoint)
 		socket->async_connect(remote_endpoint,
 			[this, local_port, socket](const error_code_type& ec)
 		{
-			if (!ec)
+			try
 			{
-				std::shared_ptr<pre_session_c> pre_session_c_ptr(std::make_shared<pre_session_c>(local_port, socket, *this, crypto_srv, main_io_service, misc_io_service));
+				if (ec)
+					throw(std::runtime_error("Socket Error:" + ec.message()));
+				asio::ip::tcp::socket::keep_alive option(true);
+				socket->set_option(option);
+
+				std::shared_ptr<pre_session_c> pre_session_c_ptr(std::make_shared<pre_session_c>(local_port, socket, *this, crypto_prov, crypto_srv, main_iosrv, misc_iosrv));
 				std::unique_lock<std::mutex> lock(pre_session_mutex);
 				pre_sessions.emplace(pre_session_c_ptr);
 				lock.unlock();
 				pre_session_c_ptr->start();
 			}
-			else
+			catch (std::exception &ex)
 			{
-				on_exception("Socket Error:" + ec.message());
+				on_exception(ex.what());
 				free_rand_port(local_port);
 			}
 		});
@@ -197,7 +215,7 @@ void server::connect(const asio::ip::tcp::resolver::query& query)
 				free_rand_port(local_port);
 				return;
 			}
-			socket_ptr socket = std::make_shared<asio::ip::tcp::socket>(main_io_service);
+			socket_ptr socket = std::make_shared<asio::ip::tcp::socket>(main_iosrv);
 
 			asio::async_connect(*socket, itr, asio::ip::tcp::resolver::iterator(),
 				[this, local_port, socket](const error_code_type&, asio::ip::tcp::resolver::iterator next)->asio::ip::tcp::resolver::iterator
@@ -208,19 +226,24 @@ void server::connect(const asio::ip::tcp::resolver::query& query)
 				socket->bind(asio::ip::tcp::endpoint(ip_protocol, local_port));
 				return next;
 			},
-				[this, local_port, socket](const error_code_type& ec, asio::ip::tcp::resolver::iterator itr)
+				[this, local_port, socket](const error_code_type& ec, asio::ip::tcp::resolver::iterator)
 			{
-				if (!ec)
+				try
 				{
-					std::shared_ptr<pre_session_c> pre_session_c_ptr(std::make_shared<pre_session_c>(local_port, socket, *this, crypto_srv, main_io_service, misc_io_service));
+					if (ec)
+						throw(std::runtime_error("Socket Error:" + ec.message()));
+					asio::ip::tcp::socket::keep_alive option(true);
+					socket->set_option(option);
+
+					std::shared_ptr<pre_session_c> pre_session_c_ptr(std::make_shared<pre_session_c>(local_port, socket, *this, crypto_prov, crypto_srv, main_iosrv, misc_iosrv));
 					std::unique_lock<std::mutex> lock(pre_session_mutex);
 					pre_sessions.emplace(pre_session_c_ptr);
 					lock.unlock();
 					pre_session_c_ptr->start();
 				}
-				else
+				catch (std::exception &ex)
 				{
-					on_exception("Socket Error:" + ec.message());
+					on_exception(ex.what());
 					free_rand_port(local_port);
 				}
 			});

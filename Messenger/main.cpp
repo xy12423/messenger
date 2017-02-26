@@ -41,9 +41,10 @@ constexpr int _GUI_SIZE_CLIENT_Y = 520;
 #endif
 
 FileSendThread *threadFileSend;
-iosrvThread *threadNetwork, *threadMisc, *threadCrypto;
+iosrvThread *threadNetwork, *threadMisc;
 
-asio::io_service main_io_service, misc_io_service, cryp_io_service;
+asio::io_service main_io_service, misc_io_service;
+std::unique_ptr<crypto::provider> crypto_prov;
 std::unique_ptr<crypto::server> crypto_srv;
 std::unique_ptr<wx_srv_interface> srv;
 
@@ -51,7 +52,35 @@ std::unordered_map<user_id_type, user_ext_type> user_ext;
 std::unordered_map<plugin_id_type, plugin_info_type> plugin_info;
 std::unordered_set<user_id_type> virtual_users;
 
+fs::path TEMP_PATH, DATA_PATH, DOWNLOAD_PATH;
+const char* privatekeyFile = ".privatekey";
+
 std::string empty_string;
+
+void insHeader(std::string& data, char pac_type)
+{
+	data_size_type size = data.size();
+	char header[sizeof(data_size_type) + 1];
+	header[0] = pac_type;
+	for (int i = 1; i <= sizeof(data_size_type); i++)
+	{
+		header[i] = static_cast<uint8_t>(size);
+		size >>= 8;
+	}
+	data.insert(0, header, sizeof(header));
+}
+
+void insHeader(std::string& data, char pac_type, data_size_type size)
+{
+	char header[sizeof(data_size_type) + 1];
+	header[0] = pac_type;
+	for (int i = 1; i <= sizeof(data_size_type); i++)
+	{
+		header[i] = static_cast<uint8_t>(size);
+		size >>= 8;
+	}
+	data.insert(0, header, sizeof(header));
+}
 
 void plugin_handler_SendData(plugin_id_type plugin_id, int to, const char* data, size_t size)
 {
@@ -272,10 +301,12 @@ mainFrame::mainFrame(const wxString& title)
 	cerr_orig = std::cerr.rdbuf();
 	std::cerr.rdbuf(textStrm.get());
 
-	if (fs::exists(plugin_file_name))
+	fs::path plugin_file_path = DATA_PATH;
+	plugin_file_path /= plugin_file_name;
+	if (fs::exists(plugin_file_path))
 	{
 		plugin_init();
-		uid_global.assign(GetUserIDGlobal());
+		uid_global.assign(crypto_prov->GetUserIDGlobal());
 		set_method("GetUserID", reinterpret_cast<void*>(plugin_method_GetUserID));
 		set_method("Print", reinterpret_cast<void*>(plugin_method_Print));
 
@@ -286,7 +317,7 @@ mainFrame::mainFrame(const wxString& title)
 		set_method("DelUser", reinterpret_cast<void*>(plugin_handler_DelVirtualUser));
 		set_method("UserMsg", reinterpret_cast<void*>(plugin_handler_VirtualUserMsg));
 
-		std::ifstream fin(plugin_file_name);
+		std::ifstream fin(plugin_file_path.string());
 		std::string plugin_path_utf8;
 		while (!fin.eof())
 		{
@@ -312,7 +343,7 @@ void mainFrame::mainFrame_Resize(wxSizeEvent& event)
 {
 	int x_size = GetClientSize().GetWidth(), y_size = GetClientSize().GetHeight();
 	panel->SetSize(wxSize(x_size, y_size));
-	
+
 	double x_ratio = x_size, y_ratio = y_size;
 	x_ratio /= _GUI_SIZE_CLIENT_X;
 	y_ratio /= _GUI_SIZE_CLIENT_Y;
@@ -443,13 +474,13 @@ void mainFrame::buttonSend_Click(wxCommandEvent& event)
 		if (listUser->GetSelection() != -1)
 		{
 			wxCharBuffer buf = wxConvUTF8.cWC2MB(msg.c_str());
-			std::string msg_utf8(buf, buf.length());
 			user_id_type uID = userIDs[listUser->GetSelection()];
-			insLen(msg_utf8);
-			msg_utf8.insert(0, 1, PAC_TYPE_MSG);
-			misc_io_service.post([uID, msg_utf8]() {
-				srv->send_data(uID, msg_utf8, msgr_proto::session::priority_msg);
-			});
+
+			std::string msg_utf8;
+			insHeader(msg_utf8, PAC_TYPE_MSG, buf.length());
+			msg_utf8.append(buf, buf.length());
+
+			srv->send_data(uID, msg_utf8, msgr_proto::session::priority_msg);
 			textMsg->AppendText("Me:" + msg + '\n');
 			user_ext.at(uID).log.push_back("Me:" + msg + '\n');
 			textMsg->ShowPosition(textMsg->GetLastPosition());
@@ -462,10 +493,11 @@ void mainFrame::buttonSendImage_Click(wxCommandEvent& event)
 	if (listUser->GetSelection() != -1)
 	{
 		user_id_type uID = userIDs[listUser->GetSelection()];
-		wxFileDialog fileDlg(this, wxT("Image"), wxEmptyString, wxEmptyString, "Image files (*.bmp;*.jpg;*.jpeg;*.gif;*.png)|*.bmp;*.jpg;*.jpeg;*.gif;*.png");
-		fileDlg.ShowModal();
+		wxFileDialog fileDlg(this, wxT("Image"), wxEmptyString, wxEmptyString, "Image files (*.bmp;*.jpg;*.jpeg;*.gif;*.png)|*.bmp;*.jpg;*.jpeg;*.gif;*.png", wxFD_OPEN | wxFD_FILE_MUST_EXIST);
+		if (fileDlg.ShowModal() == wxID_CANCEL)
+			return;
 		wxString path = fileDlg.GetPath();
-		if ((!path.empty()) && fs::is_regular_file(path.ToStdWstring()))
+		if (!path.empty() && fs::is_regular_file(path.ToStdWstring()))
 		{
 			if (fs::file_size(path.ToStdWstring()) > IMAGE_SIZE_LIMIT)
 			{
@@ -474,7 +506,8 @@ void mainFrame::buttonSendImage_Click(wxCommandEvent& event)
 			}
 			int next_image_id;
 			srv->new_image_id(next_image_id);
-			fs::path image_path = IMG_TMP_PATH_NAME;
+			fs::path image_path = TEMP_PATH;
+			image_path /= IMG_TMP_PATH_NAME;
 			image_path /= std::to_string(uID);
 			image_path /= ".messenger_tmp_" + std::to_string(next_image_id);
 			fs::copy_file(path.ToStdWstring(), image_path);
@@ -491,7 +524,7 @@ void mainFrame::buttonSendImage_Click(wxCommandEvent& event)
 				user_ext.at(uID).log.push_back(image_path);
 				user_ext.at(uID).log.push_back("\n");
 
-				std::shared_ptr<std::string> img_buf = std::make_shared<std::string>();
+				std::shared_ptr<std::string> img_buf = std::make_shared<std::string>(sizeof(data_size_type) + 1, 0);
 
 				std::ifstream fin(path.ToStdString(), std::ios_base::in | std::ios_base::binary);
 				std::unique_ptr<char[]> read_buf = std::make_unique<char[]>(FileSendThread::FileBlockLen);
@@ -501,8 +534,15 @@ void mainFrame::buttonSendImage_Click(wxCommandEvent& event)
 					img_buf->append(read_buf.get(), fin.gcount());
 				}
 				fin.close();
-				insLen(*img_buf);
-				img_buf->insert(0, 1, PAC_TYPE_IMAGE);
+
+				std::string &img_buf_ = *img_buf;
+				size_t size = img_buf_.size() - (sizeof(data_size_type) + 1);
+				img_buf_[0] = PAC_TYPE_IMAGE;
+				for (int i = 1; i <= sizeof(data_size_type); i++)
+				{
+					img_buf_[i] = static_cast<uint8_t>(size);
+					size >>= 8;
+				}
 
 				srv->send_data(uID, std::move(*img_buf), msgr_proto::session::priority_msg);
 			}
@@ -515,10 +555,11 @@ void mainFrame::buttonSendFile_Click(wxCommandEvent& event)
 	if (listUser->GetSelection() != -1)
 	{
 		user_id_type uID = userIDs[listUser->GetSelection()];
-		wxFileDialog fileDlg(this);
-		fileDlg.ShowModal();
+		wxFileDialog fileDlg(this, wxT("Open file"), wxEmptyString, wxEmptyString, "All files (*.*)|*.*", wxFD_OPEN | wxFD_FILE_MUST_EXIST);
+		if (fileDlg.ShowModal() == wxID_CANCEL)
+			return;
 		std::wstring path = fileDlg.GetPath().ToStdWstring();
-		if ((!path.empty()) && fs::exists(path))
+		if (!path.empty() && fs::is_regular_file(path))
 			threadFileSend->start(uID, fs::path(path));
 	}
 }
@@ -603,7 +644,10 @@ void mainFrame::OnJoin(user_id_type id, const std::string& key)
 		{
 			int answer = wxMessageBox(wxT("The public key from ") + addr + wxT(" hasn't shown before.Trust it?"), wxT("Confirm"), wxYES_NO | wxCANCEL);
 			if (answer == wxNO)
+			{
 				srv->disconnect(id);
+				return;
+			}
 			else
 			{
 				if (answer == wxYES)
@@ -635,14 +679,18 @@ void mainFrame::OnLeave(user_id_type id)
 	newEvent->SetPayload<gui_callback>([this, id]() {
 		int i = 0;
 		std::vector<user_id_type>::iterator itr = userIDs.begin(), itrEnd = userIDs.end();
-		for (; itr != itrEnd && *itr != id; itr++) i++;
+		for (; itr != itrEnd && *itr != id; itr++)
+			i++;
+		if (itr == itrEnd)
+			return;
 		if (listUser->GetSelection() == i)
 			textMsg->SetValue(wxEmptyString);
 		listUser->Delete(i);
 		userIDs.erase(itr);
 		user_ext.erase(id);
 
-		fs::path tmp_path = IMG_TMP_PATH_NAME;
+		fs::path tmp_path = TEMP_PATH;
+		tmp_path /= IMG_TMP_PATH_NAME;
 		tmp_path /= std::to_string(id);
 		fs::remove_all(tmp_path);
 	});
@@ -681,8 +729,12 @@ bool MyApp::OnInit()
 	int stage = 0;
 	try
 	{
+		TEMP_PATH = fs::current_path();
+		DATA_PATH = fs::current_path();
+		DOWNLOAD_PATH = fs::current_path();
+
 		std::unordered_map<std::string, std::string> config_items;
-		
+
 		for (int i = 1; i < argc; i++)
 		{
 			std::string arg(argv[i]);
@@ -696,9 +748,12 @@ bool MyApp::OnInit()
 		wxImage::AddHandler(new wxPNGHandler);
 		wxImage::AddHandler(new wxJPEGHandler);
 		wxImage::AddHandler(new wxGIFHandler);
-		if (fs::exists(IMG_TMP_PATH_NAME))
-			fs::remove_all(IMG_TMP_PATH_NAME);
-		fs::create_directories(IMG_TMP_PATH_NAME);
+
+		fs::path IMG_TMP_PATH = TEMP_PATH;
+		IMG_TMP_PATH /= IMG_TMP_PATH_NAME;
+		if (fs::exists(IMG_TMP_PATH))
+			fs::remove_all(IMG_TMP_PATH);
+		fs::create_directories(IMG_TMP_PATH);
 
 		port_type portsBegin = 5000, portsEnd = 9999;
 		bool use_v6 = false;
@@ -708,10 +763,8 @@ bool MyApp::OnInit()
 		stage = 1;
 		threadMisc = new iosrvThread(misc_io_service);
 		stage = 2;
-		threadCrypto = new iosrvThread(cryp_io_service);
-		stage = 3;
 
-		initKey();
+		crypto_prov = std::make_unique<crypto::provider>((DATA_PATH / privatekeyFile).string().c_str());
 
 		try
 		{
@@ -733,11 +786,11 @@ bool MyApp::OnInit()
 		}
 		catch (std::out_of_range &) { crypto_worker = 1; }
 
-		crypto_srv = std::make_unique<crypto::server>(cryp_io_service, crypto_worker);
+		crypto_srv = std::make_unique<crypto::server>(main_io_service, crypto_worker);
 		srv = std::make_unique<wx_srv_interface>(main_io_service, misc_io_service,
 			asio::ip::tcp::endpoint((use_v6 ? asio::ip::tcp::v6() : asio::ip::tcp::v4()), portListen),
-			*crypto_srv.get());
-		
+			*crypto_prov.get(), *crypto_srv.get());
+
 		try
 		{
 			std::string &arg = config_items.at("ports");
@@ -761,12 +814,12 @@ bool MyApp::OnInit()
 
 		std::srand(static_cast<unsigned int>(std::time(NULL)));
 		for (; portsBegin <= portsEnd; portsBegin++)
-			srv->free_rand_port(portsBegin);
+			srv->initial_port(portsBegin);
 
 		srv->start();
 
 		threadFileSend = new FileSendThread(*srv);
-		stage = 4;
+		stage = 3;
 
 		form = new mainFrame(wxT("Messenger"));
 		form->Show();
@@ -782,11 +835,6 @@ bool MyApp::OnInit()
 			delete threadMisc;
 			throw(std::runtime_error("Can't run iosrvThread"));
 		}
-		if (threadCrypto->Run() != wxTHREAD_NO_ERROR)
-		{
-			delete threadNetwork;
-			throw(std::runtime_error("Can't run iosrvThread"));
-		}
 		if (threadFileSend->Run() != wxTHREAD_NO_ERROR)
 		{
 			delete threadFileSend;
@@ -797,10 +845,8 @@ bool MyApp::OnInit()
 	{
 		switch (stage)
 		{
-			case 4:
-				threadFileSend->Delete();
 			case 3:
-				threadCrypto->Delete();
+				threadFileSend->Delete();
 			case 2:
 				threadMisc->Delete();
 			case 1:
@@ -823,20 +869,20 @@ int MyApp::OnExit()
 		srv->shutdown();
 		crypto_srv->stop();
 
-		threadCrypto->stop();
 		threadNetwork->stop();
 		threadMisc->stop();
-		while (!threadCrypto->stopped() || !threadNetwork->stopped() || !threadMisc->stopped());
+		while (!threadNetwork->stopped() || !threadMisc->stopped());
 
 		threadMisc->Delete();
 		threadNetwork->Delete();
 		threadFileSend->Delete();
-		threadCrypto->Delete();
 
 		srv.reset();
 		crypto_srv.reset();
 
-		fs::remove_all(IMG_TMP_PATH_NAME);
+		fs::path IMG_TMP_PATH = TEMP_PATH;
+		IMG_TMP_PATH /= IMG_TMP_PATH_NAME;
+		fs::remove_all(IMG_TMP_PATH);
 	}
 	catch (...)
 	{

@@ -19,7 +19,7 @@ public:
 	void OnJoin(user_id_type id, const std::string& key);
 	void OnLeave(user_id_type id);
 private:
-	enum itemID{
+	enum itemID {
 		ID_FRAME,
 		ID_LABELLISTUSER, ID_LISTUSER, ID_BUTTONADD, ID_BUTTONDEL,
 		ID_TEXTMSG, ID_TEXTINPUT, ID_BUTTONSEND, ID_BUTTONSENDIMAGE, ID_BUTTONSENDFILE, ID_BUTTONCANCELSEND,
@@ -100,16 +100,9 @@ public:
 	wx_srv_interface(asio::io_service& _main_io_service,
 		asio::io_service& _misc_io_service,
 		asio::ip::tcp::endpoint _local_endpoint,
+		crypto::provider& _crypto_prov,
 		crypto::server& _crypto_srv);
 	~wx_srv_interface();
-
-	virtual void on_data(user_id_type id, const std::string& data);
-
-	virtual void on_join(user_id_type id, const std::string& key);
-	virtual void on_leave(user_id_type id);
-
-	virtual bool new_rand_port(port_type& port);
-	virtual void free_rand_port(port_type port) { ports.push_back(port); }
 
 	template <typename... _Ty>
 	void certify_key(_Ty&&... key) { certifiedKeys.emplace(std::forward<_Ty>(key)...); }
@@ -119,7 +112,21 @@ public:
 	void set_frame(mainFrame *_frm) { frm = _frm; }
 	void set_static_port(port_type port) { static_port = port; };
 	void new_image_id(int& id) { id = image_id; image_id++; }
+
+	void initial_port(port_type port){ ports.push_back(port); }
+
+	virtual bool new_key(const std::string& key) override { if (connectedKeys.count(key) > 0) return false; connectedKeys.emplace(key); return true; }
+	virtual void delete_key(const std::string& key) override { connectedKeys.erase(key); }
+protected:
+	virtual void on_data(user_id_type id, const std::string& data) override;
+
+	virtual void on_join(user_id_type id, const std::string& key) override;
+	virtual void on_leave(user_id_type id) override;
+
+	virtual bool new_rand_port(port_type& port) override;
+	virtual void free_rand_port(port_type port) override { ports.push_back(port); }
 private:
+	std::unordered_set<std::string> connectedKeys;
 	std::unordered_map<std::string, std::string> certifiedKeys;
 	std::list<port_type> ports;
 	int static_port = -1;
