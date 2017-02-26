@@ -22,7 +22,7 @@ volatile bool server_on = true;
 bool display_ip = true;
 
 const char *msg_new_user = "New user:", *msg_del_user = "Leaving user:";
-const char *msg_input_name = "Username:", *msg_input_pass = "Password:", *msg_welcome = "Welcome", *msg_unauthed_key = "Key unauthorized";
+const char *msg_input_name = "Username:", *msg_input_pass = "Password:", *msg_welcome = "Welcome", *msg_unauthed_key = "Key unauthorized", *msg_kick = "You're kicked!";
 
 const char* privatekeyFile = ".privatekey";
 
@@ -50,7 +50,8 @@ void cli_plugin_interface::send_msg(user_id_type id, const std::string& msg)
 void cli_plugin_interface::send_image(user_id_type id, const std::string& path)
 {
 	const size_t read_buf_size = 0x10000;
-	std::string img_buf;
+	std::string img_buf(1, PAC_TYPE_IMAGE);
+	img_buf.append(sizeof(data_size_type), 0);
 	std::ifstream fin(path, std::ios_base::in | std::ios_base::binary);
 	if (!fin || !fin.is_open())
 		return;
@@ -61,8 +62,14 @@ void cli_plugin_interface::send_image(user_id_type id, const std::string& path)
 		img_buf.append(read_buf.get(), static_cast<size_t>(fin.gcount()));
 	}
 	fin.close();
-	insLen(img_buf);
-	img_buf.insert(0, 1, PAC_TYPE_IMAGE);
+
+	size_t size = img_buf.size() - 1 - sizeof(data_size_type);
+	for (int i = 1; i <= sizeof(data_size_type); i++)
+	{
+		img_buf[i] = static_cast<char>(size);
+		size >>= 8;
+	}
+
 	srv->send_data(id, img_buf, msgr_proto::session::priority_msg);
 }
 
@@ -316,7 +323,7 @@ void cli_server::on_msg(user_id_type id, std::string& msg)
 						if (record.logged_in)
 						{
 							//Kick
-							disconnect(record.id);
+							kick(record);
 						}
 						//Get user's record linked to id
 						record.logged_in = true;
@@ -483,9 +490,17 @@ void cli_server::on_leave(user_id_type id)
 
 void cli_server::send_msg(user_id_type id, const std::string& msg)
 {
-	std::string msg_send(msg);
-	insLen(msg_send);
-	msg_send.insert(0, 1, PAC_TYPE_MSG);
+	std::string msg_send(1, PAC_TYPE_MSG);
+	msg_send.reserve(1 + sizeof(data_size_type) + msg.size());
+
+	size_t size = msg.size();
+	for (int i = 0; i < sizeof(data_size_type); i++)
+	{
+		msg_send.push_back(static_cast<char>(size));
+		size >>= 8;
+	}
+	msg_send.append(msg);
+
 	send_data(id, msg_send, msgr_proto::session::priority_msg);
 }
 
@@ -663,6 +678,18 @@ std::string cli_server::process_command(std::string& cmd, user_record& user)
 			ret.pop_back();
 		}
 	}
+	else if (cmd == "kick")
+	{
+		if (group >= user_record::ADMIN)
+		{
+			user_record_list::iterator itr = user_records.find(args);
+			if (itr != user_records.end())
+			{
+				kick(itr->second);
+				ret = "Kicked " + args;
+			}
+		}
+	}
 	else if (cmd == "stop")
 	{
 		if (group >= user_record::CONSOLE)
@@ -676,6 +703,31 @@ std::string cli_server::process_command(std::string& cmd, user_record& user)
 		m_plugin.on_cmd(user.name, user_type_table[group], cmd, args);
 	}
 	return ret;
+}
+
+void cli_server::kick(user_record& record)
+{
+	user_id_type id = record.id;
+	user_ext_list::iterator itr = user_exts.find(id);
+	if (itr == user_exts.end())
+		return;
+	user_ext &user = itr->second;
+
+	std::string msg_send(msg_del_user);
+
+	if (display_ip)
+		msg_send.append(user.name + '(' + user.addr + ')');
+	else
+		msg_send.append(user.name);
+	broadcast_msg(server_uid, msg_send);
+
+	record.logged_in = false;
+	m_plugin.on_del_user(user.name);
+
+	user.current_stage = user_ext::LOGIN_NAME;
+
+	if (mode >= HARD)
+		disconnect(id);
 }
 
 bool cli_server::new_rand_port(port_type& ret)

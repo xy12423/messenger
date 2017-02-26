@@ -209,7 +209,7 @@ public:
 	virtual void on_img(const std::string& name, const char *data, size_t data_size) { for (const plugin_ptr &ptr : plugins) ptr->on_img(name, data, data_size); }
 	virtual void on_file_h(const std::string& name, const char *data, size_t data_size) { for (const plugin_ptr &ptr : plugins) ptr->on_file_h(name, data, data_size); }
 	virtual void on_file_b(const std::string& name, const char *data, size_t data_size) { for (const plugin_ptr &ptr : plugins) ptr->on_file_b(name, data, data_size); }
-	virtual void on_plugin_data(const std::string& name, const char *data, size_t data_size) { for (const plugin_ptr &ptr : plugins) ptr->on_file_b(name, data, data_size); }
+	virtual void on_plugin_data(const std::string& name, const char *data, size_t data_size) { for (const plugin_ptr &ptr : plugins) ptr->on_plugin_data(name, data, data_size); }
 	virtual void on_exit() { for (const plugin_ptr &ptr : plugins) ptr->on_exit(); }
 
 	virtual flag_type get_flag() { return flags; }

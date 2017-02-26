@@ -75,6 +75,7 @@ public:
 	void broadcast_msg(int id, const std::string& msg);
 	void broadcast_data(int id, const std::string& data, int priority);
 	std::string process_command(std::string& cmd, user_record& user);
+	void kick(user_record& user);
 
 	bool get_id_by_name(const std::string& name, user_id_type& ret);
 

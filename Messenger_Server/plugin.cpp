@@ -744,7 +744,8 @@ void file_storage::send_header(send_task &task)
 	std::string head(1, PAC_TYPE_FILE_H);
 	head.append(reinterpret_cast<const char*>(&blockCountAll_LE), sizeof(data_size_type));
 	std::string name(task.file_name);
-	insLen(name);
+	data_size_type size = boost::endian::native_to_little(static_cast<data_size_type>(name.size()));
+	head.append(reinterpret_cast<char*>(&size), sizeof(data_size_type));
 	head.append(name);
 
 	inter.send_data(task.uID, std::move(head));

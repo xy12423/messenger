@@ -10,16 +10,6 @@ void insLen(std::string& data)
 	data.insert(0, reinterpret_cast<const char*>(&len), sizeof(data_size_type));
 }
 
-void server::detect_thread_id()
-{
-	main_iosrv.post([this]() {
-		main_iosrv_id = std::this_thread::get_id();
-	});
-	misc_iosrv.post([this]() {
-		misc_iosrv_id = std::this_thread::get_id();
-	});
-}
-
 void server::do_start()
 {
 	if (closing)
@@ -70,6 +60,9 @@ void server::pre_session_over(const std::shared_ptr<pre_session>& _pre, bool suc
 	{
 		if (_pre->get_port() != port_null)
 			free_rand_port(static_cast<port_type>(_pre->get_port()));
+		const std::string &key = _pre->get_key();
+		if (!key.empty())
+			delete_key(_pre->get_key());
 	}
 	_pre->shutdown();
 	pre_sessions.erase(_pre);
@@ -85,20 +78,11 @@ void server::join(const session_ptr& _user, user_id_type& uid)
 	sessions.emplace(newID, _user);
 	uid = newID;
 
-	if (std::this_thread::get_id() == misc_iosrv_id)
-	{
+	misc_iosrv.post([this, newID, _user]() {
 		try { on_join(newID, _user->get_key()); }
 		catch (std::exception &ex) { on_exception(ex); }
 		catch (...) {}
-	}
-	else
-	{
-		misc_iosrv.post([this, newID, _user]() {
-			try { on_join(newID, _user->get_key()); }
-			catch (std::exception &ex) { on_exception(ex); }
-			catch (...) {}
-		});
-	}
+	});
 }
 
 void server::leave(user_id_type _user)
@@ -111,24 +95,18 @@ void server::leave(user_id_type _user)
 		return;
 	session_ptr this_session = itr->second;
 
-	if (std::this_thread::get_id() == misc_iosrv_id)
-	{
+	misc_iosrv.post([this, _user]() {
 		try { on_leave(_user); }
 		catch (std::exception &ex) { on_exception(ex); }
 		catch (...) {}
-	}
-	else
-	{
-		misc_iosrv.post([this, _user]() {
-			try { on_leave(_user); }
-			catch (std::exception &ex) { on_exception(ex); }
-			catch (...) {}
-		});
-	}
+	});
 
 	this_session->shutdown();
 	if (this_session->get_port() != port_null)
 		free_rand_port(static_cast<port_type>(this_session->get_port()));
+	const std::string &key = this_session->get_key();
+	if (!key.empty())
+		delete_key(key);
 	sessions.erase(itr);
 }
 
@@ -141,20 +119,11 @@ void server::on_recv_data(user_id_type id, const std::shared_ptr<std::string>& d
 	if (itr == sessions.end())
 		return;
 	session_ptr this_session = itr->second;
-	if (std::this_thread::get_id() == misc_iosrv_id)
-	{
+	misc_iosrv.post([this, id, data]() {
 		try { on_data(id, *data); }
 		catch (std::exception &ex) { on_exception(ex); }
 		catch (...) {}
-	}
-	else
-	{
-		misc_iosrv.post([this, id, data]() {
-			try { on_data(id, *data); }
-			catch (std::exception &ex) { on_exception(ex); }
-			catch (...) {}
-		});
-	}
+	});
 }
 
 bool server::send_data(user_id_type id, const std::string& data, int priority, session::write_callback&& callback)
