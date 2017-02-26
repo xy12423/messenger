@@ -60,23 +60,25 @@ std::string empty_string;
 void insHeader(std::string& data, char pac_type)
 {
 	data_size_type size = data.size();
-	char header[5];
+	char header[sizeof(data_size_type) + 1];
 	header[0] = pac_type;
-	header[1] = static_cast<uint8_t>(size & 0xFF);
-	header[2] = static_cast<uint8_t>(size >> 8);
-	header[3] = static_cast<uint8_t>(size >> 16);
-	header[4] = static_cast<uint8_t>(size >> 24);
+	for (int i = 1; i <= sizeof(data_size_type); i++)
+	{
+		header[i] = static_cast<uint8_t>(size);
+		size >>= 8;
+	}
 	data.insert(0, header, sizeof(header));
 }
 
 void insHeader(std::string& data, char pac_type, data_size_type size)
 {
-	char header[5];
+	char header[sizeof(data_size_type) + 1];
 	header[0] = pac_type;
-	header[1] = static_cast<uint8_t>(size & 0xFF);
-	header[2] = static_cast<uint8_t>(size >> 8);
-	header[3] = static_cast<uint8_t>(size >> 16);
-	header[4] = static_cast<uint8_t>(size >> 24);
+	for (int i = 1; i <= sizeof(data_size_type); i++)
+	{
+		header[i] = static_cast<uint8_t>(size);
+		size >>= 8;
+	}
 	data.insert(0, header, sizeof(header));
 }
 
@@ -522,7 +524,7 @@ void mainFrame::buttonSendImage_Click(wxCommandEvent& event)
 				user_ext.at(uID).log.push_back(image_path);
 				user_ext.at(uID).log.push_back("\n");
 
-				std::shared_ptr<std::string> img_buf = std::make_shared<std::string>();
+				std::shared_ptr<std::string> img_buf = std::make_shared<std::string>(sizeof(data_size_type) + 1, 0);
 
 				std::ifstream fin(path.ToStdString(), std::ios_base::in | std::ios_base::binary);
 				std::unique_ptr<char[]> read_buf = std::make_unique<char[]>(FileSendThread::FileBlockLen);
@@ -532,7 +534,15 @@ void mainFrame::buttonSendImage_Click(wxCommandEvent& event)
 					img_buf->append(read_buf.get(), fin.gcount());
 				}
 				fin.close();
-				insHeader(*img_buf, PAC_TYPE_IMAGE);
+
+				std::string &img_buf_ = *img_buf;
+				size_t size = img_buf_.size() - (sizeof(data_size_type) + 1);
+				img_buf_[0] = PAC_TYPE_IMAGE;
+				for (int i = 1; i <= sizeof(data_size_type); i++)
+				{
+					img_buf_[i] = static_cast<uint8_t>(size);
+					size >>= 8;
+				}
 
 				srv->send_data(uID, std::move(*img_buf), msgr_proto::session::priority_msg);
 			}
@@ -634,7 +644,10 @@ void mainFrame::OnJoin(user_id_type id, const std::string& key)
 		{
 			int answer = wxMessageBox(wxT("The public key from ") + addr + wxT(" hasn't shown before.Trust it?"), wxT("Confirm"), wxYES_NO | wxCANCEL);
 			if (answer == wxNO)
+			{
 				srv->disconnect(id);
+				return;
+			}
 			else
 			{
 				if (answer == wxYES)
@@ -666,7 +679,10 @@ void mainFrame::OnLeave(user_id_type id)
 	newEvent->SetPayload<gui_callback>([this, id]() {
 		int i = 0;
 		std::vector<user_id_type>::iterator itr = userIDs.begin(), itrEnd = userIDs.end();
-		for (; itr != itrEnd && *itr != id; itr++) i++;
+		for (; itr != itrEnd && *itr != id; itr++)
+			i++;
+		if (itr == itrEnd)
+			return;
 		if (listUser->GetSelection() == i)
 			textMsg->SetValue(wxEmptyString);
 		listUser->Delete(i);
@@ -798,7 +814,7 @@ bool MyApp::OnInit()
 
 		std::srand(static_cast<unsigned int>(std::time(NULL)));
 		for (; portsBegin <= portsEnd; portsBegin++)
-			srv->free_rand_port(portsBegin);
+			srv->initial_port(portsBegin);
 
 		srv->start();
 

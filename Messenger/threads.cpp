@@ -65,7 +65,12 @@ void FileSendThread::send_header(FileSendTask &task)
 	std::string head(1, PAC_TYPE_FILE_H);
 	head.append(reinterpret_cast<const char*>(&blockCountAll_LE), sizeof(data_size_type));
 	std::string name(wxConvUTF8.cWC2MB(fileName.c_str()));
-	insLen(name);
+	size_t size = name.size();
+	for (int i = 0; i < sizeof(data_size_type); i++)
+	{
+		head.push_back(static_cast<uint8_t>(size));
+		size >>= 8;
+	}
 	head.append(name);
 
 	wxCharBuffer msgBuf = wxConvLocal.cWC2MB(
