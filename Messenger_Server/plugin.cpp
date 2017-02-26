@@ -4,6 +4,24 @@
 #include "session.h"
 #include "plugin.h"
 
+template <typename... _Ty>
+inline void hash_short(_Ty&&... arg)
+{
+	crypto::provider::hash_short(std::forward<_Ty>(arg)...);
+}
+
+template <typename... _Ty>
+inline void base32(_Ty&&... arg)
+{
+	crypto::provider::base32(std::forward<_Ty>(arg)...);
+}
+
+template <typename... _Ty>
+inline void base32_rev(_Ty&&... arg)
+{
+	crypto::provider::base32_rev(std::forward<_Ty>(arg)...);
+}
+
 class counting_streambuf :public std::streambuf
 {
 public:
@@ -39,13 +57,8 @@ struct data_view
 	{}
 
 	template <typename _Ty>
-	inline void read(_Ty &ret) {
-		if (size < sizeof(_Ty))
-			throw(plugin_error());
-		size -= sizeof(_Ty);
-		ret = boost::endian::little_to_native(*reinterpret_cast<const _Ty*>(data));
-		data += sizeof(_Ty);
-	}
+	void read(_Ty& ret);
+	inline void read(char& ret) { if (size < 1) throw(plugin_error()); ret = *data; data += 1; size -= 1; }
 	inline void read(char* dst, size_t _size) { if (size < _size) throw(plugin_error()); memcpy(dst, data, _size); data += _size; size -= _size; }
 	inline void read(std::string& dst, size_t _size) { if (size < _size) throw(plugin_error()); dst.append(data, _size); data += _size; size -= _size; }
 	inline void check(size_t count) { if (size < count) throw(plugin_error()); }
@@ -54,6 +67,19 @@ struct data_view
 	const char* data;
 	size_t size;
 };
+
+template <typename _Ty>
+void data_view::read(_Ty &ret)
+{
+	if (size < sizeof(_Ty))
+		throw(plugin_error());
+	size -= sizeof(_Ty);
+
+	const char *data_end = data + sizeof(_Ty);
+	ret = 0;
+	for (int i = 0; data < data_end; data++, i += 8)
+		ret |= static_cast<uint64_t>(static_cast<uint8_t>(*data)) << i;
+}
 
 msg_logger::msg_logger(plugin_interface& _inter)
 	:msg_server_plugin(_inter),
@@ -407,6 +433,22 @@ void file_storage::save_data()
 	}
 }
 
+void file_storage::on_del_user(const std::string& name)
+{
+	try
+	{
+		recv_tasks.erase(name);
+	}
+	catch (...) {}
+	try
+	{
+		user_id_type id;
+		inter.get_id_by_name(name, id);
+		send_tasks.erase(id);
+	}
+	catch (...) {}
+}
+
 void file_storage::on_cmd(const std::string& name, user_type type, const std::string& cmd, const std::string& arg)
 {
 	if (!enabled)
@@ -414,13 +456,14 @@ void file_storage::on_cmd(const std::string& name, user_type type, const std::st
 	if (cmd == "file_get")
 	{
 		user_id_type id;
-		inter.get_id_by_name(name, id);
-		start(id, arg);
+		if (inter.get_id_by_name(name, id))
+			start(id, arg);
 	}
 	else if (cmd == "file_list")
 	{
 		user_id_type id;
-		inter.get_id_by_name(name, id);
+		if (!inter.get_id_by_name(name, id))
+			return;
 		std::string msg;
 
 		for (const hashmap_tp::value_type &pair : hash_map)
@@ -437,7 +480,8 @@ void file_storage::on_cmd(const std::string& name, user_type type, const std::st
 	else if (cmd == "file_del")
 	{
 		user_id_type id;
-		inter.get_id_by_name(name, id);
+		if (!inter.get_id_by_name(name, id))
+			return;
 		hashmap_tp::iterator selected = hash_map.find(arg);
 		if (selected == hash_map.end())
 		{
@@ -454,6 +498,7 @@ void file_storage::on_cmd(const std::string& name, user_type type, const std::st
 			else
 			{
 				hash_map.erase(selected);
+				save_data();
 				inter.send_msg(id, "File deleted");
 			}
 		}
@@ -468,6 +513,11 @@ void file_storage::on_file_h(const std::string& name, const char *_data, size_t 
 {
 	if (!enabled)
 		return;
+
+	recv_tasks_tp::iterator itr = recv_tasks.find(name);
+	if (itr != recv_tasks.end())
+		recv_tasks.erase(itr);
+
 	data_view data(_data, data_size);
 	data_size_type block_count_all, file_name_len;
 
@@ -480,6 +530,14 @@ void file_storage::on_file_h(const std::string& name, const char *_data, size_t 
 
 		data.read(task.info.file_name, file_name_len);
 		task.info.upload_user = name;
+		
+		std::string &file_name = task.info.file_name;
+		size_t pos = file_name.rfind('/');
+		if (pos != std::string::npos)
+			file_name.erase(0, pos + 1);
+		pos = file_name.rfind('\\');
+		if (pos != std::string::npos)
+			file_name.erase(0, pos + 1);
 
 		task.block_count_all = block_count_all;
 	}
@@ -533,6 +591,103 @@ void file_storage::on_file_b(const std::string& name, const char *_data, size_t 
 	{
 		recv_tasks.erase(selected);
 	}
+}
+
+void file_storage::on_plugin_data(const std::string& name, const char *_data, size_t data_size)
+{
+	if (!enabled)
+		return;
+	if (data_size < 1 || *_data != pak_file_storage)
+		return;
+	data_view data(_data + 1, data_size - 1);
+
+	try
+	{
+		char type;
+		data.read(type);
+		switch (type)
+		{
+			case 0:
+			{
+				user_id_type id;
+				if (!inter.get_id_by_name(name, id))
+					break;
+				std::string list;
+				list.push_back(PAC_TYPE_PLUGIN_DATA);
+				list.push_back(pak_file_storage);
+				list.push_back(hash_map.size() & 0xFF);
+				list.push_back(static_cast<char>(hash_map.size() >> 8));
+				list.push_back(static_cast<char>(hash_map.size() >> 16));
+				list.push_back(static_cast<char>(hash_map.size() >> 24));
+
+				std::string key;
+				for (const hashmap_tp::value_type &pair : hash_map)
+				{
+					key.clear();
+					const std::string &file_name = pair.second.file_name;
+					base32_rev(key, pair.first.data(), pair.first.size());
+					list.push_back(key.size() & 0xFF);
+					list.push_back(static_cast<char>(key.size() >> 8));
+					list.push_back(static_cast<char>(key.size() >> 16));
+					list.push_back(static_cast<char>(key.size() >> 24));
+					list.append(key);
+					list.push_back(file_name.size() & 0xFF);
+					list.push_back(static_cast<char>(file_name.size() >> 8));
+					list.push_back(static_cast<char>(file_name.size() >> 16));
+					list.push_back(static_cast<char>(file_name.size() >> 24));
+					list.append(file_name);
+				}
+
+				inter.send_data(id, std::move(list));
+				break;
+			}
+			case 1:
+			{
+				user_id_type id;
+				if (!inter.get_id_by_name(name, id))
+					break;
+				std::string key;
+				base32(key, reinterpret_cast<const byte*>(data.data), data.size);
+				start(id, key);
+				break;
+			}
+			case 2:
+			{
+				user_id_type id;
+				if (!inter.get_id_by_name(name, id))
+					break;
+
+				std::string key;
+				base32(key, reinterpret_cast<const byte*>(data.data), data.size);
+
+				hashmap_tp::iterator selected = hash_map.find(key);
+				if (selected == hash_map.end())
+				{
+					inter.send_msg(id, "File not found");
+				}
+				else if (type >= ADMIN || (type == USER && selected->second.upload_user == name))
+				{
+					boost::system::error_code ec;
+					fs::remove(files_path / selected->first, ec);
+					if (ec)
+					{
+						inter.send_msg(id, "Failed to delete");
+					}
+					else
+					{
+						hash_map.erase(selected);
+						save_data();
+						inter.send_msg(id, "File deleted");
+					}
+				}
+				else
+				{
+					inter.send_msg(id, "Insufficient privilege");
+				}
+			}
+		}
+	}
+	catch (plugin_error &) {}
 }
 
 void file_storage::start(user_id_type uID, const std::string& hash)
@@ -589,7 +744,8 @@ void file_storage::send_header(send_task &task)
 	std::string head(1, PAC_TYPE_FILE_H);
 	head.append(reinterpret_cast<const char*>(&blockCountAll_LE), sizeof(data_size_type));
 	std::string name(task.file_name);
-	insLen(name);
+	data_size_type size = boost::endian::native_to_little(static_cast<data_size_type>(name.size()));
+	head.append(reinterpret_cast<char*>(&size), sizeof(data_size_type));
 	head.append(name);
 
 	inter.send_data(task.uID, std::move(head));
@@ -644,7 +800,7 @@ void key_storage::init(const config_table_tp& config_items)
 		else if (!fs::is_directory(keys_path))
 			throw(plugin_error());
 		load_data();
-		std::cout << "Key storage enabled" << std::endl;
+		std::cout << "Key storage enabled, path:" << keys_path << std::endl;
 		storage_enabled = true;
 	}
 	catch (plugin_error &) { storage_enabled = false; }
@@ -683,13 +839,33 @@ void key_storage::load_data()
 			fin.read(size_buf, sizeof(uint16_t));
 			ex_buf.resize(static_cast<uint16_t>(size_buf[0]) | (size_buf[1] << 8));
 			fin.read(ex_buf.data(), ex_buf.size());
-			if (fin.eof())
+			if (fin.gcount() != ex_buf.size())
 				throw(plugin_error());
 			//emplace
 			keys.emplace(user, key_item(std::string(key_buf.data(), key_buf.size()), std::string(ex_buf.data(), ex_buf.size())));
 			//read next size
 			fin.read(size_buf, sizeof(uint16_t));
 		}
+	}
+}
+
+void key_storage::load_data(const std::string& user, data_view& data)
+{
+	std::vector<char> key_buf, ex_buf;
+	char size_buf[sizeof(uint16_t)];
+
+	while (data.size != 0)
+	{
+		data.read(size_buf, sizeof(uint16_t));
+		//read key
+		key_buf.resize(static_cast<uint16_t>(size_buf[0]) | (size_buf[1] << 8));
+		data.read(key_buf.data(), key_buf.size());
+		//read ex
+		data.read(size_buf, sizeof(uint16_t));
+		ex_buf.resize(static_cast<uint16_t>(size_buf[0]) | (size_buf[1] << 8));
+		data.read(ex_buf.data(), ex_buf.size());
+		//emplace
+		keys.emplace(user, key_item(std::string(key_buf.data(), key_buf.size()), std::string(ex_buf.data(), ex_buf.size())));
 	}
 }
 
@@ -726,6 +902,10 @@ void key_storage::on_file_h(const std::string& user, const char *_data, size_t d
 {
 	data_view data(_data, data_size);
 	data_size_type block_count_all, file_name_len;
+
+	recv_tasks_tp::iterator itr = recv_tasks.find(user);
+	if (itr != recv_tasks.end())
+		recv_tasks.erase(itr);
 
 	try
 	{
@@ -767,7 +947,8 @@ int key_storage::on_file_b(const std::string& user, const char *_data, size_t da
 		{
 			if (storage_enabled)
 			{
-				keys.emplace(user, key_item(task.buf, std::string()));
+				data_view data(task.buf);
+				load_data(user, data);
 				recv_tasks.erase(selected);
 				save_data(user);
 			}

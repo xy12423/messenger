@@ -30,7 +30,7 @@ bool load_private(const std::string& path)
 		ECIES<ECP>::Encryptor e0(d0);
 		e0.GetPublicKey().Save(buf);
 
-		key_id_type id = keys.size();
+		key_id_type id = static_cast<key_id_type>(keys.size());
 		keys.emplace(id, key_item(ret, "my_private"));
 		return true;
 	}
@@ -60,10 +60,10 @@ bool load_public(const std::string& path)
 			fin.read(size_buf, sizeof(uint16_t));
 			buf_ex.resize(static_cast<uint16_t>(size_buf[0]) | (size_buf[1] << 8));
 			fin.read(buf_ex.data(), buf_ex.size());
-			if (fin.eof())
+			if (fin.gcount() != buf_ex.size())
 				return false;
 			//emplace
-			key_id_type id = keys.size();
+			key_id_type id = static_cast<key_id_type>(keys.size());
 			keys.emplace(id, key_item(std::string(buf_key.data(), buf_key.size()), std::string(buf_ex.data(), buf_ex.size())));
 			//read next size
 			fin.read(size_buf, sizeof(uint16_t));
