@@ -8,7 +8,8 @@ extern std::unordered_map<user_id_type, user_ext_type> user_ext;
 const char* IMG_TMP_PATH_NAME = ".messenger_tmp";
 const char* IMG_TMP_FILE_NAME = ".messenger_tmp_";
 
-const char* privatekeyFile = ".privatekey";
+extern fs::path TEMP_PATH, DATA_PATH, DOWNLOAD_PATH;
+
 const char* publickeysFile = ".publickey";
 
 struct data_view
@@ -21,13 +22,7 @@ struct data_view
 	{}
 
 	template <typename _Ty>
-	inline void read(_Ty &ret) {
-		if (size < sizeof(_Ty))
-			throw(wx_srv_interface_error());
-		size -= sizeof(_Ty);
-		ret = boost::endian::little_to_native(*reinterpret_cast<const _Ty*>(data));
-		data += sizeof(_Ty);
-	}
+	void read(_Ty &ret);
 	inline void read(char* dst, size_t _size) { if (size < _size) throw(wx_srv_interface_error()); memcpy(dst, data, _size); data += _size; size -= _size; }
 	inline void read(std::string& dst, size_t _size) { if (size < _size) throw(wx_srv_interface_error()); dst.append(data, _size); data += _size; size -= _size; }
 	inline void check(size_t count) { if (size < count) throw(wx_srv_interface_error()); }
@@ -37,15 +32,32 @@ struct data_view
 	size_t size;
 };
 
+template <typename _Ty>
+void data_view::read(_Ty &ret)
+{
+	if (size < sizeof(_Ty))
+		throw(wx_srv_interface_error());
+	size -= sizeof(_Ty);
+
+	const char *data_end = data + sizeof(_Ty);
+	ret = 0;
+	for (int i = 0; data < data_end; data++, i += 8)
+		ret |= static_cast<uint64_t>(static_cast<uint8_t>(*data)) << i;
+}
+
 wx_srv_interface::wx_srv_interface(asio::io_service& _main_io_service,
 	asio::io_service& _misc_io_service,
 	asio::ip::tcp::endpoint _local_endpoint,
+	crypto::provider& _crypto_prov,
 	crypto::server& _crypto_srv)
-	:msgr_proto::server(_main_io_service, _misc_io_service, _local_endpoint, _crypto_srv)
+	:msgr_proto::server(_main_io_service, _misc_io_service, _local_endpoint, _crypto_prov, _crypto_srv)
 {
-	if (fs::exists(publickeysFile))
+	fs::path publickeysFilePath = DATA_PATH;
+	publickeysFilePath /= publickeysFile;
+	if (fs::exists(publickeysFilePath))
 	{
-		std::ifstream fin(publickeysFile, std::ios_base::in | std::ios_base::binary);
+		std::ifstream fin(publickeysFilePath.string(), std::ios_base::in | std::ios_base::binary);
+		assert(fin.is_open());
 		std::vector<char> buf_key, buf_ex;
 		char size_buf[sizeof(uint16_t)];
 		fin.read(size_buf, sizeof(uint16_t));
@@ -60,7 +72,7 @@ wx_srv_interface::wx_srv_interface(asio::io_service& _main_io_service,
 			fin.read(size_buf, sizeof(uint16_t));
 			buf_ex.resize(static_cast<uint16_t>(size_buf[0]) | (size_buf[1] << 8));
 			fin.read(buf_ex.data(), buf_ex.size());
-			if (fin.eof())
+			if (fin.gcount() != buf_ex.size())
 				break;
 			//emplace
 			certifiedKeys.emplace(std::string(buf_key.data(), buf_key.size()), std::string(buf_ex.data(), buf_ex.size()));
@@ -74,7 +86,10 @@ wx_srv_interface::wx_srv_interface(asio::io_service& _main_io_service,
 
 wx_srv_interface::~wx_srv_interface()
 {
-	std::ofstream fout(publickeysFile, std::ios_base::out | std::ios_base::binary);
+	fs::path publickeysFilePath = DATA_PATH;
+	publickeysFilePath /= publickeysFile;
+
+	std::ofstream fout(publickeysFilePath.string(), std::ios_base::out | std::ios_base::binary);
 
 	auto itr = certifiedKeys.begin(), itrEnd = certifiedKeys.end();
 	for (; itr != itrEnd; itr++)
@@ -129,22 +144,29 @@ void wx_srv_interface::on_data(user_id_type id, const std::string& _data)
 					data.check(fNameLen);
 					wxWCharBuffer wbuf = wxConvUTF8.cMB2WC(data.data, fNameLen, &tmp);
 					data.skip(fNameLen);
-					fName = std::wstring(wbuf, tmp);
+					fName.assign(wbuf, tmp);
+
+					size_t pos = fName.rfind('/');
+					if (pos != std::wstring::npos)
+						fName.erase(0, pos + 1);
+					pos = fName.rfind('\\');
+					if (pos != std::wstring::npos)
+						fName.erase(0, pos + 1);
 				}
 
-				if (fs::exists(fName))
+				if (fs::exists(DOWNLOAD_PATH / fName))
 				{
 					int i;
 					for (i = 0; i < INT_MAX; i++)
 					{
-						if (!fs::exists(fs::path(fName + "_" + std::to_string(i))))
+						if (!fs::exists(DOWNLOAD_PATH / (fName + wxT("_") + std::to_wstring(i))))
 							break;
 					}
 					if (i == INT_MAX)
 						throw(std::runtime_error("Failed to open file"));
-					fName = fName + "_" + std::to_string(i);
+					fName = fName + wxT("_") + std::to_wstring(i);
 				}
-				usr.recvFile = (fs::current_path() / fName).string();
+				usr.recvFile = (DOWNLOAD_PATH / fName).string();
 				usr.blockLast = blockCountAll;
 				std::cout << "Receiving file " << fName << " from " << usr.addr << std::endl;
 
@@ -183,7 +205,8 @@ void wx_srv_interface::on_data(user_id_type id, const std::string& _data)
 
 				int next_image_id;
 				new_image_id(next_image_id);
-				fs::path image_path = IMG_TMP_PATH_NAME;
+				fs::path image_path = TEMP_PATH;
+				image_path /= IMG_TMP_PATH_NAME;
 				image_path /= std::to_string(id);
 				image_path /= ".messenger_tmp_" + std::to_string(next_image_id);
 
@@ -226,7 +249,8 @@ void wx_srv_interface::on_join(user_id_type id, const std::string& key)
 	user_ext_type &ext = user_ext.emplace(id, user_ext_type()).first->second;
 	ext.addr = wxConvLocal.cMB2WC(get_session(id).get_address().c_str());
 
-	fs::path tmp_path = IMG_TMP_PATH_NAME;
+	fs::path tmp_path = TEMP_PATH;
+	tmp_path /= IMG_TMP_PATH_NAME;
 	tmp_path /= std::to_string(id);
 	fs::create_directories(tmp_path);
 

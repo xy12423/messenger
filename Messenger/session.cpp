@@ -5,59 +5,75 @@
 
 using namespace msgr_proto;
 
-void proto_kit::do_enc()
+bool compare_data(const char* data1, const char* data2, size_t size)
 {
-	std::string &data = enc_task_que.front().data;
+	for (const char *data1_end = data1 + size; data1 < data1_end; data1++, data2++)
+		if (*data1 != *data2)
+			return false;
+	return true;
+}
+
+template <typename _Ty>
+bool compare_little_endian(const char* data, _Ty num)
+{
+	const char *data_end = data + sizeof(_Ty);
+	for (int i = 0; data < data_end; data++, i += 8)
+		if (static_cast<uint8_t>(*data) != static_cast<uint8_t>(num >> i))
+			return false;
+	return true;
+}
+
+void proto_kit::do_enc(crypto::task& task)
+{
+	std::string &data = task.data;
 	std::string &write_raw = data, write_data;
 	rand_num_type rand_num = get_rand_num_send();
 	write_raw.reserve(sizeof(session_id_type) + sizeof(rand_num_type) + write_raw.size() + hash_size);
 	write_raw.append(reinterpret_cast<char*>(&session_id), sizeof(session_id_type));
 	write_raw.append(reinterpret_cast<const char*>(&rand_num), sizeof(rand_num_type));
-	hash(write_raw, write_raw);
+	provider.hash(write_raw, write_raw);
 
-	sym_encrypt(write_raw, write_data, e);
-	encrypt(write_data, write_raw, e1);
+	provider.sym_encrypt(write_raw, write_data, e);
+	provider.encrypt(write_data, write_raw, e1);
 	insLen(write_raw);
 
-	enc_task_que.front().callback(true, empty_string);
+	task.callback(true, empty_string);
 }
 
-void proto_kit::do_dec()
+void proto_kit::do_dec(crypto::task& task)
 {
-	std::string &data = dec_task_que.front().data;
+	std::string &data = task.data;
 	std::string decrypted_data;
 
-	decrypt(data, decrypted_data, d0);
-	sym_decrypt(decrypted_data, data, d);
+	provider.decrypt(data, decrypted_data, d0);
+	provider.sym_decrypt(decrypted_data, data, d);
 
 	const char *itr = data.data() + data.size() - hash_size;
 
 	std::string hash_real;
-	hash(data, hash_real, hash_size);
-	
+	provider.hash(data, hash_real, hash_size);
+
 	try
 	{
-		std::string hash_recv(itr, hash_size);
-		if (hash_real != hash_recv)
+		if (!compare_data(hash_real.data(), itr, hash_size))
 			throw(msgr_proto_error("Error:Hashing failed"));
 
 		itr -= sizeof(rand_num_type);
-		rand_num_type rand_num = boost::endian::native_to_little(get_rand_num_recv());
-		if (*reinterpret_cast<const rand_num_type*>(itr) != rand_num)
+		if (!compare_little_endian(itr, get_rand_num_recv()))
 			throw(msgr_proto_error("Error:Checking failed"));
 
 		itr -= sizeof(session_id_type);
-		if (*reinterpret_cast<const session_id_type*>(itr) != session_id)
+		if (!compare_little_endian(itr, session_id))
 			throw(msgr_proto_error("Error:Checking failed"));
 	}
 	catch (msgr_proto_error& ex)
 	{
-		dec_task_que.front().callback(false, std::string(ex.what()));
+		task.callback(false, std::string(ex.what()));
 		return;
 	}
 
 	data.erase(data.size() - (sizeof(session_id_type) + sizeof(rand_num_type) + hash_size));
-	dec_task_que.front().callback(true, empty_string);
+	task.callback(true, empty_string);
 }
 
 void pre_session::read_key_header()
@@ -66,7 +82,7 @@ void pre_session::read_key_header()
 	asio::async_read(*socket,
 		asio::buffer(reinterpret_cast<char*>(&(this->key_size)), sizeof(key_size_type)),
 		asio::transfer_exactly(sizeof(key_size_type)),
-        [this, watcher_holder](const error_code_type& ec, std::size_t)
+		[this, watcher_holder](const error_code_type& ec, std::size_t)
 	{
 		try
 		{
@@ -93,14 +109,14 @@ void pre_session::read_key()
 	asio::async_read(*socket,
 		asio::buffer(key_buffer.get(), key_size),
 		asio::transfer_exactly(key_size),
-        [this, watcher_holder](const error_code_type& ec, std::size_t)
+		[this, watcher_holder](const error_code_type& ec, std::size_t)
 	{
 		try
 		{
 			if (ec)
 				throw(std::runtime_error("Socket Error:" + ec.message()));
 			key_string.assign(key_buffer.release(), key_size);
-			if (key_string.empty() || srv.check_key_connected(key_string))
+			if (key_string.empty() || !srv.new_key(key_string))
 				key_string.clear();
 			else
 				stage1();
@@ -123,8 +139,8 @@ void pre_session::write_secret()
 		std::shared_ptr<std::string> buf = std::make_shared<std::string>();
 		try
 		{
-			dhGen(priv, pubA);
-			encrypt(pubA.BytePtr(), pubA.SizeInBytes(), *buf, e1);
+			crypto_prov.dhGen(priv, pubA);
+			crypto_prov.encrypt(pubA.BytePtr(), pubA.SizeInBytes(), *buf, e1);
 			key_size_type len = boost::endian::native_to_little(static_cast<key_size_type>(buf->size()));
 			buf->insert(0, reinterpret_cast<const char*>(&len), sizeof(key_size_type));
 		}
@@ -165,7 +181,7 @@ void pre_session::read_secret_header()
 	asio::async_read(*socket,
 		asio::buffer(reinterpret_cast<char*>(&(this->pubB_size)), sizeof(key_size_type)),
 		asio::transfer_exactly(sizeof(key_size_type)),
-        [this, watcher_holder](const error_code_type& ec, std::size_t)
+		[this, watcher_holder](const error_code_type& ec, std::size_t)
 	{
 		try
 		{
@@ -203,8 +219,12 @@ void pre_session::read_secret()
 		misc_io_service.post([this, watcher_holder]() {
 			try
 			{
-				decrypt(reinterpret_cast<byte*>(pubB_buffer.get()), pubB_size, pubB, GetPublicKey());
-				if (!dhAgree(key, priv, pubB))
+				std::string pubB_str;
+				crypto_prov.decrypt(reinterpret_cast<byte*>(pubB_buffer.get()), pubB_size, pubB_str, crypto_prov.GetPublicKey());
+				if (pubB_str.size() != crypto_prov.dh_pub_block_size)
+					throw(std::runtime_error("Failed to reach shared secret"));
+				memcpy(pubB, pubB_str.data(), crypto_prov.dh_pub_block_size);
+				if (!crypto_prov.dhAgree(key, priv, pubB))
 					throw(std::runtime_error("Failed to reach shared secret"));
 				write_iv();
 			}
@@ -222,7 +242,7 @@ void pre_session::write_iv()
 	std::shared_ptr<pre_session_watcher> watcher_holder(watcher);
 
 	std::shared_ptr<CryptoPP::SecByteBlock> iv = std::make_shared<CryptoPP::SecByteBlock>(sym_key_size);
-	init_sym_encryption(e, key, *iv);
+	crypto_prov.init_sym_encryption(e, key, *iv);
 	asio::async_write(*socket,
 		asio::buffer(reinterpret_cast<char*>(iv->data()), iv->SizeInBytes()),
 		[this, watcher_holder, iv](const error_code_type& ec, std::size_t)
@@ -250,13 +270,13 @@ void pre_session::read_iv()
 	asio::async_read(*socket,
 		asio::buffer(reinterpret_cast<char*>(iv_buffer), sym_key_size),
 		asio::transfer_exactly(sym_key_size),
-        [this, watcher_holder](const error_code_type& ec, std::size_t)
+		[this, watcher_holder](const error_code_type& ec, std::size_t)
 	{
 		try
 		{
 			if (ec)
 				throw(std::runtime_error("Socket Error:" + ec.message()));
-			init_sym_decryption(d, key, CryptoPP::SecByteBlock(iv_buffer, sym_key_size));
+			crypto_prov.init_sym_decryption(d, key, CryptoPP::SecByteBlock(iv_buffer, sym_key_size));
 			stage2();
 		}
 		catch (std::exception &ex)
@@ -276,7 +296,7 @@ void pre_session::read_session_id(int check_level, bool ignore_error)
 	asio::async_read(*socket,
 		asio::buffer(reinterpret_cast<char*>(&sid_packet_size), sizeof(data_size_type)),
 		asio::transfer_exactly(sizeof(data_size_type)),
-        [this, watcher_holder, check_level, ignore_error](const error_code_type& ec, std::size_t)
+		[this, watcher_holder, check_level, ignore_error](const error_code_type& ec, std::size_t)
 	{
 		try
 		{
@@ -319,11 +339,11 @@ void pre_session::read_session_id_body(int check_level)
 			try
 			{
 				std::string raw_data, data(sid_packet_buffer.get(), sid_packet_size);
-				decrypt(data, raw_data, GetPublicKey());
-				sym_decrypt(raw_data, data, d);
+				crypto_prov.decrypt(data, raw_data, crypto_prov.GetPublicKey());
+				crypto_prov.sym_decrypt(raw_data, data, d);
 
 				std::string hash_recv(data, data.size() - hash_size), hash_real;
-				hash(data, hash_real, hash_size);
+				crypto_prov.hash(data, hash_real, hash_size);
 				if (hash_recv != hash_real)
 					throw(msgr_proto_error("Error:Hashing failed"));
 
@@ -386,10 +406,10 @@ void pre_session::write_session_id()
 			data_buf_1->append(reinterpret_cast<char*>(&session_id), sizeof(session_id_type));
 			data_buf_1->append(reinterpret_cast<char*>(&rand_num), sizeof(rand_num_type));
 
-			hash(*data_buf_1, *data_buf_1);
+			crypto_prov.hash(*data_buf_1, *data_buf_1);
 
-			sym_encrypt(*data_buf_1, data_buf_2, e);
-			encrypt(data_buf_2, *data_buf_1, e1);
+			crypto_prov.sym_encrypt(*data_buf_1, data_buf_2, e);
+			crypto_prov.encrypt(data_buf_2, *data_buf_1, e1);
 
 			insLen(*data_buf_1);
 		}
@@ -404,7 +424,7 @@ void pre_session::write_session_id()
 
 		asio::async_write(*socket,
 			asio::buffer(data_buf_1->data(), data_buf_1->size()),
-            [this, watcher_holder, data_buf_1](const error_code_type& ec, std::size_t)
+			[this, watcher_holder, data_buf_1](const error_code_type& ec, std::size_t)
 		{
 			try
 			{
@@ -426,7 +446,7 @@ void pre_session::write_session_id()
 pre_session::pre_session_watcher::~pre_session_watcher()
 {
 	if (!ptr->exiting)
-		srv.pre_session_over(ptr);
+		srv.pre_session_over(ptr, ptr->successful);
 }
 
 void pre_session_s::start()
@@ -451,7 +471,7 @@ void pre_session_s::start()
 
 	asio::async_write(*socket,
 		asio::buffer(*buffer),
-        [this, buffer, watcher_holder](const error_code_type& ec, std::size_t)
+		[this, buffer, watcher_holder](const error_code_type& ec, std::size_t)
 	{
 		try
 		{
@@ -493,8 +513,8 @@ void pre_session_s::stage2()
 	std::shared_ptr<pre_session_watcher> watcher_holder(watcher);
 	try
 	{
-		session_id = boost::endian::native_to_little(genRandomNumber());
-		rand_num_send = genRandomNumber();
+		session_id = crypto_prov.genRandomNumber();
+		rand_num_send = crypto_prov.genRandomNumber();
 		rand_num = boost::endian::native_to_little(rand_num_send);
 		if (rand_num_send == std::numeric_limits<rand_num_type>::max())
 			rand_num_send = 0;
@@ -571,7 +591,7 @@ void pre_session_c::start()
 
 	asio::async_write(*socket,
 		asio::buffer(*buffer),
-        [this, buffer, watcher_holder](const error_code_type& ec, std::size_t)
+		[this, buffer, watcher_holder](const error_code_type& ec, std::size_t)
 	{
 		try
 		{
@@ -637,7 +657,7 @@ void pre_session_c::sid_packet_done()
 				write_session_id();
 				break;
 			case 1:
-				rand_num_send = genRandomNumber();
+				rand_num_send = crypto_prov.genRandomNumber();
 				rand_num = boost::endian::native_to_little(rand_num_send);
 				if (rand_num_send == std::numeric_limits<rand_num_type>::max())
 					rand_num_send = 0;
@@ -669,7 +689,7 @@ void pre_session_c::sid_packet_done()
 }
 
 session_base::session_base(server& _srv, port_type_l _local_port, const std::string& _key_string)
-	:srv(_srv), local_port(_local_port), key_string(_key_string)
+	:key_string(_key_string), srv(_srv), local_port(_local_port)
 {
 	srv.session_active_count++;
 }
@@ -716,7 +736,6 @@ void session::shutdown()
 	socket->close(ec);
 
 	crypto_kit->stop();
-	crypto_kit = nullptr;
 }
 
 void session::send(const std::string& data, int priority, write_callback&& callback)
@@ -725,7 +744,7 @@ void session::send(const std::string& data, int priority, write_callback&& callb
 		return;
 	if (data.empty())
 		return;
-	
+
 	send(std::make_shared<write_task>(data, priority, std::move(callback)));
 }
 
@@ -773,8 +792,10 @@ void session::read_header(const std::shared_ptr<read_end_watcher>& watcher)
 		{
 			if (ec)
 				throw(std::runtime_error("Socket Error:" + ec.message()));
-			data_size_type size_recv = *(reinterpret_cast<data_size_type*>(read_buffer.get()));
-			size_recv = boost::endian::little_to_native(size_recv);
+			data_size_type size_recv = 0;
+			const char *data = read_buffer.get(), *data_end = read_buffer.get() + sizeof(data_size_type);
+			for (int i = 0; data < data_end; data++, i += 8)
+				size_recv |= static_cast<data_size_type>(static_cast<uint8_t>(*data)) << i;
 			read_data(size_recv, std::make_shared<std::string>(), watcher);
 		}
 		catch (std::exception &ex)

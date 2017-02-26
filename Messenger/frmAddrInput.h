@@ -12,7 +12,7 @@ public:
 	int GetPort() { return std::stoi(textPort->GetValue().ToStdWstring()); }
 
 	bool CheckInput();
-	
+
 private:
 	enum itemID {
 		ID_FRAME = 100,
