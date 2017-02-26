@@ -3,20 +3,19 @@
 #ifndef _H_MAIN
 #define _H_MAIN
 
-enum modes{ EASY, NORMAL, HARD };
+enum modes { EASY, NORMAL, HARD };
 
-const port_type portConnect = 4826;
+constexpr port_type portConnect = 4826;
 
 struct user_record
 {
 	enum group_type { GUEST, USER, ADMIN, CONSOLE };
 
 	user_record() { group = GUEST; }
-	user_record(const std::string& _name, const std::string& _passwd, group_type _group) :
-		name(_name), passwd(_passwd)
-	{
-		group = _group;
-	}
+	template <typename _Ty1, typename _Ty2>
+	user_record(_Ty1&& _name, _Ty2&& _passwd, group_type _group) :
+		name(std::forward<_Ty1>(_name)), passwd(std::forward<_Ty1>(_passwd)), group(_group)
+	{}
 
 	std::string name, passwd;
 	group_type group;
@@ -52,8 +51,9 @@ public:
 	cli_server(asio::io_service& _main_io_service,
 		asio::io_service& _misc_io_service,
 		asio::ip::tcp::endpoint _local_endpoint,
+		crypto::provider& _crypto_prov,
 		crypto::server& _crypto_srv)
-		:msgr_proto::server(_main_io_service, _misc_io_service, _local_endpoint, _crypto_srv)
+		:msgr_proto::server(_main_io_service, _misc_io_service, _local_endpoint, _crypto_prov, _crypto_srv)
 	{
 		read_data();
 		user_exts[server_uid].name = user_exts[server_uid].addr = server_uname;
@@ -75,6 +75,7 @@ public:
 	void broadcast_msg(int id, const std::string& msg);
 	void broadcast_data(int id, const std::string& data, int priority);
 	std::string process_command(std::string& cmd, user_record& user);
+	void kick(user_record& user);
 
 	bool get_id_by_name(const std::string& name, user_id_type& ret);
 
@@ -111,8 +112,8 @@ public:
 	virtual void send_image(user_id_type id, const std::string& path);
 	virtual void send_data(user_id_type id, const std::string& data);
 	virtual void send_data(user_id_type id, const std::string& data, std::function<void()>&& callback);
-	virtual void send_data(user_id_type id, std::string&& data);
-	virtual void send_data(user_id_type id, std::string&& data, std::function<void()>&& callback);
+	virtual void send_data(user_id_type id, std::string&& data) override;
+	virtual void send_data(user_id_type id, std::string&& data, std::function<void()>&& callback) override;
 };
 
 #endif
