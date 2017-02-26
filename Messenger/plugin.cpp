@@ -238,7 +238,7 @@ int load_plugin(const std::wstring& plugin_full_path)
 		std::cerr << ex.what() << std::endl;
 		return -1;
 	}
-	
+
 	return plugin_id;
 }
 

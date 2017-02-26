@@ -32,19 +32,19 @@ void FileSendThread::start(user_id_type uID, const fs::path& path)
 		if (newTask.fin.is_open())
 		{
 			data_size_type blockCountAll = static_cast<data_size_type>(fs::file_size(path));
-			if (blockCountAll == 0)
+			if (blockCountAll % FileBlockLen == 0)
+				blockCountAll /= FileBlockLen;
+			else
+				blockCountAll = blockCountAll / FileBlockLen + 1;
+			if (blockCountAll < 1)
 			{
 				tasks.pop_back();
 				if (tasks.empty())
 					task_list.erase(uID);
 				return;
 			}
-			if (blockCountAll % FileBlockLen == 0)
-				blockCountAll /= FileBlockLen;
-			else
-				blockCountAll = blockCountAll / FileBlockLen + 1;
 			newTask.blockCountAll = blockCountAll;
-			
+
 			if (write_not_in_progress)
 				write(uID);
 		}
@@ -65,7 +65,12 @@ void FileSendThread::send_header(FileSendTask &task)
 	std::string head(1, PAC_TYPE_FILE_H);
 	head.append(reinterpret_cast<const char*>(&blockCountAll_LE), sizeof(data_size_type));
 	std::string name(wxConvUTF8.cWC2MB(fileName.c_str()));
-	insLen(name);
+	size_t size = name.size();
+	for (int i = 0; i < sizeof(data_size_type); i++)
+	{
+		head.push_back(static_cast<uint8_t>(size));
+		size >>= 8;
+	}
 	head.append(name);
 
 	wxCharBuffer msgBuf = wxConvLocal.cWC2MB(
@@ -91,13 +96,6 @@ void FileSendThread::write(user_id_type uID)
 	FileSendTask &task = tasks.front();
 	if (task.blockCount == 1)
 		send_header(task);
-	if (task.blockCount > task.blockCountAll)
-	{
-		tasks.pop_front();
-		if (tasks.empty())
-			task_list.erase(uID);
-		return;
-	}
 
 	task.fin.read(block.get(), FileBlockLen);
 	std::streamsize sizeRead = task.fin.gcount();
@@ -105,7 +103,7 @@ void FileSendThread::write(user_id_type uID)
 	data_size_type len = boost::endian::native_to_little(static_cast<data_size_type>(sizeRead));
 	sendBuf.append(reinterpret_cast<const char*>(&len), sizeof(data_size_type));
 	sendBuf.append(block.get(), sizeRead);
-	
+
 	wxCharBuffer msgBuf = wxConvLocal.cWC2MB(
 		(task.file_name + wxT(":Sended block ") + std::to_wstring(task.blockCount) + wxT("/") + std::to_wstring(task.blockCountAll) + wxT(" To ") + user_ext[task.uID].addr).c_str()
 		);
@@ -121,10 +119,12 @@ void FileSendThread::write(user_id_type uID)
 	});
 	task.blockCount++;
 
-	if (task.fin.eof())
+	if (task.blockCount > task.blockCountAll || task.fin.eof())
+	{
 		tasks.pop_front();
-	if (tasks.empty())
-		task_list.erase(uID);
+		if (tasks.empty())
+			task_list.erase(uID);
+	}
 }
 
 FileSendThread::ExitCode FileSendThread::Entry()
