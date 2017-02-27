@@ -776,8 +776,6 @@ int main(int argc, char *argv[])
 	try
 	{
 #endif
-		crypto_prov = std::make_unique<crypto::provider>(privatekeyFile);
-
 		cli_server::read_config();
 		for (int i = 1; i < argc; i++)
 		{
@@ -791,10 +789,17 @@ int main(int argc, char *argv[])
 
 		port_type portListener = 4826;
 		port_type portsBegin = 5000, portsEnd = 9999;
-		bool use_v6 = false;
+		bool use_v6 = false, use_urandom = false;
 		int crypto_worker = 1;
 
 		//Load necessary args for the construction of cli_server
+		try
+		{
+			config_items.at("use_urandom");
+			use_urandom = true;
+			std::cout << "Using urandom" << std::endl;
+		}
+		catch (std::out_of_range &) {}
 		try
 		{
 			std::string &arg = config_items.at("port");
@@ -805,7 +810,7 @@ int main(int argc, char *argv[])
 		catch (std::invalid_argument &) { portListener = 4826; }
 		try
 		{
-			config_items.at("usev6");
+			config_items.at("use_v6");
 			use_v6 = true;
 			std::cout << "Using IPv6 for listening" << std::endl;
 		}
@@ -818,6 +823,7 @@ int main(int argc, char *argv[])
 		}
 		catch (std::out_of_range &) {}
 
+		crypto_prov = std::make_unique<crypto::provider>(privatekeyFile, use_urandom);
 		crypto_srv = std::make_unique<crypto::server>(main_iosrv_, crypto_worker);
 		srv = std::make_unique<cli_server>
 			(main_iosrv_, misc_iosrv_, asio::ip::tcp::endpoint((use_v6 ? asio::ip::tcp::v6() : asio::ip::tcp::v4()), portListener), *crypto_prov.get(), *crypto_srv.get());
