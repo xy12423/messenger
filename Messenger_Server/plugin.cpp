@@ -615,7 +615,7 @@ void file_storage::on_plugin_data(const std::string& name, const char *_data, si
 				std::string list;
 				list.push_back(PAC_TYPE_PLUGIN_DATA);
 				list.push_back(pak_file_storage);
-				list.push_back(hash_map.size() & 0xFF);
+				list.push_back(static_cast<char>(hash_map.size() & 0xFF));
 				list.push_back(static_cast<char>(hash_map.size() >> 8));
 				list.push_back(static_cast<char>(hash_map.size() >> 16));
 				list.push_back(static_cast<char>(hash_map.size() >> 24));
@@ -626,12 +626,12 @@ void file_storage::on_plugin_data(const std::string& name, const char *_data, si
 					key.clear();
 					const std::string &file_name = pair.second.file_name;
 					base32_rev(key, pair.first.data(), pair.first.size());
-					list.push_back(key.size() & 0xFF);
+					list.push_back(static_cast<char>(key.size() & 0xFF));
 					list.push_back(static_cast<char>(key.size() >> 8));
 					list.push_back(static_cast<char>(key.size() >> 16));
 					list.push_back(static_cast<char>(key.size() >> 24));
 					list.append(key);
-					list.push_back(file_name.size() & 0xFF);
+					list.push_back(static_cast<char>(file_name.size() & 0xFF));
 					list.push_back(static_cast<char>(file_name.size() >> 8));
 					list.push_back(static_cast<char>(file_name.size() >> 16));
 					list.push_back(static_cast<char>(file_name.size() >> 24));
@@ -740,13 +740,22 @@ void file_storage::start(user_id_type uID, const std::string& hash)
 
 void file_storage::send_header(send_task &task)
 {;
-	data_size_type blockCountAll_LE = boost::endian::native_to_little(task.block_count_all);
+	data_size_type &block_count_all = task.block_count_all;
+	data_size_type name_size = static_cast<data_size_type>(task.file_name.size());
+
 	std::string head(1, PAC_TYPE_FILE_H);
-	head.append(reinterpret_cast<const char*>(&blockCountAll_LE), sizeof(data_size_type));
-	std::string name(task.file_name);
-	data_size_type size = boost::endian::native_to_little(static_cast<data_size_type>(name.size()));
-	head.append(reinterpret_cast<char*>(&size), sizeof(data_size_type));
-	head.append(name);
+	head.reserve(1 + sizeof(data_size_type) + sizeof(data_size_type) + name_size);
+	for (int i = 1; i <= sizeof(data_size_type); i++)
+	{
+		head.push_back(static_cast<char>(block_count_all & 0xFF));
+		block_count_all >>= 8;
+	}
+	for (int i = 1; i <= sizeof(data_size_type); i++)
+	{
+		head.push_back(static_cast<char>(name_size & 0xFF));
+		name_size >>= 8;
+	}
+	head.append(task.file_name);
 
 	inter.send_data(task.uID, std::move(head));
 }
@@ -773,9 +782,15 @@ void file_storage::write(user_id_type uID)
 
 	task.fin.read(task.buffer.get(), file_block_size);
 	std::streamsize size_read = task.fin.gcount();
+	data_size_type size = static_cast<data_size_type>(size_read);
+
+	send_buf.reserve(1 + sizeof(data_size_type) + size);
 	send_buf.push_back(PAC_TYPE_FILE_B);
-	data_size_type len = boost::endian::native_to_little(static_cast<data_size_type>(size_read));
-	send_buf.append(reinterpret_cast<const char*>(&len), sizeof(data_size_type));
+	for (int i = 1; i <= sizeof(data_size_type); i++)
+	{
+		send_buf.push_back(static_cast<char>(size & 0xFF));
+		size >>= 8;
+	}
 	send_buf.append(task.buffer.get(), static_cast<size_t>(size_read));
 
 	inter.send_data(task.uID, std::move(send_buf), [this, uID]() {
@@ -849,7 +864,7 @@ void key_storage::load_data()
 	}
 }
 
-bool key_storage::load_data(const std::string& user, data_view& data)
+void key_storage::load_data(const std::string& user, data_view& data)
 {
 	std::vector<char> key_buf, ex_buf;
 	char size_buf[sizeof(uint16_t)];
@@ -892,10 +907,10 @@ void key_storage::save_data(const std::string& user)
 	for (; itr != itr_end; itr++)
 	{
 		const std::string &key = itr->second.key, &ex = itr->second.ex;
-		fout.put(static_cast<char>(key.size()));
+		fout.put(static_cast<char>(key.size() & 0xFF));
 		fout.put(static_cast<char>(key.size() >> 8));
 		fout.write(key.data(), key.size());
-		fout.put(static_cast<char>(ex.size()));
+		fout.put(static_cast<char>(ex.size() & 0xFF));
 		fout.put(static_cast<char>(ex.size() >> 8));
 		fout.write(ex.data(), ex.size());
 	}
@@ -963,8 +978,8 @@ int key_storage::on_file_b(const std::string& user, const char *_data, size_t da
 			if (storage_enabled)
 			{
 				data_view data(task.buf);
-				if (load_data(user, data))
-					save_data(user);
+				load_data(user, data);
+				save_data(user);
 				recv_tasks.erase(selected);
 			}
 			return -1;

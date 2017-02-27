@@ -5,7 +5,7 @@ const std::string server_uname = "Server";
 struct data_view;
 
 enum plugin_flags {
-	flag_msg_logger = 0x0,
+	flag_msg_logger = 0x2,
 	flag_server_mail = 0x0,
 	flag_file_storage = 0x1,
 };
@@ -251,7 +251,7 @@ public:
 	bool storage_available() { return storage_enabled; }
 private:
 	void load_data();
-	bool load_data(const std::string& user, data_view& data);
+	void load_data(const std::string& user, data_view& data);
 	void save_data(const std::string& user);
 
 	bool auth_enabled = false, storage_enabled = false;

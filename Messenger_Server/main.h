@@ -93,7 +93,8 @@ private:
 	void read_data();
 	void write_data();
 
-	const uint32_t data_ver = 0x00;
+	static constexpr uint32_t data_ver = 0x00;
+	const char *data_ver_str = "\x00\x00\x00\x00";
 
 	int static_port = -1;
 	std::list<port_type> ports;

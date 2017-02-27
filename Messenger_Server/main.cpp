@@ -66,7 +66,7 @@ void cli_plugin_interface::send_image(user_id_type id, const std::string& path)
 	size_t size = img_buf.size() - 1 - sizeof(data_size_type);
 	for (int i = 1; i <= sizeof(data_size_type); i++)
 	{
-		img_buf[i] = static_cast<char>(size);
+		img_buf[i] = static_cast<char>(size & 0xFF);
 		size >>= 8;
 	}
 
@@ -202,7 +202,7 @@ void cli_server::on_data(user_id_type id, const std::string& data)
 {
 	try
 	{
-		const size_t size_length = sizeof(data_size_type);
+		constexpr size_t size_length = sizeof(data_size_type);
 		const char *dataItr = data.data(), *dataEnd = data.data() + data.size();
 
 		byte type;
@@ -496,7 +496,7 @@ void cli_server::send_msg(user_id_type id, const std::string& msg)
 	size_t size = msg.size();
 	for (int i = 0; i < sizeof(data_size_type); i++)
 	{
-		msg_send.push_back(static_cast<char>(size));
+		msg_send.push_back(static_cast<char>(size & 0xFF));
 		size >>= 8;
 	}
 	msg_send.append(msg);
