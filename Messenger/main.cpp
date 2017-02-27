@@ -756,7 +756,7 @@ bool MyApp::OnInit()
 		fs::create_directories(IMG_TMP_PATH);
 
 		port_type portsBegin = 5000, portsEnd = 9999;
-		bool use_v6 = false;
+		bool use_v6 = false, use_urandom = false;
 		int crypto_worker = 1;
 
 		threadNetwork = new iosrvThread(main_io_service);
@@ -764,7 +764,14 @@ bool MyApp::OnInit()
 		threadMisc = new iosrvThread(misc_io_service);
 		stage = 2;
 
-		crypto_prov = std::make_unique<crypto::provider>((DATA_PATH / privatekeyFile).string().c_str());
+		try
+		{
+			config_items.at("use_urandom");
+			use_urandom = true;
+		}
+		catch (std::out_of_range &) {}
+
+		crypto_prov = std::make_unique<crypto::provider>((DATA_PATH / privatekeyFile).string().c_str(), use_urandom);
 
 		try
 		{
@@ -775,7 +782,7 @@ bool MyApp::OnInit()
 		catch (std::invalid_argument &) { portListen = portListenDefault; }
 		try
 		{
-			config_items.at("usev6");
+			config_items.at("use_v6");
 			use_v6 = true;
 		}
 		catch (std::out_of_range &) {}
