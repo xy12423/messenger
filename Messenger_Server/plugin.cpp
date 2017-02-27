@@ -849,10 +849,11 @@ void key_storage::load_data()
 	}
 }
 
-void key_storage::load_data(const std::string& user, data_view& data)
+bool key_storage::load_data(const std::string& user, data_view& data)
 {
 	std::vector<char> key_buf, ex_buf;
 	char size_buf[sizeof(uint16_t)];
+	std::unordered_map<std::string, std::string> keys_loaded;
 
 	while (data.size != 0)
 	{
@@ -864,9 +865,23 @@ void key_storage::load_data(const std::string& user, data_view& data)
 		data.read(size_buf, sizeof(uint16_t));
 		ex_buf.resize(static_cast<uint16_t>(size_buf[0]) | (size_buf[1] << 8));
 		data.read(ex_buf.data(), ex_buf.size());
-		//emplace
-		keys.emplace(user, key_item(std::string(key_buf.data(), key_buf.size()), std::string(ex_buf.data(), ex_buf.size())));
+		//emplace to temp
+		keys_loaded.emplace(std::string(key_buf.data(), key_buf.size()), std::string(ex_buf.data(), ex_buf.size()));
 	}
+
+	std::pair<key_list_tp::const_iterator, key_list_tp::const_iterator> itrs = keys.equal_range(user);
+	key_list_tp::const_iterator &itr = itrs.first, &itr_end = itrs.second;
+	auto itr_load_end = keys_loaded.end();
+	for (; itr != itr_end; itr++)
+	{
+		auto itr_load = keys_loaded.find(itr->second.key);
+		if (itr_load != itr_load_end)
+			keys_loaded.erase(itr_load);
+	}
+
+	auto itr_load = keys_loaded.begin();
+	for (; itr_load != itr_load_end; itr_load++)
+		keys.emplace(user, key_item(itr_load->first, std::move(itr_load->second)));
 }
 
 void key_storage::save_data(const std::string& user)
@@ -948,9 +963,9 @@ int key_storage::on_file_b(const std::string& user, const char *_data, size_t da
 			if (storage_enabled)
 			{
 				data_view data(task.buf);
-				load_data(user, data);
+				if (load_data(user, data))
+					save_data(user);
 				recv_tasks.erase(selected);
-				save_data(user);
 			}
 			return -1;
 		}

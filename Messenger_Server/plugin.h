@@ -251,7 +251,7 @@ public:
 	bool storage_available() { return storage_enabled; }
 private:
 	void load_data();
-	void load_data(const std::string& user, data_view& data);
+	bool load_data(const std::string& user, data_view& data);
 	void save_data(const std::string& user);
 
 	bool auth_enabled = false, storage_enabled = false;
