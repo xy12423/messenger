@@ -193,7 +193,11 @@ void msg_logger::on_new_user(const std::string& name)
 		try
 		{
 			user_id_type id;
-			inter.get_id_by_name(name, id);
+			if (!inter.get_id_by_name(name, id))
+				return;
+			bool feature_message_from = ((inter.get_feature(id) & flag_message_from) != 0);
+			std::string empty_string;
+
 			std::streampos begin = records.at(name);
 			log_fstream.seekg(begin);
 			std::string stamp, content;
@@ -208,13 +212,27 @@ void msg_logger::on_new_user(const std::string& name)
 						{
 							content.pop_back();
 							std::string img_path = (log_path / content.substr(4)).string();
-							inter.send_msg(id, stamp);
-							inter.send_image(id, img_path);
+							if (feature_message_from)
+							{
+								inter.send_image(id, img_path, stamp);
+							}
+							else
+							{
+								inter.send_msg(id, stamp, empty_string);
+								inter.send_image(id, img_path, empty_string);
+							}
 						}
 						break;
 					case ' ':
-						inter.send_msg(id, stamp);
-						inter.send_msg(id, content.substr(1));
+						if (feature_message_from)
+						{
+							inter.send_msg(id, content.substr(1), stamp);
+						}
+						else
+						{
+							inter.send_msg(id, stamp, empty_string);
+							inter.send_msg(id, content.substr(1), empty_string);
+						}
 						break;
 				}
 				std::getline(log_fstream, stamp);
@@ -607,7 +625,7 @@ void file_storage::on_plugin_data(const std::string& name, const char *_data, si
 		data.read(type);
 		switch (type)
 		{
-			case 0:
+			case 0:	//list
 			{
 				user_id_type id;
 				if (!inter.get_id_by_name(name, id))
@@ -638,10 +656,10 @@ void file_storage::on_plugin_data(const std::string& name, const char *_data, si
 					list.append(file_name);
 				}
 
-				inter.send_data(id, std::move(list));
+				inter.send_data(id, std::move(list), msgr_proto::session_base::priority_plugin);
 				break;
 			}
-			case 1:
+			case 1:	//get
 			{
 				user_id_type id;
 				if (!inter.get_id_by_name(name, id))
@@ -651,7 +669,7 @@ void file_storage::on_plugin_data(const std::string& name, const char *_data, si
 				start(id, key);
 				break;
 			}
-			case 2:
+			case 2:	//del
 			{
 				user_id_type id;
 				if (!inter.get_id_by_name(name, id))
@@ -757,7 +775,7 @@ void file_storage::send_header(send_task &task)
 	}
 	head.append(task.file_name);
 
-	inter.send_data(task.uID, std::move(head));
+	inter.send_data(task.uID, std::move(head), msgr_proto::session_base::priority_file);
 }
 
 void file_storage::stop(user_id_type uID)
@@ -793,7 +811,7 @@ void file_storage::write(user_id_type uID)
 	}
 	send_buf.append(task.buffer.get(), static_cast<size_t>(size_read));
 
-	inter.send_data(task.uID, std::move(send_buf), [this, uID]() {
+	inter.send_data(task.uID, std::move(send_buf), msgr_proto::session_base::priority_file, [this, uID]() {
 		iosrv.post([this, uID]() {
 			if (send_tasks.count(uID) > 0)
 				write(uID);

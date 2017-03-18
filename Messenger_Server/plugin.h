@@ -4,11 +4,15 @@ typedef std::unordered_map<std::string, std::string> config_table_tp;
 const std::string server_uname = "Server";
 struct data_view;
 
-enum plugin_flags {
+enum server_features {
 	flag_msg_logger = 0x2,
 	flag_server_mail = 0x0,
 	flag_file_storage = 0x1,
 };
+enum client_features {
+	flag_message_from = 0x4,
+};
+typedef uint32_t feature_flag_type;
 
 enum plugin_data_type {
 	pak_file_storage = 0x1,
@@ -25,20 +29,26 @@ class plugin_interface
 {
 public:
 	virtual bool get_id_by_name(const std::string& name, user_id_type& id) = 0;
+	virtual feature_flag_type get_feature(user_id_type id) = 0;
+
 	virtual void broadcast_msg(const std::string& msg) = 0;
 	virtual void send_msg(user_id_type id, const std::string& msg) = 0;
+	virtual void send_msg(user_id_type id, const std::string& msg, const std::string& from) = 0;
 	virtual void send_image(user_id_type id, const std::string& path) = 0;
-	virtual void send_data(user_id_type id, const std::string& data) = 0;
-	virtual void send_data(user_id_type id, const std::string& data, std::function<void()>&& callback) = 0;
-	virtual void send_data(user_id_type id, std::string&& data) { send_data(id, data); }
-	virtual void send_data(user_id_type id, std::string&& data, std::function<void()>&& callback) { send_data(id, data, std::move(callback)); }
+	virtual void send_image(user_id_type id, const std::string& path, const std::string& from) = 0;
+
+	virtual void send_data(user_id_type id, const std::string& data, int priority) = 0;
+	virtual void send_data(user_id_type id, const std::string& data, int priority, std::function<void()>&& callback) = 0;
+	virtual void send_data(user_id_type id, std::string&& data, int priority) { send_data(id, data, priority); }
+	virtual void send_data(user_id_type id, std::string&& data, int priority, std::function<void()>&& callback) { send_data(id, data, priority, std::move(callback)); }
 };
 
 class msg_server_plugin
 {
+protected:
+	typedef feature_flag_type flag_type;
 public:
 	enum user_type { GUEST, USER, ADMIN, CONSOLE };
-	typedef uint32_t flag_type;
 
 	msg_server_plugin(plugin_interface& _inter)
 		:inter(_inter)

@@ -31,6 +31,7 @@ struct user_ext
 
 	std::string name;
 	std::string addr;
+	feature_flag_type supported = 0;
 
 	std::string uploading_key;
 };
@@ -71,13 +72,26 @@ public:
 	virtual bool new_rand_port(port_type& port);
 	virtual void free_rand_port(port_type port) { ports.push_back(port); };
 
-	void send_msg(user_id_type id, const std::string& msg);
-	void broadcast_msg(int id, const std::string& msg);
-	void broadcast_data(int id, const std::string& data, int priority);
+	//Server sends msg
+	void send_msg(user_id_type dst, const std::string& msg) { return send_msg(dst, msg, user_exts.at(dst).supported, server_uname); }
+	//src sends msg
+	void send_msg(user_id_type dst, const std::string& msg, const std::string& src) { return send_msg(dst, msg, user_exts.at(dst).supported, src); }
+	//Server sends msg, dst flag is given
+	void send_msg(user_id_type dst, const std::string& msg, feature_flag_type flags) { return send_msg(dst, msg, flags, server_uname); }
+	//src sends msg, dst flag is given
+	//arg src is only appended to msg when feature_message_from is enabled
+	void send_msg(user_id_type dst, const std::string& msg, feature_flag_type flags, const std::string& src);
+	//src broadcasts msg
+	void broadcast_msg(int src, const std::string& msg);
+	//src broadcasts img
+	void broadcast_img(int src, const std::string& data);
+	//src broadcasts data
+	void broadcast_data(int src, const std::string& data, int priority);
 	std::string process_command(std::string& cmd, user_record& user);
 	void kick(user_record& user);
 
 	bool get_id_by_name(const std::string& name, user_id_type& ret);
+	feature_flag_type get_feature(user_id_type id) { return user_exts.at(id).supported; }
 
 	void on_msg(user_id_type id, std::string& msg);
 	void on_image(user_id_type id, const std::string& data);
@@ -107,14 +121,19 @@ private:
 class cli_plugin_interface :public plugin_interface
 {
 public:
-	virtual bool get_id_by_name(const std::string& name, user_id_type& id);
-	virtual void broadcast_msg(const std::string& msg);
-	virtual void send_msg(user_id_type id, const std::string& msg);
-	virtual void send_image(user_id_type id, const std::string& path);
-	virtual void send_data(user_id_type id, const std::string& data);
-	virtual void send_data(user_id_type id, const std::string& data, std::function<void()>&& callback);
-	virtual void send_data(user_id_type id, std::string&& data) override;
-	virtual void send_data(user_id_type id, std::string&& data, std::function<void()>&& callback) override;
+	virtual bool get_id_by_name(const std::string& name, user_id_type& id) override;
+	virtual feature_flag_type get_feature(user_id_type id) override;
+
+	virtual void broadcast_msg(const std::string& msg) override;
+	virtual void send_msg(user_id_type id, const std::string& msg) override;
+	virtual void send_msg(user_id_type id, const std::string& msg, const std::string& from) override;
+	virtual void send_image(user_id_type id, const std::string& path) override;
+	virtual void send_image(user_id_type id, const std::string& path, const std::string& from) override;
+
+	virtual void send_data(user_id_type id, const std::string& data, int priority) override;
+	virtual void send_data(user_id_type id, const std::string& data, int priority, std::function<void()>&& callback) override;
+	virtual void send_data(user_id_type id, std::string&& data, int priority) override;
+	virtual void send_data(user_id_type id, std::string&& data, int priority, std::function<void()>&& callback) override;
 };
 
 #endif

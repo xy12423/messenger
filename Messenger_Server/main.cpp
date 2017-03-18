@@ -37,6 +37,11 @@ bool cli_plugin_interface::get_id_by_name(const std::string& name, user_id_type&
 	return srv->get_id_by_name(name, id);
 }
 
+feature_flag_type cli_plugin_interface::get_feature(user_id_type id)
+{
+	return srv->get_feature(id);
+}
+
 void cli_plugin_interface::broadcast_msg(const std::string& msg)
 {
 	srv->broadcast_msg(server_uid, msg);
@@ -47,9 +52,25 @@ void cli_plugin_interface::send_msg(user_id_type id, const std::string& msg)
 	srv->send_msg(id, msg);
 }
 
+void cli_plugin_interface::send_msg(user_id_type id, const std::string& msg, const std::string& from)
+{
+	if (from.empty())
+		srv->send_msg(id, msg, 0, from);
+	else
+		srv->send_msg(id, msg, flag_message_from, from);
+}
+
 void cli_plugin_interface::send_image(user_id_type id, const std::string& path)
 {
-	const size_t read_buf_size = 0x10000;
+	if ((srv->get_feature(id) & flag_message_from) != 0)
+		cli_plugin_interface::send_image(id, path, server_uname);
+	else
+		cli_plugin_interface::send_image(id, path, empty_string);
+}
+
+void cli_plugin_interface::send_image(user_id_type id, const std::string& path, const std::string& from)
+{
+	constexpr size_t read_buf_size = 0x10000;
 	std::string img_buf(1, PAC_TYPE_IMAGE);
 	img_buf.append(sizeof(data_size_type), 0);
 	std::ifstream fin(path, std::ios_base::in | std::ios_base::binary);
@@ -70,27 +91,38 @@ void cli_plugin_interface::send_image(user_id_type id, const std::string& path)
 		size >>= 8;
 	}
 
+	if (!from.empty())
+	{
+		size = from.size();
+		for (int i = 0; i < sizeof(data_size_type); i++)
+		{
+			img_buf.push_back(static_cast<char>(size & 0xFF));
+			size >>= 8;
+		}
+		img_buf.append(from);
+	}
+
 	srv->send_data(id, img_buf, msgr_proto::session::priority_msg);
 }
 
-void cli_plugin_interface::send_data(user_id_type id, const std::string& data)
+void cli_plugin_interface::send_data(user_id_type id, const std::string& data, int priority)
 {
-	srv->send_data(id, data, msgr_proto::session::priority_file);
+	srv->send_data(id, data, priority);
 }
 
-void cli_plugin_interface::send_data(user_id_type id, const std::string& data, std::function<void()>&& callback)
+void cli_plugin_interface::send_data(user_id_type id, const std::string& data, int priority, std::function<void()>&& callback)
 {
-	srv->send_data(id, data, msgr_proto::session::priority_file, std::move(callback));
+	srv->send_data(id, data, priority, std::move(callback));
 }
 
-void cli_plugin_interface::send_data(user_id_type id, std::string&& data)
+void cli_plugin_interface::send_data(user_id_type id, std::string&& data, int priority)
 {
-	srv->send_data(id, std::move(data), msgr_proto::session::priority_file);
+	srv->send_data(id, std::move(data), priority);
 }
 
-void cli_plugin_interface::send_data(user_id_type id, std::string&& data, std::function<void()>&& callback)
+void cli_plugin_interface::send_data(user_id_type id, std::string&& data, int priority, std::function<void()>&& callback)
 {
-	srv->send_data(id, std::move(data), msgr_proto::session::priority_file, std::move(callback));
+	srv->send_data(id, std::move(data), priority, std::move(callback));
 }
 
 bool cli_server::get_id_by_name(const std::string& name, user_id_type& ret)
@@ -193,16 +225,16 @@ void cli_server::read_config()
 }
 
 #define checkErr(x) if (dataItr + (x) > dataEnd) throw(cli_server_error())
-#define read_uint(x)												\
-	checkErr(size_length);											\
-	memcpy(reinterpret_cast<char*>(&(x)), dataItr, size_length);	\
-	dataItr += size_length
+#define read_num(x, type)											\
+	checkErr(sizeof(type));											\
+	memcpy(reinterpret_cast<char*>(&(x)), dataItr, sizeof(type));	\
+	(x) = boost::endian::little_to_native(x);						\
+	dataItr += sizeof(type)
 
 void cli_server::on_data(user_id_type id, const std::string& data)
 {
 	try
 	{
-		constexpr size_t size_length = sizeof(data_size_type);
 		const char *dataItr = data.data(), *dataEnd = data.data() + data.size();
 
 		byte type;
@@ -214,7 +246,7 @@ void cli_server::on_data(user_id_type id, const std::string& data)
 			case PAC_TYPE_MSG:
 			{
 				data_size_type sizeRecv;
-				read_uint(sizeRecv);
+				read_num(sizeRecv, data_size_type);
 
 				checkErr(sizeRecv);
 				std::string msg(dataItr, sizeRecv);
@@ -239,8 +271,9 @@ void cli_server::on_data(user_id_type id, const std::string& data)
 				on_file_b(id, data);
 				break;
 			}
-			case PAC_TYPE_PLUGIN_FLAG:
+			case PAC_TYPE_FEATURE_FLAG:
 			{
+				read_num(user_exts.at(id).supported, feature_flag_type);
 				break;
 			}
 			case PAC_TYPE_PLUGIN_DATA:
@@ -299,12 +332,12 @@ void cli_server::on_msg(user_id_type id, std::string& msg)
 
 				if (!user_key_storage.on_join(user.name, get_session(id).get_key()))
 				{
-					send_msg(id, msg_unauthed_key);
+					send_msg(id, msg_unauthed_key, user.supported);
 				}
 				else
 				{
 					user.current_stage = user_ext::LOGIN_PASS;
-					send_msg(id, msg_input_pass);
+					send_msg(id, msg_input_pass, user.supported);
 				}
 
 				break;
@@ -330,13 +363,13 @@ void cli_server::on_msg(user_id_type id, std::string& msg)
 						record.id = id;
 
 						//Send welcome messages and plugin flag
-						send_msg(id, msg_welcome);
+						send_msg(id, msg_welcome, user.supported);
 
-						std::string supported_plugin;
-						supported_plugin.push_back(PAC_TYPE_PLUGIN_FLAG);
-						msg_server_plugin::flag_type flags = boost::endian::native_to_little(m_plugin.get_flag());
-						supported_plugin.append(reinterpret_cast<char*>(&flags), sizeof(msg_server_plugin::flag_type));
-						send_data(id, std::move(supported_plugin), msgr_proto::session::priority_msg);
+						std::string supported_feature;
+						supported_feature.push_back(PAC_TYPE_FEATURE_FLAG);
+						feature_flag_type flags = boost::endian::native_to_little(m_plugin.get_flag());
+						supported_feature.append(reinterpret_cast<char*>(&flags), sizeof(feature_flag_type));
+						send_data(id, std::move(supported_feature), msgr_proto::session::priority_sys);
 
 						m_plugin.on_new_user(user.name);
 						//Broadcast user join
@@ -352,7 +385,7 @@ void cli_server::on_msg(user_id_type id, std::string& msg)
 
 				if (user.current_stage == user_ext::LOGIN_NAME)
 				{
-					send_msg(id, msg_input_name);
+					send_msg(id, msg_input_name, user.supported);
 				}
 				break;
 			}
@@ -367,7 +400,7 @@ void cli_server::on_msg(user_id_type id, std::string& msg)
 					std::string msg_send = process_command(tmp, user_records.at(user.name));
 					if (!msg_send.empty())
 					{
-						send_msg(id, msg_send);
+						send_msg(id, msg_send, user.supported);
 					}
 				}
 				else
@@ -388,8 +421,7 @@ void cli_server::on_image(user_id_type id, const std::string& data)
 
 	if (mode < NORMAL || user.current_stage == user_ext::LOGGED_IN)
 	{
-		broadcast_msg(id, empty_string);
-		broadcast_data(id, data, msgr_proto::session::priority_msg);
+		broadcast_img(id, data);
 		if (user.current_stage == user_ext::LOGGED_IN)
 			m_plugin.on_img(user.name, data.data() + 1 + sizeof(data_size_type), data.size() - (1 + sizeof(data_size_type)));
 	}
@@ -429,10 +461,10 @@ void cli_server::on_file_b(user_id_type id, const std::string& data)
 			case 1:
 				if (mode > HARD)
 					throw(cli_server_error());
-				send_msg(id, "Upload failed");
+				send_msg(id, "Upload failed", user.supported);
 			case -1:
 				user.uploading_key.clear();
-				send_msg(id, "Upload successful");
+				send_msg(id, "Upload successful", user.supported);
 				break;
 		}
 	}
@@ -444,13 +476,13 @@ void cli_server::on_file_b(user_id_type id, const std::string& data)
 
 void cli_server::on_join(user_id_type id, const std::string&)
 {
-	user_ext &ext = user_exts.emplace(id, user_ext()).first->second;
-	ext.addr = get_session(id).get_address();
+	user_ext &user = user_exts.emplace(id, user_ext()).first->second;
+	user.addr = get_session(id).get_address();
 
 	if (mode > EASY)
-		send_msg(id, msg_input_name);
+		send_msg(id, msg_input_name, user.supported);
 	else
-		broadcast_msg(server_uid, msg_new_user + ext.addr);
+		broadcast_msg(server_uid, msg_new_user + user.addr);
 }
 
 void cli_server::on_leave(user_id_type id)
@@ -488,12 +520,17 @@ void cli_server::on_leave(user_id_type id)
 	user_exts.erase(itr);
 }
 
-void cli_server::send_msg(user_id_type id, const std::string& msg)
+//src sends msg, dst flag is given
+//arg src is only appended to msg when feature_message_from is enabled
+void cli_server::send_msg(user_id_type dst, const std::string& msg, feature_flag_type flags, const std::string& src)
 {
 	std::string msg_send(1, PAC_TYPE_MSG);
-	msg_send.reserve(1 + sizeof(data_size_type) + msg.size());
-
 	size_t size = msg.size();
+	if ((flags & flag_message_from) != 0)
+		msg_send.reserve(1 + sizeof(data_size_type) + size + sizeof(data_size_type) + src.size());
+	else
+		msg_send.reserve(1 + sizeof(data_size_type) + size);
+
 	for (int i = 0; i < sizeof(data_size_type); i++)
 	{
 		msg_send.push_back(static_cast<char>(size & 0xFF));
@@ -501,38 +538,140 @@ void cli_server::send_msg(user_id_type id, const std::string& msg)
 	}
 	msg_send.append(msg);
 
-	send_data(id, msg_send, msgr_proto::session::priority_msg);
+	if ((flags & flag_message_from) != 0)
+	{
+		size = src.size();
+		for (int i = 0; i < sizeof(data_size_type); i++)
+		{
+			msg_send.push_back(static_cast<char>(size & 0xFF));
+			size >>= 8;
+		}
+		msg_send.append(src);
+	}
+
+	send_data(dst, msg_send, msgr_proto::session::priority_msg);
 }
 
+//src broadcasts msg
 void cli_server::broadcast_msg(int src, const std::string& msg)
 {
-	std::string msg_send;
-	user_ext &user = user_exts[src];
-	if (mode > EASY)
-	{
-		msg_send = user.name;
-		if (display_ip)
-		{
-			msg_send.push_back('(');
-			msg_send.append(user.addr);
-			msg_send.push_back(')');
-		}
-	}
-	else
-	{
-		msg_send = user.addr;
-	}
-	msg_send.push_back(':');
-	msg_send.append(msg);
+	user_ext &user = user_exts.at(src);
+
 	//Let plugins log server messages as it won't go through on_msg
 	if (mode > EASY && src == server_uid)
 		m_plugin.on_msg(server_uname, msg);
 
-	insLen(msg_send);
-	msg_send.insert(0, 1, PAC_TYPE_MSG);
-	broadcast_data(src, msg_send, msgr_proto::session::priority_msg);
+	std::string msg_src, msg_with_src, msg_without_src;
+	size_t size;
+	if (mode > EASY)
+	{
+		msg_src = user.name;
+		if (display_ip)
+		{
+			msg_src.push_back('(');
+			msg_src.append(user.addr);
+			msg_src.push_back(')');
+		}
+	}
+	else
+	{
+		msg_src = user.addr;
+	}
+
+	//Build msg_with_src(raw data) for feature_message_from disabled client
+	msg_with_src.assign(msg_src);
+	msg_with_src.push_back(':');
+	msg_with_src.append(msg);
+
+	size = msg_with_src.size();
+	msg_with_src.insert(0, 1 + sizeof(data_size_type), '\0');
+	msg_with_src[0] = PAC_TYPE_MSG;
+	for (int i = 1; i <= sizeof(data_size_type); i++)
+	{
+		msg_with_src[i] = static_cast<char>(size & 0xFF);
+		size >>= 8;
+	}
+
+	//Build msg_without_src(raw data) for feature_message_from enabled client
+	msg_without_src.push_back(PAC_TYPE_MSG);
+	size = msg.size();
+	for (int i = 0; i < sizeof(data_size_type); i++)
+	{
+		msg_without_src.push_back(static_cast<char>(size & 0xFF));
+		size >>= 8;
+	}
+	msg_without_src.append(msg);
+	size = msg_src.size();
+	for (int i = 0; i < sizeof(data_size_type); i++)
+	{
+		msg_without_src.push_back(static_cast<char>(size & 0xFF));
+		size >>= 8;
+	}
+	msg_without_src.append(msg_src);
+
+	//Send data
+	for (const std::pair<int, user_ext> &p : user_exts)
+	{
+		int target = p.first;
+		if (target != src && (mode < NORMAL || p.second.current_stage == user_ext::LOGGED_IN))
+		{
+			if ((p.second.supported & flag_message_from) != 0)
+				send_data(static_cast<user_id_type>(target), msg_without_src, msgr_proto::session_base::priority_msg);
+			else
+				send_data(static_cast<user_id_type>(target), msg_with_src, msgr_proto::session_base::priority_msg);
+		}
+	}
 }
 
+//src broadcasts img
+void cli_server::broadcast_img(int src, const std::string& data)
+{
+	user_ext &user = user_exts.at(src);
+	std::string data_src;
+	if (mode > EASY)
+	{
+		data_src = user.name;
+		if (display_ip)
+		{
+			data_src.push_back('(');
+			data_src.append(user.addr);
+			data_src.push_back(')');
+		}
+	}
+	else
+	{
+		data_src = user.addr;
+	}
+
+	//Build data_with_src(raw data) for feature_message_from enabled client
+	std::string data_with_src(data);
+	size_t size = data_src.size();
+	for (int i = 0; i < sizeof(data_size_type); i++)
+	{
+		data_with_src.push_back(static_cast<char>(size & 0xFF));
+		size >>= 8;
+	}
+	data_with_src.append(data_src);
+	data_src.push_back(':');
+
+	//Send data
+	for (const std::pair<int, user_ext> &p : user_exts)
+	{
+		int target = p.first;
+		if (target != src && (mode < NORMAL || p.second.current_stage == user_ext::LOGGED_IN))
+		{
+			if ((p.second.supported & flag_message_from) != 0)
+				send_data(static_cast<user_id_type>(target), data_with_src, msgr_proto::session_base::priority_msg);
+			else
+			{
+				send_msg(static_cast<user_id_type>(target), data_src, 0, empty_string);
+				send_data(static_cast<user_id_type>(target), data, msgr_proto::session_base::priority_msg);
+			}
+		}
+	}
+}
+
+//src broadcasts data
 void cli_server::broadcast_data(int src, const std::string& data, int priority)
 {
 	for (const std::pair<int, user_ext> &p : user_exts)
