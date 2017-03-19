@@ -145,7 +145,7 @@ void cli_server::write_data()
 	std::ofstream fout(data_file, std::ios_base::out | std::ios_base::binary);
 	if (!fout.is_open())
 		return;
-	fout.write(reinterpret_cast<const char*>(&data_ver), sizeof(uint32_t));
+	fout.write(data_ver_str, sizeof(uint32_t));
 	uint32_t size = static_cast<uint32_t>(user_records.size());
 	fout.write(reinterpret_cast<char*>(&size), sizeof(uint32_t));
 	for (const std::pair<std::string, user_record> &pair : user_records)
