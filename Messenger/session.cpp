@@ -134,7 +134,7 @@ void pre_session::write_secret()
 {
 	std::shared_ptr<pre_session_watcher> watcher_holder(watcher);
 
-	misc_io_service.post([this, watcher_holder]() {
+	proto_data->misc([this, watcher_holder](bool, const std::string&) {
 		std::shared_ptr<std::string> buf = std::make_shared<std::string>();
 		try
 		{
@@ -215,7 +215,7 @@ void pre_session::read_secret()
 				srv.on_exception("Socket Error:" + ec.message());
 			return;
 		}
-		misc_io_service.post([this, watcher_holder]() {
+		proto_data->misc([this, watcher_holder](bool, const std::string&) {
 			try
 			{
 				std::string pubB_str;
@@ -334,7 +334,7 @@ void pre_session::read_session_id_body(int check_level)
 				return;
 			}
 		}
-		misc_io_service.post([this, watcher_holder, check_level]() {
+		proto_data->misc([this, watcher_holder, check_level](bool, const std::string&) {
 			try
 			{
 				std::string raw_data, data(sid_packet_buffer.get(), sid_packet_size);
@@ -398,7 +398,7 @@ void pre_session::write_session_id()
 {
 	std::shared_ptr<pre_session_watcher> watcher_holder(watcher);
 
-	misc_io_service.post([this, watcher_holder]() {
+	proto_data->misc([this, watcher_holder](bool, const std::string&) {
 		std::string data_buf_2;
 		std::shared_ptr<std::string> data_buf_1 = std::make_shared<std::string>();
 
