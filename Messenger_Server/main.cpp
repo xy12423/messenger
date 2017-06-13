@@ -579,12 +579,12 @@ void cli_server::broadcast_msg(int src, const std::string& msg)
 	}
 
 	//Build msg_with_src(raw data) for feature_message_from disabled client
-	msg_with_src.assign(msg_src);
+	msg_with_src.assign(1 + sizeof(data_size_type), '\0');
+	msg_with_src.append(msg_src);
 	msg_with_src.push_back(':');
 	msg_with_src.append(msg);
 
-	size = msg_with_src.size();
-	msg_with_src.insert(0, 1 + sizeof(data_size_type), '\0');
+	size = msg_with_src.size() - (1 + sizeof(data_size_type));
 	msg_with_src[0] = PAC_TYPE_MSG;
 	for (int i = 1; i <= sizeof(data_size_type); i++)
 	{

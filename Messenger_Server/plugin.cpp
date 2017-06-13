@@ -625,7 +625,7 @@ void file_storage::on_plugin_data(const std::string& name, const char *_data, si
 		data.read(type);
 		switch (type)
 		{
-			case 0:	//list
+			case OP_LIST:
 			{
 				user_id_type id;
 				if (!inter.get_id_by_name(name, id))
@@ -659,7 +659,7 @@ void file_storage::on_plugin_data(const std::string& name, const char *_data, si
 				inter.send_data(id, std::move(list), msgr_proto::session_base::priority_plugin);
 				break;
 			}
-			case 1:	//get
+			case OP_GET:
 			{
 				user_id_type id;
 				if (!inter.get_id_by_name(name, id))
@@ -669,7 +669,23 @@ void file_storage::on_plugin_data(const std::string& name, const char *_data, si
 				start(id, key);
 				break;
 			}
-			case 2:	//del
+			case OP_CONTINUE:
+			{
+				user_id_type id;
+				if (!inter.get_id_by_name(name, id))
+					break;
+
+				uint32_t key_size, skip_size;
+				std::string key, key_bin;
+				data.read(key_size);
+				data.read(key_bin, key_size);
+				data.read(skip_size);
+
+				base32(key, reinterpret_cast<const byte*>(key_bin.data()), key_size);
+				start(id, key, skip_size);
+				break;
+			}
+			case OP_DEL:
 			{
 				user_id_type id;
 				if (!inter.get_id_by_name(name, id))
@@ -708,9 +724,9 @@ void file_storage::on_plugin_data(const std::string& name, const char *_data, si
 	catch (plugin_error &) {}
 }
 
-void file_storage::start(user_id_type uID, const std::string& hash)
+void file_storage::start(user_id_type uID, const std::string& hash, size_t begin)
 {
-	iosrv.post([this, uID, hash]() {
+	iosrv.post([this, uID, hash, begin]() {
 		if (send_tasks.count(uID) > 0)
 		{
 			inter.send_msg(uID, "Already sending a file");
@@ -729,7 +745,16 @@ void file_storage::start(user_id_type uID, const std::string& hash)
 		{
 			if (new_task.fin.is_open())
 			{
-				data_size_type blockCountAll = static_cast<data_size_type>(fs::file_size(path));
+				uintmax_t file_size = fs::file_size(path);
+				new_task.fin.seekg(begin);
+				if (!new_task.fin.good() || file_size <= begin)
+				{
+					inter.send_msg(uID, "Invalid filestream");
+					send_tasks.erase(uID);
+					return;
+				}
+
+				data_size_type blockCountAll = static_cast<data_size_type>(file_size - begin);
 				if (blockCountAll % file_block_size == 0)
 					blockCountAll /= file_block_size;
 				else
@@ -737,6 +762,7 @@ void file_storage::start(user_id_type uID, const std::string& hash)
 				if (blockCountAll < 1)
 				{
 					inter.send_msg(uID, "Empty file");
+					send_tasks.erase(uID);
 					return;
 				}
 				new_task.block_count_all = blockCountAll;
@@ -758,7 +784,7 @@ void file_storage::start(user_id_type uID, const std::string& hash)
 
 void file_storage::send_header(send_task &task)
 {;
-	data_size_type &block_count_all = task.block_count_all;
+	data_size_type block_count_all = task.block_count_all;
 	data_size_type name_size = static_cast<data_size_type>(task.file_name.size());
 
 	std::string head(1, PAC_TYPE_FILE_H);
@@ -814,12 +840,21 @@ void file_storage::write(user_id_type uID)
 	inter.send_data(task.uID, std::move(send_buf), msgr_proto::session_base::priority_file, [this, uID]() {
 		iosrv.post([this, uID]() {
 			if (send_tasks.count(uID) > 0)
-				write(uID);
+			{
+				try
+				{
+					write(uID);
+				}
+				catch (...)
+				{
+					send_tasks.erase(uID);
+				}
+			}
 		});
 	});
 	task.block_count++;
 
-	if (task.fin.eof())
+	if (!task.fin.good())
 		send_tasks.erase(uID);
 }
 

@@ -130,6 +130,13 @@ class file_storage :public msg_server_plugin
 private:
 	static constexpr int file_block_size = 0x80000;
 
+	enum client_op_type {
+		OP_LIST,
+		OP_GET,
+		OP_DEL,
+		OP_CONTINUE
+	};
+
 	struct file_info
 	{
 		std::string file_name, upload_user;
@@ -186,7 +193,7 @@ private:
 	void load_data();
 	void save_data();
 
-	void start(user_id_type uID, const std::string& hash);
+	void start(user_id_type uID, const std::string& hash, size_t begin = 0);
 	void send_header(send_task &task);
 	void stop(user_id_type uID);
 	void write(user_id_type uID);
