@@ -26,7 +26,7 @@ void FileSendThread::start(user_id_type uID, const fs::path& path)
 	iosrv.post([this, uID, path]() {
 		TaskListTp &tasks = task_list[uID];
 		bool write_not_in_progress = tasks.empty();
-		tasks.push_back(FileSendTask(uID, path));
+		tasks.emplace_back(uID, path);
 		FileSendTask &newTask = tasks.back();
 
 		if (newTask.fin.is_open())
@@ -60,7 +60,7 @@ void FileSendThread::start(user_id_type uID, const fs::path& path)
 
 void FileSendThread::send_header(FileSendTask &task)
 {
-	const std::wstring &fileName = fs::path(task.file_name).filename().wstring();
+	std::wstring fileName = fs::path(task.file_name).filename().wstring();
 	std::string name(wxConvUTF8.cWC2MB(fileName.c_str()));
 	data_size_type block_count_all = task.blockCountAll;
 	size_t name_size = name.size();

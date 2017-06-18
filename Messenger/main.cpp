@@ -497,9 +497,10 @@ void mainFrame::buttonSendImage_Click(wxCommandEvent& event)
 		if (fileDlg.ShowModal() == wxID_CANCEL)
 			return;
 		wxString path = fileDlg.GetPath();
-		if (!path.empty() && fs::is_regular_file(path.ToStdWstring()))
+		fs::path path_boost = path.ToStdWstring();
+		if (!path.empty() && fs::is_regular_file(path_boost))
 		{
-			if (fs::file_size(path.ToStdWstring()) > IMAGE_SIZE_LIMIT)
+			if (fs::file_size(path_boost) > IMAGE_SIZE_LIMIT)
 			{
 				wxMessageBox(wxT("Image file is too big"), wxT("Error"), wxOK | wxICON_ERROR);
 				return;
@@ -510,7 +511,7 @@ void mainFrame::buttonSendImage_Click(wxCommandEvent& event)
 			image_path /= IMG_TMP_PATH_NAME;
 			image_path /= std::to_string(uID);
 			image_path /= ".messenger_tmp_" + std::to_string(next_image_id);
-			fs::copy_file(path.ToStdWstring(), image_path);
+			fs::copy_file(path_boost, image_path);
 
 			wxImage image(path, wxBITMAP_TYPE_ANY);
 			if (image.IsOk())
@@ -526,7 +527,7 @@ void mainFrame::buttonSendImage_Click(wxCommandEvent& event)
 
 				std::shared_ptr<std::string> img_buf = std::make_shared<std::string>(sizeof(data_size_type) + 1, 0);
 
-				std::ifstream fin(path.ToStdString(), std::ios_base::in | std::ios_base::binary);
+				fs::ifstream fin(path_boost, std::ios_base::in | std::ios_base::binary);
 				std::unique_ptr<char[]> read_buf = std::make_unique<char[]>(FileSendThread::FileBlockLen);
 				while (!fin.eof())
 				{

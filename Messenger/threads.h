@@ -25,11 +25,11 @@ private:
 	{
 		FileSendTask(user_id_type _uID, const fs::path& path)
 			:file_name(path.wstring()), uID(_uID),
-			fin(path.string(), std::ios_base::in | std::ios_base::binary)
+			fin(path, std::ios_base::in | std::ios_base::binary)
 		{}
 		user_id_type uID;
 		std::wstring file_name;
-		std::ifstream fin;
+		fs::ifstream fin;
 		data_size_type blockCount = 1, blockCountAll;
 	};
 
@@ -46,7 +46,7 @@ public:
 
 	void write(user_id_type uID);
 
-	static constexpr int FileBlockLen = 0x80000;
+	static constexpr int FileBlockLen = 0x20000;
 protected:
 	ExitCode Entry();
 private:
@@ -76,7 +76,7 @@ struct user_ext_type
 	};
 	std::list<log_type> log;
 
-	std::string recvFile;
+	fs::path recvFile;
 	int blockLast;
 
 	bool isVirtual = false;

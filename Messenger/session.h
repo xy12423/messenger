@@ -241,7 +241,7 @@ namespace msgr_proto
 	class session : public session_base
 	{
 	private:
-		static constexpr size_t read_buffer_size = 0x4000, read_max_size = 0x200000;
+		static constexpr size_t read_buffer_size = 0x4000, read_max_size = 0x1000000;
 
 		struct write_task {
 			write_task() {}
