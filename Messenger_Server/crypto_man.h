@@ -40,7 +40,8 @@ namespace crypto
 	class session :public std::enable_shared_from_this<session>
 	{
 	public:
-		session(server& _srv, asio::io_service& _iosrv, id_type _id) :srv(_srv), iosrv(_iosrv), id(_id) {};
+		session(server& _srv, asio::io_service& _iosrv, id_type _id) :srv(_srv), iosrv(_iosrv), id(_id) {}
+		virtual ~session() {}
 
 		id_type get_id() const { return id; }
 
@@ -87,7 +88,7 @@ namespace crypto
 			next_id++;
 			sessions_data.emplace(id, std::make_shared<session_data>());
 			return std::static_pointer_cast<_Ty1>(sessions.emplace(id, std::make_shared<_Ty1>(*this, iosrv, id, std::forward<_Ty2>(val)...)).first->second);
-		};
+		}
 		void del_session(id_type id);
 		void new_task(id_type id, task_type type, task&& task);
 

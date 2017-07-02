@@ -58,11 +58,12 @@ void server::pre_session_over(const std::shared_ptr<pre_session>& _pre, bool suc
 	std::lock_guard<std::mutex> lock(pre_session_mutex);
 	if (!successful)
 	{
-		if (_pre->get_port() != port_null)
-			free_rand_port(static_cast<port_type>(_pre->get_port()));
-		const std::string &key = _pre->get_key();
-		if (!key.empty())
-			delete_key(_pre->get_key());
+		main_iosrv.post([this, port = _pre->get_port(), key = _pre->get_key()]() {
+			if (port != port_null)
+				free_rand_port(static_cast<port_type>(port));
+			if (!key.empty())
+				delete_key(key);
+		});
 	}
 	_pre->shutdown();
 	pre_sessions.erase(_pre);
@@ -102,11 +103,12 @@ void server::leave(user_id_type _user)
 	});
 
 	this_session->shutdown();
-	if (this_session->get_port() != port_null)
-		free_rand_port(static_cast<port_type>(this_session->get_port()));
-	const std::string &key = this_session->get_key();
-	if (!key.empty())
-		delete_key(key);
+	main_iosrv.post([this, port = this_session->get_port(), key = this_session->get_key()]() {
+		if (port != port_null)
+			free_rand_port(static_cast<port_type>(port));
+		if (!key.empty())
+			delete_key(key);
+	});
 	sessions.erase(itr);
 }
 
@@ -154,12 +156,16 @@ bool server::send_data(user_id_type id, std::string&& data, int priority, sessio
 
 void server::connect(const std::string& addr_str, port_type remote_port)
 {
-	connect({ addr_str, std::to_string(remote_port) });
+	main_iosrv.post([=]() {
+		connect({ addr_str, std::to_string(remote_port) });
+	});
 }
 
 void server::connect(unsigned long addr_ulong, port_type remote_port)
 {
-	connect(asio::ip::tcp::endpoint(asio::ip::address_v4(addr_ulong), remote_port));
+	main_iosrv.post([=]() {
+		connect(asio::ip::tcp::endpoint(asio::ip::address_v4(addr_ulong), remote_port));
+	});
 }
 
 void server::connect(const asio::ip::tcp::endpoint& remote_endpoint)
@@ -253,5 +259,7 @@ void server::connect(const asio::ip::tcp::resolver::query& query)
 
 void server::disconnect(user_id_type id)
 {
-	leave(id);
+	main_iosrv.post([=]() {
+		leave(id);
+	});
 }

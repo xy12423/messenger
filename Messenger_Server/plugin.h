@@ -28,6 +28,8 @@ public:
 class plugin_interface
 {
 public:
+	virtual ~plugin_interface() {}
+
 	virtual bool get_id_by_name(const std::string& name, user_id_type& id) = 0;
 	virtual feature_flag_type get_feature(user_id_type id) = 0;
 
@@ -53,6 +55,8 @@ public:
 	msg_server_plugin(plugin_interface& _inter)
 		:inter(_inter)
 	{}
+
+	virtual ~msg_server_plugin() {}
 
 	virtual void init(const config_table_tp& config_items) {}
 	virtual void on_new_user(const std::string& name) {}
@@ -128,7 +132,7 @@ private:
 class file_storage :public msg_server_plugin
 {
 private:
-	static constexpr int file_block_size = 0x80000;
+	static constexpr int file_block_size = 0x20000;
 
 	enum client_op_type {
 		OP_LIST,
