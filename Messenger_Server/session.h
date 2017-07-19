@@ -387,6 +387,9 @@ namespace msgr_proto
 		session_base& get_session(user_id_type id) const { return *sessions.at(id); }
 		const std::string& get_public_key() const { return e0str; }
 
+		virtual bool new_rand_port(port_type& port) = 0;
+		virtual void free_rand_port(port_type port) = 0;
+
 		virtual bool new_key(const std::string&) { return true; }
 		virtual void delete_key(const std::string&) {}
 
@@ -396,17 +399,19 @@ namespace msgr_proto
 		void on_exception(const char* ex) noexcept { misc_iosrv.post([this, ex]() { on_error(ex); }); }
 
 		friend class session_base;
+
 	protected:
+		template <typename _Ty>
+		void dispatch(_Ty&& arg) { main_iosrv.post(std::forward<_Ty>(arg)); }
+
+	private:
+		virtual void on_join(user_id_type id, const std::string& key) = 0;
+
+		virtual void on_leave(user_id_type id) = 0;
 		virtual void on_data(user_id_type id, const std::string& data) = 0;
 
-		virtual void on_join(user_id_type id, const std::string& key) = 0;
-		virtual void on_leave(user_id_type id) = 0;
-
-		virtual bool new_rand_port(port_type& port) = 0;
-		virtual void free_rand_port(port_type port) = 0;
-
 		virtual void on_error(const char* err) { std::cerr << err << std::endl; }
-	private:
+
 		void do_start();
 
 		void connect(const asio::ip::tcp::endpoint& remote_endpoint);

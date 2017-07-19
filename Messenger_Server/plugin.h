@@ -1,7 +1,7 @@
 #pragma once
 
 typedef std::unordered_map<std::string, std::string> config_table_tp;
-const std::string server_uname = "Server";
+extern const std::string server_uname;
 struct data_view;
 
 enum server_features {

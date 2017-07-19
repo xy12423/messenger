@@ -6,25 +6,18 @@
 #include "plugin.h"
 #include "main.h"
 
-const std::string empty_string;
-
-config_table_tp config_items;
-
-asio::io_service main_iosrv_, misc_iosrv_;
-std::unique_ptr<crypto::provider> crypto_prov;
-std::unique_ptr<crypto::server> crypto_srv;
-std::unique_ptr<cli_server> srv;
-cli_plugin_interface i_plugin;
-plugin_manager m_plugin(i_plugin);
-key_storage user_key_storage;
-volatile bool server_on = true;
-
-bool display_ip = true;
+const char *config_file = ".config";
+const char *data_file = ".data";
+const char* privatekeyFile = ".privatekey";
 
 const char *msg_new_user = "New user:", *msg_del_user = "Leaving user:";
 const char *msg_input_name = "Username:", *msg_input_pass = "Password:", *msg_welcome = "Welcome", *msg_unauthed_key = "Key unauthorized", *msg_kick = "You're kicked!";
 
-const char* privatekeyFile = ".privatekey";
+const std::string empty_string;
+
+config_table_tp config_items;
+
+volatile bool server_on = true;
 
 template <typename... _Ty>
 inline void hash(_Ty&&... arg)
@@ -140,23 +133,31 @@ bool cli_server::get_id_by_name(const std::string& name, user_id_type& ret)
 	return false;
 }
 
-void cli_server::write_data()
+void cli_server::read_config()
 {
-	std::ofstream fout(data_file, std::ios_base::out | std::ios_base::binary);
-	if (!fout.is_open())
+	if (!fs::exists(config_file))
 		return;
-	fout.write(data_ver_str, sizeof(uint32_t));
-	uint32_t size = static_cast<uint32_t>(user_records.size());
-	fout.write(reinterpret_cast<char*>(&size), sizeof(uint32_t));
-	for (const std::pair<std::string, user_record> &pair : user_records)
+	std::ifstream fin(config_file);
+
+	std::string line;
+	std::getline(fin, line);
+	while (!fin.eof())
 	{
-		const user_record &user = pair.second;
-		size = static_cast<uint32_t>(user.name.size());
-		fout.write(reinterpret_cast<char*>(&size), sizeof(uint32_t));
-		fout.write(user.name.data(), size);
-		fout.write(user.passwd.data(), hash_size);
-		size = static_cast<uint32_t>(user.group);
-		fout.write(reinterpret_cast<char*>(&size), sizeof(uint32_t));
+		trim(line);
+		if (!line.empty() && line.front() != '#')
+		{
+			size_t pos = line.find('=');
+			if (pos == std::string::npos)
+				config_items.emplace(std::move(line), empty_string);
+			else
+			{
+				std::string name = line.substr(0, pos), val = line.substr(pos + 1);
+				rtrim(name);
+				ltrim(val);
+				config_items.emplace(name, val);
+			}
+		}
+		std::getline(fin, line);
 	}
 }
 
@@ -196,32 +197,81 @@ void cli_server::read_data()
 	}
 }
 
-void cli_server::read_config()
+void cli_server::write_data()
 {
-	if (!fs::exists(config_file))
+	std::ofstream fout(data_file, std::ios_base::out | std::ios_base::binary);
+	if (!fout.is_open())
 		return;
-	std::ifstream fin(config_file);
-
-	std::string line;
-	std::getline(fin, line);
-	while (!fin.eof())
+	fout.write(data_ver_dat, sizeof(uint32_t));
+	uint32_t size = static_cast<uint32_t>(user_records.size());
+	fout.write(reinterpret_cast<char*>(&size), sizeof(uint32_t));
+	for (const std::pair<std::string, user_record> &pair : user_records)
 	{
-		trim(line);
-		if (!line.empty() && line.front() != '#')
-		{
-			size_t pos = line.find('=');
-			if (pos == std::string::npos)
-				config_items.emplace(std::move(line), empty_string);
-			else
-			{
-				std::string name = line.substr(0, pos), val = line.substr(pos + 1);
-				rtrim(name);
-				ltrim(val);
-				config_items.emplace(name, val);
-			}
-		}
-		std::getline(fin, line);
+		const user_record &user = pair.second;
+		size = static_cast<uint32_t>(user.name.size());
+		fout.write(reinterpret_cast<char*>(&size), sizeof(uint32_t));
+		fout.write(user.name.data(), size);
+		fout.write(user.passwd.data(), hash_size);
+		size = static_cast<uint32_t>(user.group);
+		fout.write(reinterpret_cast<char*>(&size), sizeof(uint32_t));
 	}
+}
+
+void cli_server::process_config()
+{
+	try
+	{
+		std::string &arg = config_items.at("mode");
+		if (arg == "strict")
+			set_mode(HARD);
+		else if (arg == "normal" || arg == "center" || arg == "centre")
+			set_mode(NORMAL);
+		else if (arg == "relay")
+			set_mode(EASY);
+		else
+			throw(std::out_of_range(""));
+		std::cout << "Mode set to " << arg << std::endl;
+	}
+	catch (std::out_of_range &) {}
+	try
+	{
+		config_items.at("disable_display_ip");
+		display_ip = false;
+		std::cout << "IP display disabled" << std::endl;
+	}
+	catch (std::out_of_range &) {}
+
+	port_type portsBegin = 5000, portsEnd = 9999;
+	try
+	{
+		std::string &arg = config_items.at("ports");
+		size_t pos = arg.find('-');
+		if (pos == std::string::npos)
+		{
+			set_static_port(static_cast<port_type>(std::stoi(arg)));
+			portsBegin = 1;
+			portsEnd = 0;
+			std::cout << "Connecting port set to " << arg << std::endl;
+		}
+		else
+		{
+			std::string ports_begin = arg.substr(0, pos), ports_end = arg.substr(pos + 1);
+			portsBegin = static_cast<port_type>(std::stoi(ports_begin));
+			portsEnd = static_cast<port_type>(std::stoi(ports_end));
+			set_static_port(-1);
+			std::cout << "Connecting ports set to " << arg << std::endl;
+		}
+	}
+	catch (std::out_of_range &) { portsBegin = 5000, portsEnd = 9999; }
+	catch (std::invalid_argument &) { portsBegin = 5000, portsEnd = 9999; }
+	for (; portsBegin <= portsEnd; portsBegin++)
+		free_rand_port(portsBegin);
+}
+
+void cli_server::init_plugin()
+{
+	m_plugin.init(config_items);
+	user_key_storage.init(config_items);
 }
 
 #define checkErr(x) if (dataItr + (x) > dataEnd) throw(cli_server_error())
@@ -397,7 +447,7 @@ void cli_server::on_msg(user_id_type id, std::string& msg)
 				{
 					tmp.erase(0, 1);
 
-					std::string msg_send = process_command(tmp, user_records.at(user.name));
+					std::string msg_send = on_cmd(tmp, user_records.at(user.name));
 					if (!msg_send.empty())
 					{
 						send_msg(id, msg_send, user.supported);
@@ -684,7 +734,7 @@ void cli_server::broadcast_data(int src, const std::string& data, int priority)
 	}
 }
 
-std::string cli_server::process_command(std::string& cmd, user_record& user)
+std::string cli_server::on_cmd(std::string& cmd, user_record& user)
 {
 	static const msg_server_plugin::user_type user_type_table[] = {
 		msg_server_plugin::user_type::GUEST,
@@ -712,7 +762,7 @@ std::string cli_server::process_command(std::string& cmd, user_record& user)
 			if (itr != user_records.end())
 			{
 				itr->second.group = user_record::ADMIN;
-				main_iosrv_.post([this]() {
+				dispatch([this]() {
 					write_data();
 				});
 				ret = "Opped " + itr->second.name;
@@ -739,7 +789,7 @@ std::string cli_server::process_command(std::string& cmd, user_record& user)
 					if (itr == user_records.end())
 					{
 						user_records.emplace(cmd, user_record(cmd, std::move(hashed_passwd), user_record::USER));
-						main_iosrv_.post([this]() {
+						dispatch([this]() {
 							write_data();
 						});
 						ret = "Registered " + cmd;
@@ -777,7 +827,7 @@ std::string cli_server::process_command(std::string& cmd, user_record& user)
 			if (itr != user_records.end())
 			{
 				user_records.erase(itr);
-				main_iosrv_.post([this]() {
+				dispatch([this]() {
 					write_data();
 				});
 				ret = "Unregistered " + args;
@@ -788,7 +838,7 @@ std::string cli_server::process_command(std::string& cmd, user_record& user)
 	{
 		user.passwd.clear();
 		hash(args, user.passwd);
-		main_iosrv_.post([this]() {
+		dispatch([this]() {
 			write_data();
 		});
 		ret = "Password changed";
@@ -901,6 +951,11 @@ void cli_server::on_exit()
 		}
 	}
 	catch (...) {}
+	try
+	{
+		m_plugin.on_exit();
+	}
+	catch (...) {}
 }
 
 void print_usage()
@@ -915,6 +970,10 @@ int main(int argc, char *argv[])
 	try
 	{
 #endif
+		std::srand(static_cast<unsigned int>(std::time(NULL)));
+
+		asio::io_service main_iosrv, misc_iosrv;
+
 		cli_server::read_config();
 		for (int i = 1; i < argc; i++)
 		{
@@ -927,7 +986,6 @@ int main(int argc, char *argv[])
 		}
 
 		port_type portListener = 4826;
-		port_type portsBegin = 5000, portsEnd = 9999;
 		bool use_v6 = false, use_urandom = false;
 		int crypto_worker = 1;
 
@@ -962,64 +1020,14 @@ int main(int argc, char *argv[])
 		}
 		catch (std::out_of_range &) {}
 
-		crypto_prov = std::make_unique<crypto::provider>(privatekeyFile, use_urandom);
-		crypto_srv = std::make_unique<crypto::server>(main_iosrv_, crypto_worker);
-		srv = std::make_unique<cli_server>
-			(main_iosrv_, misc_iosrv_, asio::ip::tcp::endpoint((use_v6 ? asio::ip::tcp::v6() : asio::ip::tcp::v4()), portListener), *crypto_prov.get(), *crypto_srv.get());
+		crypto::provider crypto_prov(privatekeyFile, use_urandom);
+		crypto::server crypto_srv(main_iosrv, crypto_worker);
+		cli_server srv(main_iosrv, misc_iosrv, asio::ip::tcp::endpoint((use_v6 ? asio::ip::tcp::v6() : asio::ip::tcp::v4()), portListener), crypto_prov, crypto_srv);
 
-		try
-		{
-			std::string &arg = config_items.at("mode");
-			if (arg == "strict")
-				srv->set_mode(HARD);
-			else if (arg == "normal" || arg == "center" || arg == "centre")
-				srv->set_mode(NORMAL);
-			else if (arg == "relay")
-				srv->set_mode(EASY);
-			else
-				throw(std::out_of_range(""));
-			std::cout << "Mode set to " << arg << std::endl;
-		}
-		catch (std::out_of_range &) {}
-		try
-		{
-			config_items.at("disable_display_ip");
-			display_ip = false;
-			std::cout << "IP display disabled" << std::endl;
-		}
-		catch (std::out_of_range &) {}
-		try
-		{
-			std::string &arg = config_items.at("ports");
-			size_t pos = arg.find('-');
-			if (pos == std::string::npos)
-			{
-				srv->set_static_port(static_cast<port_type>(std::stoi(arg)));
-				portsBegin = 1;
-				portsEnd = 0;
-				std::cout << "Connecting port set to " << arg << std::endl;
-			}
-			else
-			{
-				std::string ports_begin = arg.substr(0, pos), ports_end = arg.substr(pos + 1);
-				portsBegin = static_cast<port_type>(std::stoi(ports_begin));
-				portsEnd = static_cast<port_type>(std::stoi(ports_end));
-				srv->set_static_port(-1);
-				std::cout << "Connecting ports set to " << arg << std::endl;
-			}
-		}
-		catch (std::out_of_range &) { portsBegin = 5000, portsEnd = 9999; }
-		catch (std::invalid_argument &) { portsBegin = 5000, portsEnd = 9999; }
-
-		m_plugin.new_plugin<msg_logger>();
-		m_plugin.new_plugin<server_mail>();
-		m_plugin.new_plugin<file_storage>();
-		m_plugin.init(config_items);
-		user_key_storage.init(config_items);
-
-		std::srand(static_cast<unsigned int>(std::time(NULL)));
-		for (; portsBegin <= portsEnd; portsBegin++)
-			srv->free_rand_port(portsBegin);
+		srv.add_plugin<msg_logger>();
+		srv.add_plugin<server_mail>();
+		srv.add_plugin<file_storage>();
+		srv.init_plugin();
 
 		auto iosrv_thread = [](asio::io_service *iosrv) {
 			bool abnormally_exit;
@@ -1033,14 +1041,14 @@ int main(int argc, char *argv[])
 				catch (...) { abnormally_exit = true; }
 			} while (abnormally_exit);
 		};
-		std::shared_ptr<asio::io_service::work> main_iosrv_work = std::make_shared<asio::io_service::work>(main_iosrv_);
-		std::shared_ptr<asio::io_service::work> misc_iosrv_work = std::make_shared<asio::io_service::work>(misc_iosrv_);
-		std::thread main_iosrv_thread(iosrv_thread, &main_iosrv_);
+		std::shared_ptr<asio::io_service::work> main_iosrv_work = std::make_shared<asio::io_service::work>(main_iosrv);
+		std::shared_ptr<asio::io_service::work> misc_iosrv_work = std::make_shared<asio::io_service::work>(misc_iosrv);
+		std::thread main_iosrv_thread(iosrv_thread, &main_iosrv);
 		main_iosrv_thread.detach();
-		std::thread misc_iosrv_thread(iosrv_thread, &misc_iosrv_);
+		std::thread misc_iosrv_thread(iosrv_thread, &misc_iosrv);
 		misc_iosrv_thread.detach();
 
-		srv->start();
+		srv.start();
 
 		user_record user_root;
 		user_root.name = "Server";
@@ -1049,19 +1057,18 @@ int main(int argc, char *argv[])
 		while (server_on)
 		{
 			std::getline(std::cin, command);
-			std::string ret = srv->process_command(command, user_root);
+			std::string ret = srv.on_cmd(command, user_root);
 			if (!ret.empty())
 				std::cout << ret << std::endl;
 		}
 
-		srv->on_exit();
-		m_plugin.on_exit();
-		srv->shutdown();
-		crypto_srv->stop();
+		srv.on_exit();
+		srv.shutdown();
+		crypto_srv.stop();
 
 		main_iosrv_work.reset();
 		misc_iosrv_work.reset();
-		while (!main_iosrv_.stopped() || !misc_iosrv_.stopped());
+		while (!main_iosrv.stopped() || !misc_iosrv.stopped());
 
 #ifdef NDEBUG
 	}

@@ -4,6 +4,8 @@
 #include "session.h"
 #include "plugin.h"
 
+const std::string server_uname = "Server";
+
 template <typename... _Ty>
 inline void hash_short(_Ty&&... arg)
 {
@@ -548,7 +550,7 @@ void file_storage::on_file_h(const std::string& name, const char *_data, size_t 
 
 		data.read(task.info.file_name, file_name_len);
 		task.info.upload_user = name;
-		
+
 		std::string &file_name = task.info.file_name;
 		size_t pos = file_name.rfind('/');
 		if (pos != std::string::npos)
@@ -783,7 +785,7 @@ void file_storage::start(user_id_type uID, const std::string& hash, size_t begin
 }
 
 void file_storage::send_header(send_task &task)
-{;
+{
 	data_size_type block_count_all = task.block_count_all;
 	data_size_type name_size = static_cast<data_size_type>(task.file_name.size());
 
@@ -894,7 +896,7 @@ void key_storage::load_data()
 	{
 		std::ifstream fin(p->path().string(), std::ios_base::in | std::ios_base::binary);
 		std::string user = p->path().stem().string();
-		
+
 		fin.read(size_buf, sizeof(uint16_t));
 		while (!fin.eof())
 		{

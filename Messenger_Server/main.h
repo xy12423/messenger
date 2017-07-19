@@ -4,8 +4,32 @@
 #define _H_MAIN
 
 enum modes { EASY, NORMAL, HARD };
-
+constexpr int server_uid = -1;
 constexpr port_type portConnect = 4826;
+
+class cli_server;
+
+class cli_plugin_interface :public plugin_interface
+{
+public:
+	cli_plugin_interface(cli_server* _srv) :srv(_srv) {}
+
+	virtual bool get_id_by_name(const std::string& name, user_id_type& id) override;
+	virtual feature_flag_type get_feature(user_id_type id) override;
+
+	virtual void broadcast_msg(const std::string& msg) override;
+	virtual void send_msg(user_id_type id, const std::string& msg) override;
+	virtual void send_msg(user_id_type id, const std::string& msg, const std::string& from) override;
+	virtual void send_image(user_id_type id, const std::string& path) override;
+	virtual void send_image(user_id_type id, const std::string& path, const std::string& from) override;
+
+	virtual void send_data(user_id_type id, const std::string& data, int priority) override;
+	virtual void send_data(user_id_type id, const std::string& data, int priority, std::function<void()>&& callback) override;
+	virtual void send_data(user_id_type id, std::string&& data, int priority) override;
+	virtual void send_data(user_id_type id, std::string&& data, int priority, std::function<void()>&& callback) override;
+private:
+	cli_server *srv;
+};
 
 struct user_record
 {
@@ -43,9 +67,6 @@ public:
 	cli_server_error() :std::runtime_error("Internal server error") {}
 };
 
-constexpr int server_uid = -1;
-const char *config_file = ".config";
-const char *data_file = ".data";
 class cli_server :public msgr_proto::server
 {
 public:
@@ -54,7 +75,9 @@ public:
 		asio::ip::tcp::endpoint _local_endpoint,
 		crypto::provider& _crypto_prov,
 		crypto::server& _crypto_srv)
-		:msgr_proto::server(_main_io_service, _misc_io_service, _local_endpoint, _crypto_prov, _crypto_srv)
+		:msgr_proto::server(_main_io_service, _misc_io_service, _local_endpoint, _crypto_prov, _crypto_srv),
+		i_plugin(this),
+		m_plugin(i_plugin)
 	{
 		read_data();
 		user_exts[server_uid].name = user_exts[server_uid].addr = server_uname;
@@ -63,11 +86,6 @@ public:
 	~cli_server() {
 		write_data();
 	}
-
-	virtual void on_data(user_id_type id, const std::string& data);
-
-	virtual void on_join(user_id_type id, const std::string&);
-	virtual void on_leave(user_id_type id);
 
 	virtual bool new_rand_port(port_type& port);
 	virtual void free_rand_port(port_type port) { ports.push_back(port); };
@@ -87,13 +105,13 @@ public:
 	void broadcast_img(int src, const std::string& data);
 	//src broadcasts data
 	void broadcast_data(int src, const std::string& data, int priority);
-	std::string process_command(std::string& cmd, user_record& user);
 	void kick(user_record& user);
 
 	bool get_id_by_name(const std::string& name, user_id_type& ret);
 	feature_flag_type get_feature(user_id_type id) { return user_exts.at(id).supported; }
 
 	void on_msg(user_id_type id, std::string& msg);
+	std::string on_cmd(std::string& cmd, user_record& user);
 	void on_image(user_id_type id, const std::string& data);
 	void on_file_h(user_id_type id, const std::string& data);
 	void on_file_b(user_id_type id, const std::string& data);
@@ -102,38 +120,36 @@ public:
 	void set_mode(modes _mode) { mode = _mode; }
 	void set_static_port(port_type port) { static_port = port; };
 
+	void init_plugin();
+	template <typename T1, typename... T2>
+	void add_plugin(T2&&... val) { m_plugin.new_plugin<T1>(std::forward<T2>(val)...); }
+
 	static void read_config();
 private:
+	virtual void on_data(user_id_type id, const std::string& data);
+
+	virtual void on_join(user_id_type id, const std::string&);
+	virtual void on_leave(user_id_type id);
+
 	void read_data();
 	void write_data();
+	void process_config();
 
 	static constexpr uint32_t data_ver = 0x00;
-	const char *data_ver_str = "\x00\x00\x00\x00";
+	const char *data_ver_dat = "\x00\x00\x00\x00";
 
 	int static_port = -1;
 	std::list<port_type> ports;
-
 	modes mode = EASY;
+
+	bool display_ip = true;
+
 	user_record_list user_records;
 	user_ext_list user_exts;
-};
 
-class cli_plugin_interface :public plugin_interface
-{
-public:
-	virtual bool get_id_by_name(const std::string& name, user_id_type& id) override;
-	virtual feature_flag_type get_feature(user_id_type id) override;
-
-	virtual void broadcast_msg(const std::string& msg) override;
-	virtual void send_msg(user_id_type id, const std::string& msg) override;
-	virtual void send_msg(user_id_type id, const std::string& msg, const std::string& from) override;
-	virtual void send_image(user_id_type id, const std::string& path) override;
-	virtual void send_image(user_id_type id, const std::string& path, const std::string& from) override;
-
-	virtual void send_data(user_id_type id, const std::string& data, int priority) override;
-	virtual void send_data(user_id_type id, const std::string& data, int priority, std::function<void()>&& callback) override;
-	virtual void send_data(user_id_type id, std::string&& data, int priority) override;
-	virtual void send_data(user_id_type id, std::string&& data, int priority, std::function<void()>&& callback) override;
+	cli_plugin_interface i_plugin;
+	plugin_manager m_plugin;
+	key_storage user_key_storage;
 };
 
 #endif
