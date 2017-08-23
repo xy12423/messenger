@@ -25,8 +25,7 @@ bool compare_little_endian(const char* data, _Ty num)
 
 void proto_kit::do_enc(crypto::task& task)
 {
-	std::string &data = task.data;
-	std::string &write_raw = data, write_data;
+	std::string &write_raw = task.data, write_data;
 	rand_num_type rand_num = get_rand_num_send();
 	write_raw.reserve(sizeof(session_id_type) + sizeof(rand_num_type) + write_raw.size() + hash_size);
 	write_raw.append(reinterpret_cast<char*>(&session_id), sizeof(session_id_type));
@@ -135,7 +134,7 @@ void pre_session::write_secret()
 {
 	std::shared_ptr<pre_session_watcher> watcher_holder(watcher);
 
-	misc_io_service.post([this, watcher_holder]() {
+	proto_data->misc([this, watcher_holder](bool, const std::string&) {
 		std::shared_ptr<std::string> buf = std::make_shared<std::string>();
 		try
 		{
@@ -216,7 +215,7 @@ void pre_session::read_secret()
 				srv.on_exception("Socket Error:" + ec.message());
 			return;
 		}
-		misc_io_service.post([this, watcher_holder]() {
+		proto_data->misc([this, watcher_holder](bool, const std::string&) {
 			try
 			{
 				std::string pubB_str;
@@ -335,12 +334,14 @@ void pre_session::read_session_id_body(int check_level)
 				return;
 			}
 		}
-		misc_io_service.post([this, watcher_holder, check_level]() {
+		proto_data->misc([this, watcher_holder, check_level](bool, const std::string&) {
 			try
 			{
 				std::string raw_data, data(sid_packet_buffer.get(), sid_packet_size);
 				crypto_prov.decrypt(data, raw_data, crypto_prov.GetPublicKey());
 				crypto_prov.sym_decrypt(raw_data, data, d);
+				if (data.size() != sizeof(session_id_type) + sizeof(rand_num_type) + hash_size)
+					throw(msgr_proto_error("Error:SID packet length mismatch"));
 
 				std::string hash_recv(data, data.size() - hash_size), hash_real;
 				crypto_prov.hash(data, hash_real, hash_size);
@@ -397,7 +398,7 @@ void pre_session::write_session_id()
 {
 	std::shared_ptr<pre_session_watcher> watcher_holder(watcher);
 
-	misc_io_service.post([this, watcher_holder]() {
+	proto_data->misc([this, watcher_holder](bool, const std::string&) {
 		std::string data_buf_2;
 		std::shared_ptr<std::string> data_buf_1 = std::make_shared<std::string>();
 
@@ -796,6 +797,8 @@ void session::read_header(const std::shared_ptr<read_end_watcher>& watcher)
 			const char *data = read_buffer.get(), *data_end = read_buffer.get() + sizeof(data_size_type);
 			for (int i = 0; data < data_end; data++, i += 8)
 				size_recv |= static_cast<data_size_type>(static_cast<uint8_t>(*data)) << i;
+			if (size_recv > read_max_size)
+				throw(std::runtime_error("Packet is too large"));
 			read_data(size_recv, std::make_shared<std::string>(), watcher);
 		}
 		catch (std::exception &ex)

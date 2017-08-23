@@ -49,8 +49,8 @@ namespace msgr_proto
 
 		friend class pre_session;
 	private:
-		inline rand_num_type get_rand_num_send() { if (rand_num_send == std::numeric_limits<rand_num_type>::max()) rand_num_send = 0; else rand_num_send++; return rand_num_send; }
-		inline rand_num_type get_rand_num_recv() { if (rand_num_recv == std::numeric_limits<rand_num_type>::max()) rand_num_recv = 0; else rand_num_recv++; return rand_num_recv; }
+		inline rand_num_type get_rand_num_send() { if (rand_num_send == std::numeric_limits<rand_num_type>::max()) rand_num_send = 0; else rand_num_send++; return boost::endian::native_to_little(rand_num_send); }
+		inline rand_num_type get_rand_num_recv() { if (rand_num_recv == std::numeric_limits<rand_num_type>::max()) rand_num_recv = 0; else rand_num_recv++; return boost::endian::native_to_little(rand_num_recv); }
 
 		crypto::provider& provider;
 		crypto::provider::sym_encryptor e;
@@ -241,7 +241,7 @@ namespace msgr_proto
 	class session : public session_base
 	{
 	private:
-		static constexpr size_t read_buffer_size = 0x4000;
+		static constexpr size_t read_buffer_size = 0x4000, read_max_size = 0x1000000;
 
 		struct write_task {
 			write_task() {}

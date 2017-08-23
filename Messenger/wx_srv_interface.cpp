@@ -166,7 +166,7 @@ void wx_srv_interface::on_data(user_id_type id, const std::string& _data)
 						throw(std::runtime_error("Failed to open file"));
 					fName = fName + wxT("_") + std::to_wstring(i);
 				}
-				usr.recvFile = (DOWNLOAD_PATH / fName).string();
+				usr.recvFile = DOWNLOAD_PATH / fName;
 				usr.blockLast = blockCountAll;
 				std::cout << "Receiving file " << fName << " from " << usr.addr << std::endl;
 
@@ -181,7 +181,7 @@ void wx_srv_interface::on_data(user_id_type id, const std::string& _data)
 
 				if (usr.blockLast > 0)
 				{
-					std::ofstream fout(usr.recvFile, std::ios::out | std::ios::binary | std::ios::app);
+					fs::ofstream fout(usr.recvFile, std::ios::out | std::ios::binary | std::ios::app);
 					fout.write(data.data, dataSize);
 					data.skip(dataSize);
 					fout.close();
@@ -211,7 +211,7 @@ void wx_srv_interface::on_data(user_id_type id, const std::string& _data)
 				image_path /= ".messenger_tmp_" + std::to_string(next_image_id);
 
 				data.check(image_size);
-				std::ofstream fout(image_path.string(), std::ios_base::out | std::ios_base::binary);
+				fs::ofstream fout(image_path, std::ios_base::out | std::ios_base::binary);
 				fout.write(data.data, image_size);
 				fout.close();
 				data.skip(image_size);
