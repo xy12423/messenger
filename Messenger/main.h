@@ -129,7 +129,7 @@ private:
 	std::unordered_set<std::string> connectedKeys;
 	std::unordered_map<std::string, std::string> certifiedKeys;
 	std::list<port_type> ports;
-	int static_port = -1;
+	int static_port = 0;
 
 	int image_id = 0;
 

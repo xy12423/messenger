@@ -18,7 +18,7 @@ namespace crypto
 		typedef CryptoPP::CBC_Mode<CryptoPP::AES>::Decryption sym_decryptor;
 		typedef CryptoPP::SecByteBlock byte_block;
 
-		provider(const char* privatekeyFile) : CURVE(CryptoPP::ASN1::secp521r1()), prng(true), dh(CURVE) { initKey(privatekeyFile); }
+		provider(const char* privatekeyFile, bool use_urandom) : CURVE(CryptoPP::ASN1::secp521r1()), prng(!use_urandom), dh(CURVE) { initKey(privatekeyFile); }
 
 		const asym_decryptor& GetPublicKey();
 		std::string GetPublicKeyString();

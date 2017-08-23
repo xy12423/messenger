@@ -26,7 +26,7 @@ void FileSendThread::start(user_id_type uID, const fs::path& path)
 	iosrv.post([this, uID, path]() {
 		TaskListTp &tasks = task_list[uID];
 		bool write_not_in_progress = tasks.empty();
-		tasks.push_back(FileSendTask(uID, path));
+		tasks.emplace_back(uID, path);
 		FileSendTask &newTask = tasks.back();
 
 		if (newTask.fin.is_open())
@@ -61,15 +61,21 @@ void FileSendThread::start(user_id_type uID, const fs::path& path)
 void FileSendThread::send_header(FileSendTask &task)
 {
 	std::wstring fileName = fs::path(task.file_name).filename().wstring();
-	data_size_type blockCountAll_LE = wxUINT32_SWAP_ON_BE(task.blockCountAll);
-	std::string head(1, PAC_TYPE_FILE_H);
-	head.append(reinterpret_cast<const char*>(&blockCountAll_LE), sizeof(data_size_type));
 	std::string name(wxConvUTF8.cWC2MB(fileName.c_str()));
-	size_t size = name.size();
+	data_size_type block_count_all = task.blockCountAll;
+	size_t name_size = name.size();
+
+	std::string head(1, PAC_TYPE_FILE_H);
+	head.reserve(1 + sizeof(data_size_type) + sizeof(data_size_type) + name_size);
 	for (int i = 0; i < sizeof(data_size_type); i++)
 	{
-		head.push_back(static_cast<uint8_t>(size));
-		size >>= 8;
+		head.push_back(static_cast<uint8_t>(block_count_all));
+		block_count_all >>= 8;
+	}
+	for (int i = 0; i < sizeof(data_size_type); i++)
+	{
+		head.push_back(static_cast<uint8_t>(name_size));
+		name_size >>= 8;
 	}
 	head.append(name);
 
