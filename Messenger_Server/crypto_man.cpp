@@ -22,25 +22,61 @@ worker::worker()
 
 void session::enc(std::string& data, crypto_callback&& _callback)
 {
-	std::shared_ptr<task> new_task = std::make_shared<task>(data, std::move(_callback));
-	iosrv.post([this, self = shared_from_this(), new_task]() {
-		srv.new_task(id, ENC, std::move(*new_task));
-	});
+	if (std::this_thread::get_id() == srv.get_thread_id())
+	{
+		srv.new_task(id, ENC, task(data, std::move(_callback)));
+	}
+	else
+	{
+		std::shared_ptr<task> new_task = std::make_shared<task>(data, std::move(_callback));
+		iosrv.post([this, self = shared_from_this(), new_task]() {
+			srv.new_task(id, ENC, std::move(*new_task));
+		});
+	}
 }
 
 void session::dec(std::string& data, crypto_callback&& _callback)
 {
-	std::shared_ptr<task> new_task = std::make_shared<task>(data, std::move(_callback));
-	iosrv.post([this, self = shared_from_this(), new_task]() {
-		srv.new_task(id, DEC, std::move(*new_task));
-	});
+	if (std::this_thread::get_id() == srv.get_thread_id())
+	{
+		srv.new_task(id, DEC, task(data, std::move(_callback)));
+	}
+	else
+	{
+		std::shared_ptr<task> new_task = std::make_shared<task>(data, std::move(_callback));
+		iosrv.post([this, self = shared_from_this(), new_task]() {
+			srv.new_task(id, DEC, std::move(*new_task));
+		});
+	}
+}
+
+void session::misc(crypto_callback&& _callback)
+{
+	if (std::this_thread::get_id() == srv.get_thread_id())
+	{
+		srv.new_task(id, MISC, task(empty_string, std::move(_callback)));
+	}
+	else
+	{
+		std::shared_ptr<task> new_task = std::make_shared<task>(empty_string, std::move(_callback));
+		iosrv.post([this, self = shared_from_this(), new_task]() {
+			srv.new_task(id, MISC, std::move(*new_task));
+		});
+	}
 }
 
 void session::stop()
 {
-	iosrv.post([this]() {
+	if (std::this_thread::get_id() == srv.get_thread_id())
+	{
 		srv.del_session(id);
-	});
+	}
+	else
+	{
+		iosrv.post([this]() {
+			srv.del_session(id);
+		});
+	}
 }
 
 server::server(asio::io_service& _iosrv, int worker_count)
@@ -48,6 +84,9 @@ server::server(asio::io_service& _iosrv, int worker_count)
 {
 	for (int i = 0; i < worker_count; i++)
 		workers.emplace(i, std::make_unique<worker>());
+	iosrv.post([this]() {
+		iosrv_thread_id = std::this_thread::get_id();
+	});
 }
 
 void server::stop()
@@ -77,6 +116,8 @@ void server::del_session(id_type id)
 		itr->second->enc_finished();
 	if (itr->second->available(DEC))
 		itr->second->dec_finished();
+	if (itr->second->available(MISC))
+		itr->second->misc_finished();
 
 	sessions_data.erase(itr);
 	sessions.erase(id);
@@ -90,8 +131,10 @@ void server::new_task(id_type id, task_type type, task&& task)
 		return;
 	if (type == ENC)
 		self->enc_task_que.push_back(std::move(task));
-	else
+	else if (type == DEC)
 		self->dec_task_que.push_back(std::move(task));
+	else
+		self->misc_task_que.push_back(std::move(task));
 
 	tasks.emplace_back(id, type);
 	if (!self->available(type))
@@ -131,8 +174,10 @@ void server::work(id_type worker_id)
 		{
 			if (type == ENC)
 				ses_self->do_enc(self->enc_task_que.front());
-			else
+			else if (type == DEC)
 				ses_self->do_dec(self->dec_task_que.front());
+			else
+				ses_self->do_misc(self->misc_task_que.front());
 		}
 		catch (...) {}
 
@@ -141,8 +186,10 @@ void server::work(id_type worker_id)
 			{
 				if (type == ENC)
 					self->enc_finished();
-				else
+				else if(type == DEC)
 					self->dec_finished();
+				else
+					self->misc_finished();
 				workers.at(worker_id)->working = false;
 				work(worker_id);
 			}

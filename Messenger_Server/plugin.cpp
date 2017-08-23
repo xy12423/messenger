@@ -4,6 +4,8 @@
 #include "session.h"
 #include "plugin.h"
 
+const std::string server_uname = "Server";
+
 template <typename... _Ty>
 inline void hash_short(_Ty&&... arg)
 {
@@ -193,7 +195,11 @@ void msg_logger::on_new_user(const std::string& name)
 		try
 		{
 			user_id_type id;
-			inter.get_id_by_name(name, id);
+			if (!inter.get_id_by_name(name, id))
+				return;
+			bool feature_message_from = ((inter.get_feature(id) & flag_message_from) != 0);
+			std::string empty_string;
+
 			std::streampos begin = records.at(name);
 			log_fstream.seekg(begin);
 			std::string stamp, content;
@@ -208,13 +214,27 @@ void msg_logger::on_new_user(const std::string& name)
 						{
 							content.pop_back();
 							std::string img_path = (log_path / content.substr(4)).string();
-							inter.send_msg(id, stamp);
-							inter.send_image(id, img_path);
+							if (feature_message_from)
+							{
+								inter.send_image(id, img_path, stamp);
+							}
+							else
+							{
+								inter.send_msg(id, stamp, empty_string);
+								inter.send_image(id, img_path, empty_string);
+							}
 						}
 						break;
 					case ' ':
-						inter.send_msg(id, stamp);
-						inter.send_msg(id, content.substr(1));
+						if (feature_message_from)
+						{
+							inter.send_msg(id, content.substr(1), stamp);
+						}
+						else
+						{
+							inter.send_msg(id, stamp, empty_string);
+							inter.send_msg(id, content.substr(1), empty_string);
+						}
 						break;
 				}
 				std::getline(log_fstream, stamp);
@@ -530,7 +550,7 @@ void file_storage::on_file_h(const std::string& name, const char *_data, size_t 
 
 		data.read(task.info.file_name, file_name_len);
 		task.info.upload_user = name;
-		
+
 		std::string &file_name = task.info.file_name;
 		size_t pos = file_name.rfind('/');
 		if (pos != std::string::npos)
@@ -607,7 +627,7 @@ void file_storage::on_plugin_data(const std::string& name, const char *_data, si
 		data.read(type);
 		switch (type)
 		{
-			case 0:
+			case OP_LIST:
 			{
 				user_id_type id;
 				if (!inter.get_id_by_name(name, id))
@@ -615,7 +635,7 @@ void file_storage::on_plugin_data(const std::string& name, const char *_data, si
 				std::string list;
 				list.push_back(PAC_TYPE_PLUGIN_DATA);
 				list.push_back(pak_file_storage);
-				list.push_back(hash_map.size() & 0xFF);
+				list.push_back(static_cast<char>(hash_map.size() & 0xFF));
 				list.push_back(static_cast<char>(hash_map.size() >> 8));
 				list.push_back(static_cast<char>(hash_map.size() >> 16));
 				list.push_back(static_cast<char>(hash_map.size() >> 24));
@@ -626,22 +646,22 @@ void file_storage::on_plugin_data(const std::string& name, const char *_data, si
 					key.clear();
 					const std::string &file_name = pair.second.file_name;
 					base32_rev(key, pair.first.data(), pair.first.size());
-					list.push_back(key.size() & 0xFF);
+					list.push_back(static_cast<char>(key.size() & 0xFF));
 					list.push_back(static_cast<char>(key.size() >> 8));
 					list.push_back(static_cast<char>(key.size() >> 16));
 					list.push_back(static_cast<char>(key.size() >> 24));
 					list.append(key);
-					list.push_back(file_name.size() & 0xFF);
+					list.push_back(static_cast<char>(file_name.size() & 0xFF));
 					list.push_back(static_cast<char>(file_name.size() >> 8));
 					list.push_back(static_cast<char>(file_name.size() >> 16));
 					list.push_back(static_cast<char>(file_name.size() >> 24));
 					list.append(file_name);
 				}
 
-				inter.send_data(id, std::move(list));
+				inter.send_data(id, std::move(list), msgr_proto::session_base::priority_plugin);
 				break;
 			}
-			case 1:
+			case OP_GET:
 			{
 				user_id_type id;
 				if (!inter.get_id_by_name(name, id))
@@ -651,7 +671,23 @@ void file_storage::on_plugin_data(const std::string& name, const char *_data, si
 				start(id, key);
 				break;
 			}
-			case 2:
+			case OP_CONTINUE:
+			{
+				user_id_type id;
+				if (!inter.get_id_by_name(name, id))
+					break;
+
+				uint32_t key_size, skip_size;
+				std::string key, key_bin;
+				data.read(key_size);
+				data.read(key_bin, key_size);
+				data.read(skip_size);
+
+				base32(key, reinterpret_cast<const byte*>(key_bin.data()), key_size);
+				start(id, key, skip_size);
+				break;
+			}
+			case OP_DEL:
 			{
 				user_id_type id;
 				if (!inter.get_id_by_name(name, id))
@@ -690,9 +726,9 @@ void file_storage::on_plugin_data(const std::string& name, const char *_data, si
 	catch (plugin_error &) {}
 }
 
-void file_storage::start(user_id_type uID, const std::string& hash)
+void file_storage::start(user_id_type uID, const std::string& hash, size_t begin)
 {
-	iosrv.post([this, uID, hash]() {
+	iosrv.post([this, uID, hash, begin]() {
 		if (send_tasks.count(uID) > 0)
 		{
 			inter.send_msg(uID, "Already sending a file");
@@ -711,7 +747,16 @@ void file_storage::start(user_id_type uID, const std::string& hash)
 		{
 			if (new_task.fin.is_open())
 			{
-				data_size_type blockCountAll = static_cast<data_size_type>(fs::file_size(path));
+				uintmax_t file_size = fs::file_size(path);
+				new_task.fin.seekg(begin);
+				if (!new_task.fin.good() || file_size <= begin)
+				{
+					inter.send_msg(uID, "Invalid filestream");
+					send_tasks.erase(uID);
+					return;
+				}
+
+				data_size_type blockCountAll = static_cast<data_size_type>(file_size - begin);
 				if (blockCountAll % file_block_size == 0)
 					blockCountAll /= file_block_size;
 				else
@@ -719,6 +764,7 @@ void file_storage::start(user_id_type uID, const std::string& hash)
 				if (blockCountAll < 1)
 				{
 					inter.send_msg(uID, "Empty file");
+					send_tasks.erase(uID);
 					return;
 				}
 				new_task.block_count_all = blockCountAll;
@@ -739,16 +785,25 @@ void file_storage::start(user_id_type uID, const std::string& hash)
 }
 
 void file_storage::send_header(send_task &task)
-{;
-	data_size_type blockCountAll_LE = boost::endian::native_to_little(task.block_count_all);
-	std::string head(1, PAC_TYPE_FILE_H);
-	head.append(reinterpret_cast<const char*>(&blockCountAll_LE), sizeof(data_size_type));
-	std::string name(task.file_name);
-	data_size_type size = boost::endian::native_to_little(static_cast<data_size_type>(name.size()));
-	head.append(reinterpret_cast<char*>(&size), sizeof(data_size_type));
-	head.append(name);
+{
+	data_size_type block_count_all = task.block_count_all;
+	data_size_type name_size = static_cast<data_size_type>(task.file_name.size());
 
-	inter.send_data(task.uID, std::move(head));
+	std::string head(1, PAC_TYPE_FILE_H);
+	head.reserve(1 + sizeof(data_size_type) + sizeof(data_size_type) + name_size);
+	for (int i = 1; i <= sizeof(data_size_type); i++)
+	{
+		head.push_back(static_cast<char>(block_count_all & 0xFF));
+		block_count_all >>= 8;
+	}
+	for (int i = 1; i <= sizeof(data_size_type); i++)
+	{
+		head.push_back(static_cast<char>(name_size & 0xFF));
+		name_size >>= 8;
+	}
+	head.append(task.file_name);
+
+	inter.send_data(task.uID, std::move(head), msgr_proto::session_base::priority_file);
 }
 
 void file_storage::stop(user_id_type uID)
@@ -773,20 +828,35 @@ void file_storage::write(user_id_type uID)
 
 	task.fin.read(task.buffer.get(), file_block_size);
 	std::streamsize size_read = task.fin.gcount();
+	data_size_type size = static_cast<data_size_type>(size_read);
+
+	send_buf.reserve(1 + sizeof(data_size_type) + size);
 	send_buf.push_back(PAC_TYPE_FILE_B);
-	data_size_type len = boost::endian::native_to_little(static_cast<data_size_type>(size_read));
-	send_buf.append(reinterpret_cast<const char*>(&len), sizeof(data_size_type));
+	for (int i = 1; i <= sizeof(data_size_type); i++)
+	{
+		send_buf.push_back(static_cast<char>(size & 0xFF));
+		size >>= 8;
+	}
 	send_buf.append(task.buffer.get(), static_cast<size_t>(size_read));
 
-	inter.send_data(task.uID, std::move(send_buf), [this, uID]() {
+	inter.send_data(task.uID, std::move(send_buf), msgr_proto::session_base::priority_file, [this, uID]() {
 		iosrv.post([this, uID]() {
 			if (send_tasks.count(uID) > 0)
-				write(uID);
+			{
+				try
+				{
+					write(uID);
+				}
+				catch (...)
+				{
+					send_tasks.erase(uID);
+				}
+			}
 		});
 	});
 	task.block_count++;
 
-	if (task.fin.eof())
+	if (!task.fin.good())
 		send_tasks.erase(uID);
 }
 
@@ -826,7 +896,7 @@ void key_storage::load_data()
 	{
 		std::ifstream fin(p->path().string(), std::ios_base::in | std::ios_base::binary);
 		std::string user = p->path().stem().string();
-		
+
 		fin.read(size_buf, sizeof(uint16_t));
 		while (!fin.eof())
 		{
@@ -853,6 +923,7 @@ void key_storage::load_data(const std::string& user, data_view& data)
 {
 	std::vector<char> key_buf, ex_buf;
 	char size_buf[sizeof(uint16_t)];
+	std::unordered_map<std::string, std::string> keys_loaded;
 
 	while (data.size != 0)
 	{
@@ -864,9 +935,23 @@ void key_storage::load_data(const std::string& user, data_view& data)
 		data.read(size_buf, sizeof(uint16_t));
 		ex_buf.resize(static_cast<uint16_t>(size_buf[0]) | (size_buf[1] << 8));
 		data.read(ex_buf.data(), ex_buf.size());
-		//emplace
-		keys.emplace(user, key_item(std::string(key_buf.data(), key_buf.size()), std::string(ex_buf.data(), ex_buf.size())));
+		//emplace to temp
+		keys_loaded.emplace(std::string(key_buf.data(), key_buf.size()), std::string(ex_buf.data(), ex_buf.size()));
 	}
+
+	std::pair<key_list_tp::const_iterator, key_list_tp::const_iterator> itrs = keys.equal_range(user);
+	key_list_tp::const_iterator &itr = itrs.first, &itr_end = itrs.second;
+	auto itr_load_end = keys_loaded.end();
+	for (; itr != itr_end; itr++)
+	{
+		auto itr_load = keys_loaded.find(itr->second.key);
+		if (itr_load != itr_load_end)
+			keys_loaded.erase(itr_load);
+	}
+
+	auto itr_load = keys_loaded.begin();
+	for (; itr_load != itr_load_end; itr_load++)
+		keys.emplace(user, key_item(itr_load->first, std::move(itr_load->second)));
 }
 
 void key_storage::save_data(const std::string& user)
@@ -877,10 +962,10 @@ void key_storage::save_data(const std::string& user)
 	for (; itr != itr_end; itr++)
 	{
 		const std::string &key = itr->second.key, &ex = itr->second.ex;
-		fout.put(static_cast<char>(key.size()));
+		fout.put(static_cast<char>(key.size() & 0xFF));
 		fout.put(static_cast<char>(key.size() >> 8));
 		fout.write(key.data(), key.size());
-		fout.put(static_cast<char>(ex.size()));
+		fout.put(static_cast<char>(ex.size() & 0xFF));
 		fout.put(static_cast<char>(ex.size() >> 8));
 		fout.write(ex.data(), ex.size());
 	}
@@ -949,8 +1034,8 @@ int key_storage::on_file_b(const std::string& user, const char *_data, size_t da
 			{
 				data_view data(task.buf);
 				load_data(user, data);
-				recv_tasks.erase(selected);
 				save_data(user);
+				recv_tasks.erase(selected);
 			}
 			return -1;
 		}
