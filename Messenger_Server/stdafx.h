@@ -44,11 +44,7 @@ namespace asio = boost::asio;
 #include <cryptopp/modes.h>
 
 #ifdef _MSC_VER
-#ifdef _DEBUG
-#pragma comment (lib, "cryptlibd.lib")
-#else
 #pragma comment (lib, "cryptlib.lib")
-#endif
 #pragma comment (lib, "ws2_32.lib")
 #pragma comment (lib, "winmm.lib")
 #pragma comment (lib, "wldap32.lib")
