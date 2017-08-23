@@ -29,17 +29,22 @@ EVT_CLOSE(mainFrame::mainFrame_Close)
 wxEND_EVENT_TABLE()
 
 #ifdef __WXMSW__
-const int _GUI_SIZE_X = 620;
-const int _GUI_SIZE_Y = 560;
+constexpr int _GUI_SIZE_X = 620;
+constexpr int _GUI_SIZE_Y = 560;
+constexpr int _GUI_SIZE_CLIENT_X = 604;
+constexpr int _GUI_SIZE_CLIENT_Y = 521;
 #else
-const int _GUI_SIZE_X = 600;
-const int _GUI_SIZE_Y = 540;
+constexpr int _GUI_SIZE_X = 600;
+constexpr int _GUI_SIZE_Y = 520;
+constexpr int _GUI_SIZE_CLIENT_X = 600;
+constexpr int _GUI_SIZE_CLIENT_Y = 520;
 #endif
 
-fileSendThread *threadFileSend;
-iosrvThread *threadNetwork, *threadMisc, *threadCrypto;
+FileSendThread *threadFileSend;
+iosrvThread *threadNetwork, *threadMisc;
 
-asio::io_service main_io_service, misc_io_service, cryp_io_service;
+asio::io_service main_io_service, misc_io_service;
+std::unique_ptr<crypto::provider> crypto_prov;
 std::unique_ptr<crypto::server> crypto_srv;
 std::unique_ptr<wx_srv_interface> srv;
 
@@ -47,7 +52,35 @@ std::unordered_map<user_id_type, user_ext_type> user_ext;
 std::unordered_map<plugin_id_type, plugin_info_type> plugin_info;
 std::unordered_set<user_id_type> virtual_users;
 
+fs::path TEMP_PATH, DATA_PATH, DOWNLOAD_PATH;
+const char* privatekeyFile = ".privatekey";
+
 std::string empty_string;
+
+void insHeader(std::string& data, char pac_type)
+{
+	data_size_type size = data.size();
+	char header[sizeof(data_size_type) + 1];
+	header[0] = pac_type;
+	for (int i = 1; i <= sizeof(data_size_type); i++)
+	{
+		header[i] = static_cast<uint8_t>(size);
+		size >>= 8;
+	}
+	data.insert(0, header, sizeof(header));
+}
+
+void insHeader(std::string& data, char pac_type, data_size_type size)
+{
+	char header[sizeof(data_size_type) + 1];
+	header[0] = pac_type;
+	for (int i = 1; i <= sizeof(data_size_type); i++)
+	{
+		header[i] = static_cast<uint8_t>(size);
+		size >>= 8;
+	}
+	data.insert(0, header, sizeof(header));
+}
 
 void plugin_handler_SendData(plugin_id_type plugin_id, int to, const char* data, size_t size)
 {
@@ -134,7 +167,7 @@ bool plugin_handler_VirtualUserMsg(plugin_id_type plugin_id, uint16_t virtual_us
 		plugin_info_type &info = plugin_info.at(plugin_id);
 		if (info.virtual_user_list.find(virtual_user_id) != info.virtual_user_list.end())
 		{
-			std::dynamic_pointer_cast<msgr_proto::virtual_session>(srv->get_session(virtual_user_id))->push(std::string(message, size));
+			dynamic_cast<msgr_proto::virtual_session&>(srv->get_session(virtual_user_id)).push(std::string(message, size));
 			return true;
 		}
 	}
@@ -262,16 +295,18 @@ mainFrame::mainFrame(const wxString& title)
 	wxAcceleratorTable accel(entry_count, entries);
 	SetAcceleratorTable(accel);
 
-	textStrm = new textStream(this, textInfo);
+	textStrm = std::make_unique<textStream>(this, textInfo);
 	cout_orig = std::cout.rdbuf();
-	std::cout.rdbuf(textStrm);
+	std::cout.rdbuf(textStrm.get());
 	cerr_orig = std::cerr.rdbuf();
-	std::cerr.rdbuf(textStrm);
+	std::cerr.rdbuf(textStrm.get());
 
-	if (fs::exists(plugin_file_name))
+	fs::path plugin_file_path = DATA_PATH;
+	plugin_file_path /= plugin_file_name;
+	if (fs::exists(plugin_file_path))
 	{
 		plugin_init();
-		uid_global.assign(GetUserIDGlobal());
+		uid_global.assign(crypto_prov->GetUserIDGlobal());
 		set_method("GetUserID", reinterpret_cast<void*>(plugin_method_GetUserID));
 		set_method("Print", reinterpret_cast<void*>(plugin_method_Print));
 
@@ -282,7 +317,7 @@ mainFrame::mainFrame(const wxString& title)
 		set_method("DelUser", reinterpret_cast<void*>(plugin_handler_DelVirtualUser));
 		set_method("UserMsg", reinterpret_cast<void*>(plugin_handler_VirtualUserMsg));
 
-		std::ifstream fin(plugin_file_name);
+		std::ifstream fin(plugin_file_path.string());
 		std::string plugin_path_utf8;
 		while (!fin.eof())
 		{
@@ -304,54 +339,104 @@ mainFrame::mainFrame(const wxString& title)
 	}
 }
 
-#define REPOSITION(control, id) (control)->SetPosition(wxPoint(static_cast<int>(itemPos[id].x * ratio_x), static_cast<int>(itemPos[id].y * ratio_y)))
-#define RESIZE(control, id) (control)->SetSize(wxSize(static_cast<int>(itemSize[id].x * ratio_x), static_cast<int>(itemSize[id].y * ratio_y)))
-
 void mainFrame::mainFrame_Resize(wxSizeEvent& event)
 {
-	panel->SetSize(wxSize(event.GetSize().GetWidth(), event.GetSize().GetHeight()));
-	double ratio_x = event.GetSize().GetWidth(), ratio_y = event.GetSize().GetHeight();
-	ratio_x /= _GUI_SIZE_X;
-	ratio_y /= _GUI_SIZE_Y;
+	int x_size = GetClientSize().GetWidth(), y_size = GetClientSize().GetHeight();
+	panel->SetSize(wxSize(x_size, y_size));
 
-	REPOSITION(labelListUser, ID_LABELLISTUSER);
-	REPOSITION(listUser, ID_LISTUSER);
-	REPOSITION(buttonAdd, ID_BUTTONADD);
-	REPOSITION(buttonDel, ID_BUTTONDEL);
-	REPOSITION(textMsg, ID_TEXTMSG);
-	REPOSITION(textInput, ID_TEXTINPUT);
-	REPOSITION(buttonSend, ID_BUTTONSEND);
-	REPOSITION(buttonSendImage, ID_BUTTONSENDIMAGE);
-	REPOSITION(buttonSendFile, ID_BUTTONSENDFILE);
-	REPOSITION(buttonCancelSend, ID_BUTTONCANCELSEND);
-	REPOSITION(textInfo, ID_TEXTINFO);
+	double x_ratio = x_size, y_ratio = y_size;
+	x_ratio /= _GUI_SIZE_CLIENT_X;
+	y_ratio /= _GUI_SIZE_CLIENT_Y;
 
-	RESIZE(labelListUser, ID_LABELLISTUSER);
-	RESIZE(listUser, ID_LISTUSER);
-	RESIZE(buttonAdd, ID_BUTTONADD);
-	RESIZE(buttonDel, ID_BUTTONDEL);
-	RESIZE(textMsg, ID_TEXTMSG);
-	RESIZE(textInput, ID_TEXTINPUT);
-	RESIZE(buttonSend, ID_BUTTONSEND);
-	RESIZE(buttonSendImage, ID_BUTTONSENDIMAGE);
-	RESIZE(buttonSendFile, ID_BUTTONSENDFILE);
-	RESIZE(buttonCancelSend, ID_BUTTONCANCELSEND);
-	RESIZE(textInfo, ID_TEXTINFO);
+	constexpr int default_border = 12;
+	constexpr int default_gap = 6;
+
+	int x_gap, y_gap, x_gap_right_mid;
+	int x_size_left, x_size_right, x_size_info, x_size_button;
+	int y_size_label, y_size_list, y_size_row, y_size_info, y_size_msg;
+
+	x_size_info = x_size - default_border * 2;
+	if (x_ratio >= 1)
+	{
+		x_gap = default_gap;
+		x_size_left = itemSize[ID_LABELLISTUSER].GetWidth();
+	}
+	else
+	{
+		x_gap = default_gap * x_ratio;
+		x_size_left = itemSize[ID_LABELLISTUSER].GetWidth() * x_ratio;
+	}
+	x_size_right = x_size_info - x_size_left - x_gap;
+	x_size_button = (x_size_right - x_gap * 3) / 4;
+	x_gap_right_mid = x_size_right - x_size_button * 4 - x_gap * 2;
+
+	if (y_ratio >= 1)
+	{
+		y_gap = default_gap;
+		y_size_label = itemSize[ID_LABELLISTUSER].GetHeight();
+		y_size_info = itemSize[ID_TEXTINFO].GetHeight() * ((y_ratio - 1) / 2 + 1);
+		y_size_row = itemSize[ID_BUTTONADD].GetHeight();
+	}
+	else
+	{
+		y_gap = default_gap * y_ratio;
+		y_size_label = itemSize[ID_LABELLISTUSER].GetHeight() * y_ratio;
+		y_size_info = itemSize[ID_TEXTINFO].GetHeight() * y_ratio;
+		y_size_row = itemSize[ID_BUTTONADD].GetHeight() * y_ratio;
+	}
+	y_size_msg = y_size - default_border * 2 - y_gap * 3 - y_size_info - y_size_row * 2;
+	y_size_list = y_size_msg - y_size_label - y_gap;
+
+	int x_pos_left = default_border,
+		x_pos_right = x_pos_left + x_size_left + x_gap,
+		x_pos_button_2 = x_pos_right + x_size_button + x_gap,
+		x_pos_button_3 = x_pos_button_2 + x_size_button + x_gap_right_mid,
+		x_pos_button_4 = x_pos_button_3 + x_size_button + x_gap;
+
+	int y_pos_top = default_border,
+		y_pos_list = y_pos_top + y_size_label + y_gap,
+		y_pos_row_1 = y_pos_list + y_size_list + y_gap,
+		y_pos_row_2 = y_pos_row_1 + y_size_row + y_gap,
+		y_pos_info = y_pos_row_2 + y_size_row + y_gap;
+
+	listUser->SetPosition(wxPoint(default_border, y_pos_list));
+	buttonAdd->SetPosition(wxPoint(default_border, y_pos_row_1));
+	buttonDel->SetPosition(wxPoint(default_border, y_pos_row_2));
+	textInfo->SetPosition(wxPoint(default_border, y_pos_info));
+
+	labelListUser->SetSize(wxSize(x_size_left, y_size_label));
+	listUser->SetSize(wxSize(x_size_left, y_size_list));
+	buttonAdd->SetSize(wxSize(x_size_left, y_size_row));
+	buttonDel->SetSize(wxSize(x_size_left, y_size_row));
+	textInfo->SetSize(wxSize(x_size_info, y_size_info));
+
+	textMsg->SetPosition(wxPoint(x_pos_right, y_pos_top));
+	textInput->SetPosition(wxPoint(x_pos_right, y_pos_row_1));
+	buttonSend->SetPosition(wxPoint(x_pos_right, y_pos_row_2));
+	buttonSendImage->SetPosition(wxPoint(x_pos_button_2, y_pos_row_2));
+	buttonSendFile->SetPosition(wxPoint(x_pos_button_3, y_pos_row_2));
+	buttonCancelSend->SetPosition(wxPoint(x_pos_button_4, y_pos_row_2));
+
+	textMsg->SetSize(wxSize(x_size_right, y_size_msg));
+	textInput->SetSize(wxSize(x_size_right, y_size_row));
+	buttonSend->SetSize(wxSize(x_size_button, y_size_row));
+	buttonSendImage->SetSize(wxSize(x_size_button, y_size_row));
+	buttonSendFile->SetSize(wxSize(x_size_button, y_size_row));
+	buttonCancelSend->SetSize(wxSize(x_size_button, y_size_row));
 }
-
-#undef RESIZE
-#undef REPOSITION
 
 void mainFrame::listUser_SelectedIndexChanged(wxCommandEvent& event)
 {
 	user_id_type uID = userIDs[listUser->GetSelection()];
 	textMsg->Clear();
-	std::for_each(user_ext[uID].log.begin(), user_ext[uID].log.end(), [this](const user_ext_type::log_type &log_item) {
-		if (log_item.is_image)
-			textMsg->WriteImage(log_item.image.native(), wxBITMAP_TYPE_ANY);
+	auto &log = user_ext.at(uID).log;
+	for (auto itr = log.begin(), itr_end = log.end(); itr != itr_end; itr++)
+	{
+		if (itr->is_image)
+			textMsg->WriteImage(itr->image.native(), wxBITMAP_TYPE_ANY);
 		else
-			textMsg->AppendText(log_item.msg);
-	});
+			textMsg->AppendText(itr->msg);
+	}
 	textMsg->ShowPosition(textMsg->GetLastPosition());
 }
 
@@ -389,15 +474,15 @@ void mainFrame::buttonSend_Click(wxCommandEvent& event)
 		if (listUser->GetSelection() != -1)
 		{
 			wxCharBuffer buf = wxConvUTF8.cWC2MB(msg.c_str());
-			std::string msg_utf8(buf, buf.length());
 			user_id_type uID = userIDs[listUser->GetSelection()];
-			insLen(msg_utf8);
-			msg_utf8.insert(0, 1, PAC_TYPE_MSG);
-			misc_io_service.post([uID, msg_utf8]() {
-				srv->send_data(uID, msg_utf8, msgr_proto::session::priority_msg);
-			});
+
+			std::string msg_utf8;
+			insHeader(msg_utf8, PAC_TYPE_MSG, buf.length());
+			msg_utf8.append(buf, buf.length());
+
+			srv->send_data(uID, msg_utf8, msgr_proto::session::priority_msg);
 			textMsg->AppendText("Me:" + msg + '\n');
-			user_ext[uID].log.push_back("Me:" + msg + '\n');
+			user_ext.at(uID).log.push_back("Me:" + msg + '\n');
 			textMsg->ShowPosition(textMsg->GetLastPosition());
 		}
 	}
@@ -408,22 +493,25 @@ void mainFrame::buttonSendImage_Click(wxCommandEvent& event)
 	if (listUser->GetSelection() != -1)
 	{
 		user_id_type uID = userIDs[listUser->GetSelection()];
-		wxFileDialog fileDlg(this, wxT("Image"), wxEmptyString, wxEmptyString, "Image files (*.bmp;*.jpg;*.jpeg;*.gif;*.png)|*.bmp;*.jpg;*.jpeg;*.gif;*.png");
-		fileDlg.ShowModal();
+		wxFileDialog fileDlg(this, wxT("Image"), wxEmptyString, wxEmptyString, "Image files (*.bmp;*.jpg;*.jpeg;*.gif;*.png)|*.bmp;*.jpg;*.jpeg;*.gif;*.png", wxFD_OPEN | wxFD_FILE_MUST_EXIST);
+		if (fileDlg.ShowModal() == wxID_CANCEL)
+			return;
 		wxString path = fileDlg.GetPath();
-		if ((!path.empty()) && fs::is_regular_file(path.ToStdWstring()))
+		fs::path path_boost = path.ToStdWstring();
+		if (!path.empty() && fs::is_regular_file(path_boost))
 		{
-			if (fs::file_size(path.ToStdWstring()) > IMAGE_SIZE_LIMIT)
+			if (fs::file_size(path_boost) > IMAGE_SIZE_LIMIT)
 			{
 				wxMessageBox(wxT("Image file is too big"), wxT("Error"), wxOK | wxICON_ERROR);
 				return;
 			}
 			int next_image_id;
 			srv->new_image_id(next_image_id);
-			fs::path image_path = IMG_TMP_PATH_NAME;
+			fs::path image_path = TEMP_PATH;
+			image_path /= IMG_TMP_PATH_NAME;
 			image_path /= std::to_string(uID);
 			image_path /= ".messenger_tmp_" + std::to_string(next_image_id);
-			fs::copy_file(path.ToStdWstring(), image_path);
+			fs::copy_file(path_boost, image_path);
 
 			wxImage image(path, wxBITMAP_TYPE_ANY);
 			if (image.IsOk())
@@ -433,22 +521,29 @@ void mainFrame::buttonSendImage_Click(wxCommandEvent& event)
 				textMsg->AppendText("\n");
 				textMsg->ShowPosition(textMsg->GetLastPosition());
 
-				user_ext[uID].log.push_back("Me:\n");
-				user_ext[uID].log.push_back(image_path);
-				user_ext[uID].log.push_back("\n");
+				user_ext.at(uID).log.push_back("Me:\n");
+				user_ext.at(uID).log.push_back(image_path);
+				user_ext.at(uID).log.push_back("\n");
 
-				std::shared_ptr<std::string> img_buf = std::make_shared<std::string>();
+				std::shared_ptr<std::string> img_buf = std::make_shared<std::string>(sizeof(data_size_type) + 1, 0);
 
-				std::ifstream fin(path.ToStdString(), std::ios_base::in | std::ios_base::binary);
-				std::unique_ptr<char[]> read_buf = std::make_unique<char[]>(fileSendThread::fileBlockLen);
+				fs::ifstream fin(path_boost, std::ios_base::in | std::ios_base::binary);
+				std::unique_ptr<char[]> read_buf = std::make_unique<char[]>(FileSendThread::FileBlockLen);
 				while (!fin.eof())
 				{
-					fin.read(read_buf.get(), fileSendThread::fileBlockLen);
+					fin.read(read_buf.get(), FileSendThread::FileBlockLen);
 					img_buf->append(read_buf.get(), fin.gcount());
 				}
 				fin.close();
-				insLen(*img_buf);
-				img_buf->insert(0, 1, PAC_TYPE_IMAGE);
+
+				std::string &img_buf_ = *img_buf;
+				size_t size = img_buf_.size() - (sizeof(data_size_type) + 1);
+				img_buf_[0] = PAC_TYPE_IMAGE;
+				for (int i = 1; i <= sizeof(data_size_type); i++)
+				{
+					img_buf_[i] = static_cast<uint8_t>(size);
+					size >>= 8;
+				}
 
 				srv->send_data(uID, std::move(*img_buf), msgr_proto::session::priority_msg);
 			}
@@ -461,10 +556,11 @@ void mainFrame::buttonSendFile_Click(wxCommandEvent& event)
 	if (listUser->GetSelection() != -1)
 	{
 		user_id_type uID = userIDs[listUser->GetSelection()];
-		wxFileDialog fileDlg(this);
-		fileDlg.ShowModal();
+		wxFileDialog fileDlg(this, wxT("Open file"), wxEmptyString, wxEmptyString, "All files (*.*)|*.*", wxFD_OPEN | wxFD_FILE_MUST_EXIST);
+		if (fileDlg.ShowModal() == wxID_CANCEL)
+			return;
 		std::wstring path = fileDlg.GetPath().ToStdWstring();
-		if ((!path.empty()) && fs::exists(path))
+		if (!path.empty() && fs::is_regular_file(path))
 			threadFileSend->start(uID, fs::path(path));
 	}
 }
@@ -476,6 +572,130 @@ void mainFrame::buttonCancelSend_Click(wxCommandEvent& event)
 		user_id_type uID = userIDs[listUser->GetSelection()];
 		threadFileSend->stop(uID);
 	}
+}
+
+void mainFrame::OnMessage(user_id_type id, const wxString& msg)
+{
+	wxThreadEvent *newEvent = new wxThreadEvent;
+	newEvent->SetPayload<gui_callback>([this, id, msg]() {
+		user_ext_type &usr = user_ext.at(id);
+		usr.log.push_back(msg);
+		if (listUser->GetSelection() != -1)
+		{
+			if (id == userIDs.at(listUser->GetSelection()))
+			{
+				textMsg->AppendText(msg);
+				textMsg->ShowPosition(textMsg->GetLastPosition());
+			}
+			else
+				textInfo->AppendText("Received message from " + usr.addr + "\n");
+		}
+		else
+			textInfo->AppendText("Received message from " + usr.addr + "\n");
+
+		if (!IsActive())
+			RequestUserAttention();
+	});
+	wxQueueEvent(this, newEvent);
+}
+
+void mainFrame::OnImage(user_id_type id, const fs::path& image_path)
+{
+	wxThreadEvent *newEvent = new wxThreadEvent;
+	newEvent->SetPayload<gui_callback>([this, id, image_path]() {
+		user_ext_type &usr = user_ext.at(id);
+		usr.log.push_back(usr.addr + ":\n");
+		usr.log.push_back(image_path);
+		usr.log.push_back("\n");
+
+		if (listUser->GetSelection() != -1)
+		{
+			if (id == userIDs[listUser->GetSelection()])
+			{
+				textMsg->AppendText(usr.addr + ":\n");
+				textMsg->WriteImage(image_path.native(), wxBITMAP_TYPE_ANY);
+				textMsg->AppendText("\n");
+				textMsg->ShowPosition(textMsg->GetLastPosition());
+			}
+			else
+				textInfo->AppendText("Received message from " + usr.addr + "\n");
+		}
+		else
+			textInfo->AppendText("Received message from " + usr.addr + "\n");
+
+		if (!IsActive())
+			RequestUserAttention();
+	});
+	wxQueueEvent(this, newEvent);
+}
+
+void mainFrame::OnJoin(user_id_type id, const std::string& key)
+{
+	wxThreadEvent *newEvent = new wxThreadEvent;
+	newEvent->SetPayload<gui_callback>([this, id, key]() {
+		user_ext_type &ext = user_ext.at(id);
+		std::wstring &addr = ext.addr;
+
+		listUser->Append(addr);
+		if (listUser->GetSelection() == -1)
+			listUser->SetSelection(listUser->GetCount() - 1);
+		userIDs.push_back(id);
+
+		if (!key.empty() && !srv->is_certified(key))
+		{
+			int answer = wxMessageBox(wxT("The public key from ") + addr + wxT(" hasn't shown before.Trust it?"), wxT("Confirm"), wxYES_NO | wxCANCEL);
+			if (answer == wxNO)
+			{
+				srv->disconnect(id);
+				return;
+			}
+			else
+			{
+				if (answer == wxYES)
+				{
+					wxTextEntryDialog dlg(this, "Set a comment for this key!", "Set comment");
+					if (dlg.ShowModal() != wxID_OK)
+						dlg.SetValue(wxEmptyString);
+					srv->certify_key(key, std::string(dlg.GetValue().utf8_str()));
+				}
+			}
+		}
+
+		try
+		{
+			wxString new_label = ext.addr;
+			new_label.Append('(');
+			new_label.Append(wxConvUTF8.cMB2WC(srv->get_key_comment(key).data()));
+			new_label.Append(')');
+			listUser->SetString(listUser->GetCount() - 1, new_label);
+		}
+		catch (std::out_of_range&) {}
+	});
+	wxQueueEvent(this, newEvent);
+}
+
+void mainFrame::OnLeave(user_id_type id)
+{
+	wxThreadEvent *newEvent = new wxThreadEvent;
+	newEvent->SetPayload<gui_callback>([this, id]() {
+		int i = 0;
+		std::vector<user_id_type>::iterator itr = userIDs.begin(), itrEnd = userIDs.end();
+		for (; itr != itrEnd && *itr != id; itr++)
+			i++;
+		if (itr == itrEnd)
+			return;
+		if (listUser->GetSelection() == i)
+			textMsg->SetValue(wxEmptyString);
+		listUser->Delete(i);
+		userIDs.erase(itr);
+		user_ext.erase(id);
+
+		fs::path tmp_path = TEMP_PATH;
+		tmp_path /= IMG_TMP_PATH_NAME;
+		tmp_path /= std::to_string(id);
+		fs::remove_all(tmp_path);
+	});
+	wxQueueEvent(this, newEvent);
 }
 
 void mainFrame::thread_Message(wxThreadEvent& event)
@@ -493,7 +713,6 @@ void mainFrame::mainFrame_Close(wxCloseEvent& event)
 	{
 		std::cout.rdbuf(cout_orig);
 		std::cerr.rdbuf(cerr_orig);
-		delete textStrm;
 
 		srv->set_frame(nullptr);
 	}
@@ -511,8 +730,12 @@ bool MyApp::OnInit()
 	int stage = 0;
 	try
 	{
+		TEMP_PATH = fs::current_path();
+		DATA_PATH = fs::current_path();
+		DOWNLOAD_PATH = fs::current_path();
+
 		std::unordered_map<std::string, std::string> config_items;
-		
+
 		for (int i = 1; i < argc; i++)
 		{
 			std::string arg(argv[i]);
@@ -526,22 +749,30 @@ bool MyApp::OnInit()
 		wxImage::AddHandler(new wxPNGHandler);
 		wxImage::AddHandler(new wxJPEGHandler);
 		wxImage::AddHandler(new wxGIFHandler);
-		if (fs::exists(IMG_TMP_PATH_NAME))
-			fs::remove_all(IMG_TMP_PATH_NAME);
-		fs::create_directories(IMG_TMP_PATH_NAME);
 
-		port_type portsBegin = 5000, portsEnd = 9999;
-		bool use_v6 = false;
+		fs::path IMG_TMP_PATH = TEMP_PATH;
+		IMG_TMP_PATH /= IMG_TMP_PATH_NAME;
+		if (fs::exists(IMG_TMP_PATH))
+			fs::remove_all(IMG_TMP_PATH);
+		fs::create_directories(IMG_TMP_PATH);
+
+		port_type portsBegin = 1, portsEnd = 0;
+		bool use_v6 = false, use_urandom = false;
 		int crypto_worker = 1;
 
 		threadNetwork = new iosrvThread(main_io_service);
 		stage = 1;
 		threadMisc = new iosrvThread(misc_io_service);
 		stage = 2;
-		threadCrypto = new iosrvThread(cryp_io_service);
-		stage = 3;
 
-		initKey();
+		try
+		{
+			config_items.at("use_urandom");
+			use_urandom = true;
+		}
+		catch (std::out_of_range &) {}
+
+		crypto_prov = std::make_unique<crypto::provider>((DATA_PATH / privatekeyFile).string().c_str(), use_urandom);
 
 		try
 		{
@@ -552,7 +783,7 @@ bool MyApp::OnInit()
 		catch (std::invalid_argument &) { portListen = portListenDefault; }
 		try
 		{
-			config_items.at("usev6");
+			config_items.at("use_v6");
 			use_v6 = true;
 		}
 		catch (std::out_of_range &) {}
@@ -563,11 +794,11 @@ bool MyApp::OnInit()
 		}
 		catch (std::out_of_range &) { crypto_worker = 1; }
 
-		crypto_srv = std::make_unique<crypto::server>(cryp_io_service, crypto_worker);
+		crypto_srv = std::make_unique<crypto::server>(main_io_service, crypto_worker);
 		srv = std::make_unique<wx_srv_interface>(main_io_service, misc_io_service,
 			asio::ip::tcp::endpoint((use_v6 ? asio::ip::tcp::v6() : asio::ip::tcp::v4()), portListen),
-			*crypto_srv.get());
-		
+			*crypto_prov.get(), *crypto_srv.get());
+
 		try
 		{
 			std::string &arg = config_items.at("ports");
@@ -586,17 +817,17 @@ bool MyApp::OnInit()
 				srv->set_static_port(-1);
 			}
 		}
-		catch (std::out_of_range &) { portsBegin = 5000, portsEnd = 9999; }
-		catch (std::invalid_argument &) { portsBegin = 5000, portsEnd = 9999; }
+		catch (std::out_of_range &) { portsBegin = 1; portsEnd = 0; }
+		catch (std::invalid_argument &) { portsBegin = 1; portsEnd = 0; }
 
 		std::srand(static_cast<unsigned int>(std::time(NULL)));
 		for (; portsBegin <= portsEnd; portsBegin++)
-			srv->free_rand_port(portsBegin);
+			srv->initial_port(portsBegin);
 
 		srv->start();
 
-		threadFileSend = new fileSendThread(*srv);
-		stage = 4;
+		threadFileSend = new FileSendThread(*srv);
+		stage = 3;
 
 		form = new mainFrame(wxT("Messenger"));
 		form->Show();
@@ -612,11 +843,6 @@ bool MyApp::OnInit()
 			delete threadMisc;
 			throw(std::runtime_error("Can't run iosrvThread"));
 		}
-		if (threadCrypto->Run() != wxTHREAD_NO_ERROR)
-		{
-			delete threadNetwork;
-			throw(std::runtime_error("Can't run iosrvThread"));
-		}
 		if (threadFileSend->Run() != wxTHREAD_NO_ERROR)
 		{
 			delete threadFileSend;
@@ -627,10 +853,8 @@ bool MyApp::OnInit()
 	{
 		switch (stage)
 		{
-			case 4:
-				threadFileSend->Delete();
 			case 3:
-				threadCrypto->Delete();
+				threadFileSend->Delete();
 			case 2:
 				threadMisc->Delete();
 			case 1:
@@ -650,17 +874,23 @@ int MyApp::OnExit()
 {
 	try
 	{
+		srv->shutdown();
 		crypto_srv->stop();
 
-		threadFileSend->Delete();
-		threadCrypto->Delete();
+		threadNetwork->stop();
+		threadMisc->stop();
+		while (!threadNetwork->stopped() || !threadMisc->stopped());
+
 		threadMisc->Delete();
 		threadNetwork->Delete();
+		threadFileSend->Delete();
 
-		crypto_srv.reset();
 		srv.reset();
+		crypto_srv.reset();
 
-		fs::remove_all(IMG_TMP_PATH_NAME);
+		fs::path IMG_TMP_PATH = TEMP_PATH;
+		IMG_TMP_PATH /= IMG_TMP_PATH_NAME;
+		fs::remove_all(IMG_TMP_PATH);
 	}
 	catch (...)
 	{

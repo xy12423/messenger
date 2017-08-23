@@ -2,16 +2,9 @@
 #include "crypto.h"
 
 using namespace CryptoPP;
+using namespace crypto;
 
-const OID CURVE = ASN1::secp521r1();
-
-AutoSeededRandomPool prng;
-ECIES<ECP>::Decryptor d0;
-ECDH<ECP>::Domain dh(CURVE);
-extern const char* privatekeyFile;
-size_t dh_priv_block_size, dh_pub_block_size, dh_agree_block_size;
-
-void genKey()
+void provider::genKey(const char* privatekeyFile)
 {
 	ECIES<ECP>::PrivateKey &privateKey = d0.AccessKey();
 	privateKey.GenerateRandom(prng, MakeParameters(Name::GroupOID(), CURVE));
@@ -19,7 +12,7 @@ void genKey()
 	privateKey.Save(fs);
 }
 
-void initKey()
+void provider::initKey(const char* privatekeyFile)
 {
 	ECIES<ECP>::PrivateKey &privateKey = d0.AccessKey();
 	try
@@ -27,37 +20,37 @@ void initKey()
 		FileSource fs(privatekeyFile, true);
 		privateKey.Load(fs);
 		if (!privateKey.Validate(prng, 3))
-			genKey();
+			genKey(privatekeyFile);
 	}
 	catch (CryptoPP::FileStore::OpenErr &)
 	{
-		genKey();
+		genKey(privatekeyFile);
 	}
 	dh_priv_block_size = dh.PrivateKeyLength();
 	dh_pub_block_size = dh.PublicKeyLength();
 	dh_agree_block_size = dh.AgreedValueLength();
 }
 
-const CryptoPP::ECIES<CryptoPP::ECP>::Decryptor& GetPublicKey()
+const provider::asym_decryptor& provider::GetPublicKey()
 {
 	return d0;
 }
 
-std::string GetPublicKeyString()
+std::string provider::GetPublicKeyString()
 {
 	std::string ret;
 	StringSink buf(ret);
-	ECIES<ECP>::Encryptor e0(d0);
+	asym_encryptor e0(d0);
 	e0.GetPublicKey().Save(buf);
 
 	return ret;
 }
 
-std::string GetUserIDGlobal()
+std::string provider::GetUserIDGlobal()
 {
 	std::string ret;
 	StringSink buf(ret);
-	ECIES<ECP>::Encryptor e0(d0);
+	asym_encryptor e0(d0);
 
 	DL_PublicKey_EC<ECP>& key = dynamic_cast<DL_PublicKey_EC<ECP>&>(e0.AccessPublicKey());
 	assert(&key != nullptr);
@@ -69,73 +62,74 @@ std::string GetUserIDGlobal()
 	return ret;
 }
 
-void encrypt(const std::string& src, std::string& dst, const ECIES<ECP>::Encryptor& e1)
+void provider::encrypt(const std::string& src, std::string& dst, const asym_encryptor& e1)
 {
 	dst.clear();
 	StringSource ss1(src, true, new PK_EncryptorFilter(prng, e1, new StringSink(dst)));
 }
 
-void encrypt(const byte* src, size_t src_size, std::string& dst, const CryptoPP::ECIES<CryptoPP::ECP>::Encryptor& e1)
+void provider::encrypt(const byte* src, size_t src_size, std::string& dst, const asym_encryptor& e1)
 {
 	dst.clear();
 	StringSource ss1(src, src_size, true, new PK_EncryptorFilter(prng, e1, new StringSink(dst)));
 }
 
-void decrypt(const std::string& src, std::string& dst, const CryptoPP::ECIES<CryptoPP::ECP>::Decryptor& _d0)
+void provider::decrypt(const std::string& src, std::string& dst, const asym_decryptor& _d0)
 {
 	dst.clear();
 	StringSource ss1(src, true, new PK_DecryptorFilter(prng, _d0, new StringSink(dst)));
 }
 
-void decrypt(const byte* src, size_t src_size, CryptoPP::SecByteBlock& dst, const CryptoPP::ECIES<CryptoPP::ECP>::Decryptor& _d0)
+void provider::decrypt(const byte* src, size_t src_size, std::string& dst, const asym_decryptor& _d0)
 {
-	_d0.Decrypt(prng, src, src_size, dst);
+	dst.clear();
+	StringSource ss1(src, src_size, true, new PK_DecryptorFilter(prng, _d0, new StringSink(dst)));
 }
 
-void init_sym_encryption(CBC_Mode<AES>::Encryption& e, const SecByteBlock& key, SecByteBlock& iv)
+void provider::init_sym_encryption(sym_encryptor& e, const byte_block& key, byte_block& iv)
 {
 	assert(key.SizeInBytes() == sym_key_size);
 	prng.GenerateBlock(iv, sym_key_size);
 	e.SetKeyWithIV(key, sym_key_size, iv);
 }
 
-void init_sym_decryption(CBC_Mode<AES>::Decryption& d, const SecByteBlock& key, const SecByteBlock& iv)
+void provider::init_sym_decryption(sym_decryptor& d, const byte_block& key, const byte_block& iv)
 {
 	assert(key.SizeInBytes() == sym_key_size);
 	assert(iv.SizeInBytes() == sym_key_size);
 	d.SetKeyWithIV(key, sym_key_size, iv);
 }
 
-void sym_encrypt(const std::string& src, std::string& dst, CBC_Mode<AES>::Encryption& e)
+void provider::sym_encrypt(const std::string& src, std::string& dst, sym_encryptor& e)
 {
 	dst.clear();
 	StringSource ss(src, true, new StreamTransformationFilter(e, new StringSink(dst)));
 }
 
-void sym_decrypt(const std::string& src, std::string& dst, CBC_Mode<AES>::Decryption& d)
+void provider::sym_decrypt(const std::string& src, std::string& dst, sym_decryptor& d)
 {
 	dst.clear();
 	StringSource ss(src, true, new StreamTransformationFilter(d, new StringSink(dst)));
 }
 
-void hash(const std::string& src, std::string& dst, size_t input_shift)
+void provider::hash(const std::string& src, std::string& dst, size_t input_shift)
 {
-	CryptoPP::SHA512 hasher;
+	SHA512 hasher;
 	char result[hash_size];
 	memset(result, 0, sizeof(result));
 	hasher.CalculateDigest(reinterpret_cast<byte*>(result), reinterpret_cast<const byte*>(src.data()), src.size() - input_shift);
 	dst.append(result, hash_size);
 }
 
-void dhGen(SecByteBlock& priv, SecByteBlock& pub)
+void provider::dhGen(byte_block& priv, byte_block& pub)
 {
 	dh.GenerateKeyPair(prng, priv, pub);
 }
 
-bool dhAgree(SecByteBlock& agree, const SecByteBlock& priv, const SecByteBlock& pub)
+bool provider::dhAgree(byte_block& agree, const byte_block& priv, const byte_block& pub)
 {
-	CryptoPP::SHA256 hasher;
-	SecByteBlock _agree(dh_agree_block_size);
+	SHA256 hasher;
+	byte_block _agree(dh_agree_block_size);
 	if (!dh.Agree(_agree, priv, pub))
 		return false;
 	assert(_agree.SizeInBytes() == dh_agree_block_size);
@@ -143,9 +137,9 @@ bool dhAgree(SecByteBlock& agree, const SecByteBlock& priv, const SecByteBlock& 
 	return true;
 }
 
-rand_num_type genRandomNumber()
+rand_num_type provider::genRandomNumber()
 {
-	byte t[sizeof(rand_num_type)];
-	prng.GenerateBlock(t, sizeof(rand_num_type));
-	return *reinterpret_cast<rand_num_type*>(t);
+	rand_num_type t;
+	prng.GenerateBlock(reinterpret_cast<byte*>(&t), sizeof(rand_num_type));
+	return t;
 }

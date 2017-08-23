@@ -8,7 +8,7 @@ extern std::unordered_map<user_id_type, user_ext_type> user_ext;
 iosrvThread::ExitCode iosrvThread::Entry()
 {
 	iosrv_work = std::make_shared<asio::io_service::work>(iosrv);
-	while (!TestDestroy())
+	while (iosrv_work)
 	{
 		try
 		{
@@ -17,49 +17,66 @@ iosrvThread::ExitCode iosrvThread::Entry()
 		catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
 		catch (...) {}
 	}
+	while (!TestDestroy());
 	return NULL;
 }
 
-void fileSendThread::start(user_id_type uID, const fs::path& path)
+void FileSendThread::start(user_id_type uID, const fs::path& path)
 {
 	iosrv.post([this, uID, path]() {
+		TaskListTp &tasks = task_list[uID];
 		bool write_not_in_progress = tasks.empty();
-		tasks.push_back(fileSendTask(uID, path));
-		fileSendTask &newTask = tasks.back();
+		tasks.emplace_back(uID, path);
+		FileSendTask &newTask = tasks.back();
 
 		if (newTask.fin.is_open())
 		{
 			data_size_type blockCountAll = static_cast<data_size_type>(fs::file_size(path));
-			if (blockCountAll == 0)
+			if (blockCountAll % FileBlockLen == 0)
+				blockCountAll /= FileBlockLen;
+			else
+				blockCountAll = blockCountAll / FileBlockLen + 1;
+			if (blockCountAll < 1)
 			{
 				tasks.pop_back();
+				if (tasks.empty())
+					task_list.erase(uID);
 				return;
 			}
-			if (blockCountAll % fileBlockLen == 0)
-				blockCountAll /= fileBlockLen;
-			else
-				blockCountAll = blockCountAll / fileBlockLen + 1;
 			newTask.blockCountAll = blockCountAll;
-			
+
 			if (write_not_in_progress)
-				write();
+				write(uID);
 		}
 		else
 		{
 			tasks.pop_back();
+			if (tasks.empty())
+				task_list.erase(uID);
 			return;
 		}
 	});
 }
 
-void fileSendThread::send_header(fileSendTask &task)
+void FileSendThread::send_header(FileSendTask &task)
 {
-	std::wstring fileName = fs::path(task.fileName).leaf().wstring();
-	data_size_type blockCountAll_LE = wxUINT32_SWAP_ON_BE(task.blockCountAll);
-	std::string head(1, PAC_TYPE_FILE_H);
-	head.append(reinterpret_cast<const char*>(&blockCountAll_LE), sizeof(data_size_type));
+	std::wstring fileName = fs::path(task.file_name).filename().wstring();
 	std::string name(wxConvUTF8.cWC2MB(fileName.c_str()));
-	insLen(name);
+	data_size_type block_count_all = task.blockCountAll;
+	size_t name_size = name.size();
+
+	std::string head(1, PAC_TYPE_FILE_H);
+	head.reserve(1 + sizeof(data_size_type) + sizeof(data_size_type) + name_size);
+	for (int i = 0; i < sizeof(data_size_type); i++)
+	{
+		head.push_back(static_cast<uint8_t>(block_count_all));
+		block_count_all >>= 8;
+	}
+	for (int i = 0; i < sizeof(data_size_type); i++)
+	{
+		head.push_back(static_cast<uint8_t>(name_size));
+		name_size >>= 8;
+	}
 	head.append(name);
 
 	wxCharBuffer msgBuf = wxConvLocal.cWC2MB(
@@ -68,55 +85,58 @@ void fileSendThread::send_header(fileSendTask &task)
 	srv.send_data(task.uID, std::move(head), msgr_proto::session::priority_file, std::string(msgBuf.data(), msgBuf.length()));
 }
 
-void fileSendThread::stop(user_id_type uID)
+void FileSendThread::stop(user_id_type uID)
 {
+	if (stopping)
+		return;
 	iosrv.post([this, uID]() {
-		for (std::list<fileSendTask>::iterator itr = tasks.begin(), itrEnd = tasks.end(); itr != itrEnd;)
-		{
-			if (itr->uID == uID)
-				itr = tasks.erase(itr);
-			else
-				itr++;
-		}
+		task_list.erase(uID);
 	});
 }
 
-void fileSendThread::write()
+void FileSendThread::write(user_id_type uID)
 {
 	std::string sendBuf;
 
-	fileSendTask &task = tasks.front();
+	TaskListTp &tasks = task_list.at(uID);
+	FileSendTask &task = tasks.front();
 	if (task.blockCount == 1)
 		send_header(task);
 
-	task.fin.read(block.get(), fileBlockLen);
+	task.fin.read(block.get(), FileBlockLen);
 	std::streamsize sizeRead = task.fin.gcount();
 	sendBuf.push_back(PAC_TYPE_FILE_B);
 	data_size_type len = boost::endian::native_to_little(static_cast<data_size_type>(sizeRead));
 	sendBuf.append(reinterpret_cast<const char*>(&len), sizeof(data_size_type));
 	sendBuf.append(block.get(), sizeRead);
-	
+
 	wxCharBuffer msgBuf = wxConvLocal.cWC2MB(
-		(task.fileName + wxT(":Sended block ") + std::to_wstring(task.blockCount) + wxT("/") + std::to_wstring(task.blockCountAll) + wxT(" To ") + user_ext[task.uID].addr).c_str()
+		(task.file_name + wxT(":Sended block ") + std::to_wstring(task.blockCount) + wxT("/") + std::to_wstring(task.blockCountAll) + wxT(" To ") + user_ext[task.uID].addr).c_str()
 		);
 	std::string msg(msgBuf.data(), msgBuf.length());
-	srv.send_data(task.uID, std::move(sendBuf), msgr_proto::session::priority_file, [msg, this]() {
+	srv.send_data(task.uID, std::move(sendBuf), msgr_proto::session::priority_file, [this, msg, uID]() {
 		std::cout << msg << std::endl;
-		iosrv.post([this]() {
-			if (!tasks.empty())
-				write();
+		if (stopping)
+			return;
+		iosrv.post([this, uID]() {
+			if (task_list.count(uID) > 0)
+				write(uID);
 		});
 	});
 	task.blockCount++;
 
-	if (task.fin.eof())
+	if (task.blockCount > task.blockCountAll || task.fin.eof())
+	{
 		tasks.pop_front();
+		if (tasks.empty())
+			task_list.erase(uID);
+	}
 }
 
-fileSendThread::ExitCode fileSendThread::Entry()
+FileSendThread::ExitCode FileSendThread::Entry()
 {
 	iosrv_work = std::make_shared<asio::io_service::work>(iosrv);
-	while (!TestDestroy())
+	while (iosrv_work)
 	{
 		try
 		{
@@ -125,5 +145,6 @@ fileSendThread::ExitCode fileSendThread::Entry()
 		catch (std::exception &ex) { std::cerr << ex.what() << std::endl; }
 		catch (...) {}
 	}
+	while (!TestDestroy());
 	return NULL;
 }

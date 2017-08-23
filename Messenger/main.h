@@ -14,9 +14,12 @@ class mainFrame : public wxFrame
 public:
 	mainFrame(const wxString& title);
 
-	friend class wx_srv_interface;
+	void OnMessage(user_id_type id, const wxString& msg);
+	void OnImage(user_id_type id, const fs::path& path);
+	void OnJoin(user_id_type id, const std::string& key);
+	void OnLeave(user_id_type id);
 private:
-	enum itemID{
+	enum itemID {
 		ID_FRAME,
 		ID_LABELLISTUSER, ID_LISTUSER, ID_BUTTONADD, ID_BUTTONDEL,
 		ID_TEXTMSG, ID_TEXTINPUT, ID_BUTTONSEND, ID_BUTTONSENDIMAGE, ID_BUTTONSENDFILE, ID_BUTTONCANCELSEND,
@@ -46,7 +49,7 @@ private:
 	void mainFrame_Close(wxCloseEvent& event);
 
 	wxTextCtrl *textInfo;
-	textStream *textStrm;
+	std::unique_ptr<textStream> textStrm;
 	std::streambuf *cout_orig, *cerr_orig;
 
 	std::vector<user_id_type> userIDs;
@@ -57,7 +60,7 @@ private:
 class textStream : public std::streambuf
 {
 public:
-	textStream(mainFrame *_frm, wxTextCtrl *_text) { frm = _frm; text = _text; }
+	textStream(mainFrame *_frm, wxTextCtrl *_text) :frm(_frm), text(_text) {};
 
 protected:
 	int_type overflow(int_type c)
@@ -82,7 +85,7 @@ private:
 
 extern const char* IMG_TMP_PATH_NAME;
 extern const char* IMG_TMP_FILE_NAME;
-const size_t IMAGE_SIZE_LIMIT = 0x400000;
+constexpr size_t IMAGE_SIZE_LIMIT = 0x400000;
 
 //Exceptions that can be safely ignored
 class wx_srv_interface_error :public std::runtime_error
@@ -97,27 +100,36 @@ public:
 	wx_srv_interface(asio::io_service& _main_io_service,
 		asio::io_service& _misc_io_service,
 		asio::ip::tcp::endpoint _local_endpoint,
+		crypto::provider& _crypto_prov,
 		crypto::server& _crypto_srv);
 	~wx_srv_interface();
 
-	virtual void on_data(user_id_type id, const std::string& data);
-
-	virtual void on_join(user_id_type id, const std::string& key);
-	virtual void on_leave(user_id_type id);
-
-	virtual bool new_rand_port(port_type& port);
-	virtual void free_rand_port(port_type port) { ports.push_back(port); };
-
-	void certify_key(const std::string& key) { certifiedKeys.emplace(key); }
-	void certify_key(std::string&& key) { certifiedKeys.emplace(key); }
+	template <typename... _Ty>
+	void certify_key(_Ty&&... key) { certifiedKeys.emplace(std::forward<_Ty>(key)...); }
+	bool is_certified(const std::string& key) { return certifiedKeys.count(key) > 0; }
+	const std::string& get_key_comment(const std::string& key) { return certifiedKeys.at(key); }
 
 	void set_frame(mainFrame *_frm) { frm = _frm; }
 	void set_static_port(port_type port) { static_port = port; };
 	void new_image_id(int& id) { id = image_id; image_id++; }
+
+	void initial_port(port_type port){ ports.push_back(port); }
+
+	virtual bool new_key(const std::string& key) override { if (connectedKeys.count(key) > 0) return false; connectedKeys.emplace(key); return true; }
+	virtual void delete_key(const std::string& key) override { connectedKeys.erase(key); }
+protected:
+	virtual void on_data(user_id_type id, const std::string& data) override;
+
+	virtual void on_join(user_id_type id, const std::string& key) override;
+	virtual void on_leave(user_id_type id) override;
+
+	virtual bool new_rand_port(port_type& port) override;
+	virtual void free_rand_port(port_type port) override { ports.push_back(port); }
 private:
-	std::unordered_set<std::string> certifiedKeys;
+	std::unordered_set<std::string> connectedKeys;
+	std::unordered_map<std::string, std::string> certifiedKeys;
 	std::list<port_type> ports;
-	int static_port = -1;
+	int static_port = 0;
 
 	int image_id = 0;
 

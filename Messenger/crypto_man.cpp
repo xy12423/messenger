@@ -7,36 +7,76 @@ worker::worker()
 {
 	iosrv_work = std::make_shared<asio::io_service::work>(iosrv);
 	std::thread thread([this]() {
-		try
+		while (iosrv_work)
 		{
-			iosrv.run();
+			try
+			{
+				iosrv.run();
+			}
+			catch (...) {}
 		}
-		catch (...) {}
+		stopped = true;
 	});
 	thread.detach();
 }
 
 void session::enc(std::string& data, crypto_callback&& _callback)
 {
-	std::shared_ptr<task> new_task = std::make_shared<task>(data, std::move(_callback));
-	iosrv.post([this, new_task]() {
-		enc_task_que.push_back(std::move(*new_task));
-		srv.new_task(id, ENC);
-	});
+	if (std::this_thread::get_id() == srv.get_thread_id())
+	{
+		srv.new_task(id, ENC, task(data, std::move(_callback)));
+	}
+	else
+	{
+		std::shared_ptr<task> new_task = std::make_shared<task>(data, std::move(_callback));
+		iosrv.post([this, self = shared_from_this(), new_task]() {
+			srv.new_task(id, ENC, std::move(*new_task));
+		});
+	}
 }
 
 void session::dec(std::string& data, crypto_callback&& _callback)
 {
-	std::shared_ptr<task> new_task = std::make_shared<task>(data, std::move(_callback));
-	iosrv.post([this, new_task]() {
-		dec_task_que.push_back(std::move(*new_task));
-		srv.new_task(id, DEC);
-	});
+	if (std::this_thread::get_id() == srv.get_thread_id())
+	{
+		srv.new_task(id, DEC, task(data, std::move(_callback)));
+	}
+	else
+	{
+		std::shared_ptr<task> new_task = std::make_shared<task>(data, std::move(_callback));
+		iosrv.post([this, self = shared_from_this(), new_task]() {
+			srv.new_task(id, DEC, std::move(*new_task));
+		});
+	}
+}
+
+void session::misc(crypto_callback&& _callback)
+{
+	if (std::this_thread::get_id() == srv.get_thread_id())
+	{
+		srv.new_task(id, MISC, task(empty_string, std::move(_callback)));
+	}
+	else
+	{
+		std::shared_ptr<task> new_task = std::make_shared<task>(empty_string, std::move(_callback));
+		iosrv.post([this, self = shared_from_this(), new_task]() {
+			srv.new_task(id, MISC, std::move(*new_task));
+		});
+	}
 }
 
 void session::stop()
 {
-	srv.del_session(id);
+	if (std::this_thread::get_id() == srv.get_thread_id())
+	{
+		srv.del_session(id);
+	}
+	else
+	{
+		iosrv.post([this]() {
+			srv.del_session(id);
+		});
+	}
 }
 
 server::server(asio::io_service& _iosrv, int worker_count)
@@ -44,72 +84,114 @@ server::server(asio::io_service& _iosrv, int worker_count)
 {
 	for (int i = 0; i < worker_count; i++)
 		workers.emplace(i, std::make_unique<worker>());
+	iosrv.post([this]() {
+		iosrv_thread_id = std::this_thread::get_id();
+	});
 }
 
 void server::stop()
 {
-	iosrv.post([this]() {
-		tasks.clear();
-	});
+	stopping = true;
 	for (std::unordered_map<id_type, std::unique_ptr<worker>>::iterator itr = workers.begin(), itr_end = workers.end(); itr != itr_end; itr++)
 		itr->second->stop();
 }
 
 void server::del_session(id_type id)
 {
-	iosrv.post([this, id]() {
-		task_list_tp::iterator task_itr = tasks.begin(), task_itr_end = tasks.end();
-		while (task_itr != task_itr_end)
-		{
-			if (task_itr->first == id)
-				task_itr = tasks.erase(task_itr);
-			else
-				task_itr++;
-		}
-		sessions.erase(id);
-	});
+	std::unordered_map<id_type, session_data_ptr>::iterator itr = sessions_data.find(id);
+	if (itr == sessions_data.end())
+		return;
+
+	itr->second->exiting = true;
+	task_list_tp::iterator task_itr = tasks.begin(), task_itr_end = tasks.end();
+	while (task_itr != task_itr_end)
+	{
+		if (task_itr->first == id)
+			task_itr = tasks.erase(task_itr);
+		else
+			task_itr++;
+	}
+
+	if (itr->second->available(ENC))
+		itr->second->enc_finished();
+	if (itr->second->available(DEC))
+		itr->second->dec_finished();
+	if (itr->second->available(MISC))
+		itr->second->misc_finished();
+
+	sessions_data.erase(itr);
+	sessions.erase(id);
 }
 
-void server::new_task(id_type id, task_type type)
+void server::new_task(id_type id, task_type type, task&& task)
 {
+	session_data_ptr &self = sessions_data.at(id);
+
+	if (self->exiting)
+		return;
+	if (type == ENC)
+		self->enc_task_que.push_back(std::move(task));
+	else if (type == DEC)
+		self->dec_task_que.push_back(std::move(task));
+	else
+		self->misc_task_que.push_back(std::move(task));
+
 	tasks.emplace_back(id, type);
-	session_ptr &self = sessions.at(id);
 	if (!self->available(type))
 		return;
 
 	for (const std::unordered_map<id_type, std::unique_ptr<worker>>::value_type& pair : workers)
+	{
 		if (!pair.second->working)
-			run_task(pair.first);
+		{
+			work(pair.first);
+			break;
+		}
+	}
 }
 
-void server::run_task(id_type id)
+void server::work(id_type worker_id)
 {
-	worker &w = *workers.at(id);
-	
+	if (stopping)
+		return;
+	worker &w = *workers.at(worker_id);
+
 	task_list_tp::iterator task_itr = tasks.begin(), task_itr_end = tasks.end();
 	for (; task_itr != task_itr_end; task_itr++)
-		if (sessions.at(task_itr->first)->available(task_itr->second))
+		if (sessions_data.at(task_itr->first)->available(task_itr->second))
 			break;
 	if (task_itr == task_itr_end)
 		return;
-	session_ptr self = sessions.at(task_itr->first);
+	session_ptr &ses_self = sessions.at(task_itr->first);
+	session_data_ptr &self = sessions_data.at(task_itr->first);
 	task_type type = task_itr->second;
 	tasks.erase(task_itr);
 	self->set_busy(type);
 	w.working = true;
 
-	w.iosrv.post([this, self, id, type]() {
-		self->do_one(type);
+	w.iosrv.post([this, ses_self, self, worker_id, type]() {
+		try
+		{
+			if (type == ENC)
+				ses_self->do_enc(self->enc_task_que.front());
+			else if (type == DEC)
+				ses_self->do_dec(self->dec_task_que.front());
+			else
+				ses_self->do_misc(self->misc_task_que.front());
+		}
+		catch (...) {}
 
-		iosrv.post([this, self, id, type]() {
+		iosrv.post([this, self, worker_id, type]() {
 			try
 			{
 				if (type == ENC)
 					self->enc_finished();
-				else
+				else if(type == DEC)
 					self->dec_finished();
-				workers.at(id)->working = false;
-				run_task(id);
+				else
+					self->misc_finished();
+				workers.at(worker_id)->working = false;
+				work(worker_id);
 			}
 			catch (...) {}
 		});

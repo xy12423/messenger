@@ -7,9 +7,10 @@ class iosrvThread :public wxThread
 {
 public:
 	iosrvThread(asio::io_service& _iosrv) : wxThread(wxTHREAD_DETACHED), iosrv(_iosrv) {};
-	wxThreadError Delete(ExitCode *rc = NULL, wxThreadWait waitMode = wxTHREAD_WAIT_DEFAULT) { stop(); return wxThread::Delete(); };
+	wxThreadError Delete(ExitCode *rc = NULL, wxThreadWait waitMode = wxTHREAD_WAIT_DEFAULT) { iosrv_work.reset(); iosrv.stop(); return wxThread::Delete(); };
 
-	void stop() { iosrv_work.reset(); iosrv.stop(); }
+	void stop() { iosrv_work.reset(); }
+	bool stopped() { return iosrv.stopped(); }
 protected:
 	asio::io_service& iosrv;
 	std::shared_ptr<asio::io_service::work> iosrv_work;
@@ -17,43 +18,47 @@ protected:
 	ExitCode Entry();
 };
 
-struct fileSendTask
+class FileSendThread :public wxThread
 {
-	fileSendTask(user_id_type _uID, const fs::path& path)
-		:fileName(path.wstring()), uID(_uID),
-		fin(path.string(), std::ios_base::in | std::ios_base::binary)
-	{}
-	user_id_type uID;
-	std::wstring fileName;
-	std::ifstream fin;
-	data_size_type blockCount = 1, blockCountAll;
-};
+private:
+	struct FileSendTask
+	{
+		FileSendTask(user_id_type _uID, const fs::path& path)
+			:file_name(path.wstring()), uID(_uID),
+			fin(path, std::ios_base::in | std::ios_base::binary)
+		{}
+		user_id_type uID;
+		std::wstring file_name;
+		fs::ifstream fin;
+		data_size_type blockCount = 1, blockCountAll;
+	};
 
-class fileSendThread :public wxThread
-{
+	typedef std::list<FileSendTask> TaskListTp;
 public:
-	fileSendThread(msgr_proto::server& _srv) : wxThread(wxTHREAD_DETACHED), srv(_srv), block(std::make_unique<char[]>(fileBlockLen)) {}
-	wxThreadError Delete(ExitCode *rc = NULL, wxThreadWait waitMode = wxTHREAD_WAIT_DEFAULT) { stop_thread(); return wxThread::Delete(); }
-	
+	FileSendThread(msgr_proto::server& _srv) : wxThread(wxTHREAD_DETACHED), srv(_srv), block(std::make_unique<char[]>(FileBlockLen)) {}
+	wxThreadError Delete(ExitCode *rc = NULL, wxThreadWait waitMode = wxTHREAD_WAIT_DEFAULT) { if (!stopping) stop_thread(); return wxThread::Delete(); }
+
 	void start(user_id_type uID, const fs::path& path);
-	void send_header(fileSendTask &task);
+	void send_header(FileSendTask &task);
 	void stop(user_id_type uID);
 
-	void stop_thread() { iosrv_work.reset(); iosrv.stop(); }
+	void stop_thread() { stopping = true; iosrv_work.reset(); }
 
-	void write();
+	void write(user_id_type uID);
 
-	static constexpr int fileBlockLen = 0x80000;
+	static constexpr int FileBlockLen = 0x20000;
 protected:
 	ExitCode Entry();
 private:
-	std::list<fileSendTask> tasks;
-	
+	std::unordered_map<user_id_type, TaskListTp> task_list;
+
 	std::unique_ptr<char[]> block;
 
 	asio::io_service iosrv;
 	msgr_proto::server &srv;
 	std::shared_ptr<asio::io_service::work> iosrv_work;
+
+	bool stopping = false;
 };
 
 struct user_ext_type
@@ -62,7 +67,6 @@ struct user_ext_type
 	struct log_type
 	{
 		log_type(const char* _msg) :is_image(false), msg(_msg) {}
-		log_type(const std::string& _msg) :is_image(false), msg(_msg) {}
 		log_type(const wxString& _msg) :is_image(false), msg(_msg) {}
 		log_type(const fs::path& _image) :is_image(true), image(_image) {}
 
@@ -72,7 +76,7 @@ struct user_ext_type
 	};
 	std::list<log_type> log;
 
-	std::string recvFile;
+	fs::path recvFile;
 	int blockLast;
 
 	bool isVirtual = false;
@@ -83,6 +87,8 @@ enum pac_type {
 	PAC_TYPE_FILE_H,
 	PAC_TYPE_FILE_B,
 	PAC_TYPE_IMAGE,
+	PAC_TYPE_PLUGIN_FLAG,
+	PAC_TYPE_PLUGIN_DATA,
 };
 
 #endif
