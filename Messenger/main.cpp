@@ -756,7 +756,7 @@ bool MyApp::OnInit()
 			fs::remove_all(IMG_TMP_PATH);
 		fs::create_directories(IMG_TMP_PATH);
 
-		port_type portsBegin = 5000, portsEnd = 9999;
+		port_type portsBegin = 1, portsEnd = 0;
 		bool use_v6 = false, use_urandom = false;
 		int crypto_worker = 1;
 
@@ -817,8 +817,8 @@ bool MyApp::OnInit()
 				srv->set_static_port(-1);
 			}
 		}
-		catch (std::out_of_range &) { portsBegin = 5000, portsEnd = 9999; }
-		catch (std::invalid_argument &) { portsBegin = 5000, portsEnd = 9999; }
+		catch (std::out_of_range &) { portsBegin = 1; portsEnd = 0; }
+		catch (std::invalid_argument &) { portsBegin = 1; portsEnd = 0; }
 
 		std::srand(static_cast<unsigned int>(std::time(NULL)));
 		for (; portsBegin <= portsEnd; portsBegin++)
