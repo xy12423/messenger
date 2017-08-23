@@ -138,7 +138,7 @@ private:
 	static constexpr uint32_t data_ver = 0x00;
 	const char *data_ver_dat = "\x00\x00\x00\x00";
 
-	int static_port = -1;
+	int static_port = 0;
 	std::list<port_type> ports;
 	modes mode = EASY;
 

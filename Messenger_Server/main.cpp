@@ -241,7 +241,7 @@ void cli_server::process_config()
 	}
 	catch (std::out_of_range &) {}
 
-	port_type portsBegin = 5000, portsEnd = 9999;
+	port_type portsBegin = 1, portsEnd = 0;
 	try
 	{
 		std::string &arg = config_items.at("ports");
@@ -262,8 +262,8 @@ void cli_server::process_config()
 			std::cout << "Connecting ports set to " << arg << std::endl;
 		}
 	}
-	catch (std::out_of_range &) { portsBegin = 5000, portsEnd = 9999; }
-	catch (std::invalid_argument &) { portsBegin = 5000, portsEnd = 9999; }
+	catch (std::out_of_range &) { portsBegin = 1; portsEnd = 0; }
+	catch (std::invalid_argument &) { portsBegin = 1; portsEnd = 0; }
 	for (; portsBegin <= portsEnd; portsBegin++)
 		free_rand_port(portsBegin);
 }
