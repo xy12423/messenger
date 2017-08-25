@@ -79,6 +79,7 @@ public:
 		i_plugin(this),
 		m_plugin(i_plugin)
 	{
+		process_config();
 		read_data();
 		user_exts[server_uid].name = user_exts[server_uid].addr = server_uname;
 		user_exts[server_uid].current_stage = user_ext::LOGGED_IN;

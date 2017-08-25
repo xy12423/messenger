@@ -11,7 +11,7 @@ const char *data_file = ".data";
 const char* privatekeyFile = ".privatekey";
 
 const char *msg_new_user = "New user:", *msg_del_user = "Leaving user:";
-const char *msg_input_name = "Username:", *msg_input_pass = "Password:", *msg_welcome = "Welcome", *msg_unauthed_key = "Key unauthorized", *msg_kick = "You're kicked!";
+const char *msg_input_name = "Username:", *msg_input_pass = "Password:", *msg_welcome = "Welcome", *msg_kick = "You're kicked!";
 
 const std::string empty_string;
 
@@ -380,15 +380,8 @@ void cli_server::on_msg(user_id_type id, std::string& msg)
 				trim(msg);
 				user.name = std::move(msg);
 
-				if (!user_key_storage.on_join(user.name, get_session(id).get_key()))
-				{
-					send_msg(id, msg_unauthed_key, user.supported);
-				}
-				else
-				{
-					user.current_stage = user_ext::LOGIN_PASS;
-					send_msg(id, msg_input_pass, user.supported);
-				}
+				user.current_stage = user_ext::LOGIN_PASS;
+				send_msg(id, msg_input_pass, user.supported);
 
 				break;
 			}
@@ -396,7 +389,7 @@ void cli_server::on_msg(user_id_type id, std::string& msg)
 			{
 				user.current_stage = user_ext::LOGIN_NAME;
 				user_record_list::iterator itr = user_records.find(user.name);
-				if (itr != user_records.end())
+				if (itr != user_records.end() && user_key_storage.on_join(user.name, get_session(id).get_key()))
 				{
 					user_record &record = itr->second;
 					std::string hashed_pass;
@@ -1029,17 +1022,15 @@ int main(int argc, char *argv[])
 		srv.add_plugin<file_storage>();
 		srv.init_plugin();
 
-		auto iosrv_thread = [](asio::io_service *iosrv) {
-			bool abnormally_exit;
-			do
+		auto iosrv_thread = [](asio::io_service *iosrv, std::shared_ptr<asio::io_service::work>& iosrv_work) {
+			while (iosrv_work)
 			{
-				abnormally_exit = false;
 				try
 				{
 					iosrv->run();
 				}
-				catch (...) { abnormally_exit = true; }
-			} while (abnormally_exit);
+				catch (...) {}
+			}
 		};
 		std::shared_ptr<asio::io_service::work> main_iosrv_work = std::make_shared<asio::io_service::work>(main_iosrv);
 		std::shared_ptr<asio::io_service::work> misc_iosrv_work = std::make_shared<asio::io_service::work>(misc_iosrv);
