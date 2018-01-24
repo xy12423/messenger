@@ -287,7 +287,7 @@ void cli_server::on_data(user_id_type id, const std::string& data)
 	{
 		const char *dataItr = data.data(), *dataEnd = data.data() + data.size();
 
-		byte type;
+		uint8_t type;
 		checkErr(1);
 		type = *dataItr;
 		dataItr += 1;
@@ -1034,9 +1034,9 @@ int main(int argc, char *argv[])
 		};
 		std::shared_ptr<asio::io_service::work> main_iosrv_work = std::make_shared<asio::io_service::work>(main_iosrv);
 		std::shared_ptr<asio::io_service::work> misc_iosrv_work = std::make_shared<asio::io_service::work>(misc_iosrv);
-		std::thread main_iosrv_thread(iosrv_thread, &main_iosrv);
+		std::thread main_iosrv_thread(iosrv_thread, &main_iosrv, main_iosrv_work);
 		main_iosrv_thread.detach();
-		std::thread misc_iosrv_thread(iosrv_thread, &misc_iosrv);
+		std::thread misc_iosrv_thread(iosrv_thread, &misc_iosrv, main_iosrv_work);
 		misc_iosrv_thread.detach();
 
 		srv.start();

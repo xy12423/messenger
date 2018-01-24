@@ -587,7 +587,7 @@ void file_storage::on_file_b(const std::string& name, const char *_data, size_t 
 		data.check(dataSize);
 
 		task.fout.write(data.data, dataSize);
-		task.hasher.Update(reinterpret_cast<const byte*>(data.data), dataSize);
+		task.hasher.Update(reinterpret_cast<const CryptoPP::byte*>(data.data), dataSize);
 
 		data.skip(dataSize);
 		task.block_count++;
@@ -596,7 +596,7 @@ void file_storage::on_file_b(const std::string& name, const char *_data, size_t 
 		{
 			task.fout.close();
 
-			byte sha1[hash_short_size];
+			CryptoPP::byte sha1[hash_short_size];
 			task.hasher.Final(sha1);
 			std::string base32_val;
 			base32(base32_val, sha1, hash_short_size);
@@ -667,7 +667,7 @@ void file_storage::on_plugin_data(const std::string& name, const char *_data, si
 				if (!inter.get_id_by_name(name, id))
 					break;
 				std::string key;
-				base32(key, reinterpret_cast<const byte*>(data.data), data.size);
+				base32(key, reinterpret_cast<const crypto::provider::byte*>(data.data), data.size);
 				start(id, key);
 				break;
 			}
@@ -683,7 +683,7 @@ void file_storage::on_plugin_data(const std::string& name, const char *_data, si
 				data.read(key_bin, key_size);
 				data.read(skip_size);
 
-				base32(key, reinterpret_cast<const byte*>(key_bin.data()), key_size);
+				base32(key, reinterpret_cast<const crypto::provider::byte*>(key_bin.data()), key_size);
 				start(id, key, skip_size);
 				break;
 			}
@@ -694,7 +694,7 @@ void file_storage::on_plugin_data(const std::string& name, const char *_data, si
 					break;
 
 				std::string key;
-				base32(key, reinterpret_cast<const byte*>(data.data), data.size);
+				base32(key, reinterpret_cast<const crypto::provider::byte*>(data.data), data.size);
 
 				hashmap_tp::iterator selected = hash_map.find(key);
 				if (selected == hash_map.end())
