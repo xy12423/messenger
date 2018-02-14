@@ -12,6 +12,7 @@ namespace crypto
 	class provider
 	{
 	public:
+		typedef CryptoPP::byte byte;
 		typedef CryptoPP::ECIES<CryptoPP::ECP>::Encryptor asym_encryptor;
 		typedef CryptoPP::ECIES<CryptoPP::ECP>::Decryptor asym_decryptor;
 		typedef CryptoPP::CBC_Mode<CryptoPP::AES>::Encryption sym_encryptor;
