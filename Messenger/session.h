@@ -118,7 +118,7 @@ namespace msgr_proto
 		key_size_type pubB_size;
 		std::unique_ptr<char[]> pubB_buffer;
 
-		byte iv_buffer[sym_key_size];
+		CryptoPP::byte iv_buffer[sym_key_size];
 
 		key_size_type key_size;
 		std::unique_ptr<char[]> key_buffer;

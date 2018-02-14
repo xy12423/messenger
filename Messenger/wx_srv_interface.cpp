@@ -113,7 +113,7 @@ void wx_srv_interface::on_data(user_id_type id, const std::string& _data)
 		data_view data(_data.data(), _data.size());
 		user_ext_type &usr = user_ext.at(id);
 
-		byte type;
+		uint8_t type;
 		data.read(type);
 		switch (type)
 		{
